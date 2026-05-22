@@ -146,6 +146,7 @@ Report style:
 
 - Use clear scientific writing.
 - Include equations where the model is mathematical.
+- Use KaTeX-safe notation in Markdown reports. For starred optima, write `x^{*}` instead of `x^\*` because KaTeX treats `\*` as an undefined command.
 - Include generated figures with relative links.
 - Include tables for metrics and comparisons.
 - Separate what was tested, what was observed, what it means, and what remains uncertain.

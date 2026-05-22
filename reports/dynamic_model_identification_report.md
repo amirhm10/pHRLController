@@ -91,7 +91,7 @@ where:
 The parameters were estimated on train trials only using ordinary least squares:
 
 $$
-(b_0^\*, b_1^\*) =
+(b_0^{*}, b_1^{*}) =
 \arg\min_{b_0,b_1}
 \sum_{k \in \mathcal{D}_{train}}
 \left(y_k - b_0 - b_1 pH_{eq,k}\right)^2
@@ -128,7 +128,7 @@ The delay \(d\) is an integer sample lag. Lags were tested from `0` to `10` samp
 For each candidate lag:
 
 $$
-(b_0^\*(d), b_1^\*(d)) =
+(b_0^{*}(d), b_1^{*}(d)) =
 \arg\min_{b_0,b_1}
 \sum_{k \in \mathcal{D}_{train}}
 \left(y_k - b_0 - b_1 pH_{eq,k-d}\right)^2
@@ -137,15 +137,15 @@ $$
 Then the selected lag was:
 
 $$
-d^\* = \arg\min_d RMSE_{train}(d)
+d^{*} = \arg\min_d RMSE_{train}(d)
 $$
 
 Estimated delay result:
 
 | Parameter | Value |
 | --- | ---: |
-| best lag \(d^\*\) | `0` samples |
-| approximate delay \(\theta = d^\* \Delta t_{median}\) | `0.0 s` |
+| best lag \(d^{*}\) | `0` samples |
+| approximate delay \(\theta = d^{*} \Delta t_{median}\) | `0.0 s` |
 | train RMSE at best lag | `0.1848 pH` |
 | test RMSE at best lag | `0.1148 pH` |
 
@@ -156,7 +156,7 @@ The best train lag is zero. Longer lags are worse on training data. This does no
 The dynamic test wraps the calibrated chemistry signal in a first-order response:
 
 $$
-x_k = b_0 + b_1 pH_{eq,k-d^\*}
+x_k = b_0 + b_1 pH_{eq,k-d^{*}}
 $$
 
 $$
@@ -175,7 +175,7 @@ where \(\tau\) is an empirical combined time constant. It can include mixing, tu
 The time constant was estimated by nonlinear scalar optimization on train data:
 
 $$
-\tau^\* =
+\tau^{*} =
 \arg\min_{\tau > 0}
 \sqrt{
 \frac{1}{N_{train}}
@@ -190,14 +190,14 @@ Estimated dynamic parameters:
 
 | Parameter | Value | Comment |
 | --- | ---: | --- |
-| \(\tau^\*\) | `1.7033 s` | empirical first-order time constant |
-| \(\tau^\*\) | `0.0284 min` | same value in minutes |
+| \(\tau^{*}\) | `1.7033 s` | empirical first-order time constant |
+| \(\tau^{*}\) | `0.0284 min` | same value in minutes |
 | median sample time | `69.9825 s` | much larger than fitted \(\tau\) |
 | median total flow | `16.3493 mL/min` | used for approximate volume |
 | approximate effective volume | `0.4641 mL` | \(\tau F_T / 60\), provisional only |
 | optimizer success | `True` | scalar fit converged |
 
-Because \(\tau^\* = 1.70 s\) is far below the median sampling interval of `69.98 s`, the first-order model effectively reaches the calibrated input within one sample. Therefore, the dynamic prediction collapses to the static calibrated prediction at this data resolution.
+Because \(\tau^{*} = 1.70 s\) is far below the median sampling interval of `69.98 s`, the first-order model effectively reaches the calibrated input within one sample. Therefore, the dynamic prediction collapses to the static calibrated prediction at this data resolution.
 
 ## Step 5: Combined Model
 
@@ -205,16 +205,16 @@ The combined model is:
 
 $$
 x_k =
-b_0^\*
-+ b_1^\* pH_{eq,k-d^\*}
+b_0^{*}
++ b_1^{*} pH_{eq,k-d^{*}}
 $$
 
 $$
 \hat y_k =
-\exp\left(-\frac{\Delta t_k}{\tau^\*}\right)\hat y_{k-1}
+\exp\left(-\frac{\Delta t_k}{\tau^{*}}\right)\hat y_{k-1}
 +
 \left[
-1-\exp\left(-\frac{\Delta t_k}{\tau^\*}\right)
+1-\exp\left(-\frac{\Delta t_k}{\tau^{*}}\right)
 \right]x_k
 $$
 
@@ -222,10 +222,10 @@ with:
 
 | Parameter | Estimated value |
 | --- | ---: |
-| \(b_0^\*\) | `1.140444` |
-| \(b_1^\*\) | `0.692802` |
-| \(d^\*\) | `0` samples |
-| \(\tau^\*\) | `1.7033 s` |
+| \(b_0^{*}\) | `1.140444` |
+| \(b_1^{*}\) | `0.692802` |
+| \(d^{*}\) | `0` samples |
+| \(\tau^{*}\) | `1.7033 s` |
 
 This is the most complete model in the current workflow. Numerically, it gives the same train/test metrics as the static calibrated model because the selected delay is zero and the fitted time constant is too fast relative to the sample interval.
 
@@ -270,7 +270,7 @@ The RMSE improvement happens at the static calibration step. Delay and first-ord
 
 4. Sensor/mixing dynamics are not identifiable at the current sample resolution. The fitted \(\tau\) is `1.70 s`, far below the median sample interval. At one-minute sampling, that behaves like an instantaneous static mapping.
 
-5. The combined model is not meaningfully more dynamic than the static calibrated model. It has the same train and test RMSE because \(d^\*=0\) and \(\tau^\* \ll \Delta t_{median}\).
+5. The combined model is not meaningfully more dynamic than the static calibrated model. It has the same train and test RMSE because \(d^{*}=0\) and \(\tau^{*} \ll \Delta t_{median}\).
 
 6. The held-out mean residual after calibration remains `-0.0903 pH`. This remaining bias suggests that the effective calibration learned from early trials does not perfectly transfer to later trials.
 
