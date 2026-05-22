@@ -33,6 +33,138 @@ The fixed mapping is:
 
 Rows are sorted chronologically. Rows with nonpositive acid, acetate, or water flow are excluded from model metrics.
 
+## Raw Data Column Guide
+
+The raw CSV has `1086` rows and `41` columns. The latest dynamic workflow saves a full numeric profile for every raw column here:
+
+```text
+results/dynamic_model_identification_20260522_133621/tables/raw_column_profile.csv
+```
+
+The processed model table also has its own profile:
+
+```text
+results/dynamic_model_identification_20260522_133621/tables/preprocessed_column_profile.csv
+```
+
+The raw data columns are:
+
+| Column | Meaning | Current modeling use |
+| --- | --- | --- |
+| `_id` | database row identifier | audit only |
+| `utc_time` | primary timestamp | used for chronological sorting and elapsed time |
+| `episode_number` | controller/logged episode index | used for trial segmentation |
+| `step_number` | controller/logged step index | used for trial segmentation |
+| `target_ph` | controller target pH | not used in model-validation metrics |
+| `observation.utc_time` | timestamp inside observation payload | audit only, not used because `utc_time` is primary |
+| `observation.biosmb-sensors.P_1` | pressure sensor 1 | not used in current pH model |
+| `observation.biosmb-sensors.P_2` | pressure sensor 2 | not used in current pH model |
+| `observation.biosmb-sensors.P_3` | pressure sensor 3 | not used in current pH model |
+| `observation.biosmb-sensors.P_4` | pressure sensor 4 | not used in current pH model |
+| `observation.biosmb-sensors.P_5` | pressure sensor 5 | not used in current pH model |
+| `observation.biosmb-sensors.P_6` | pressure sensor 6 | not used in current pH model |
+| `observation.biosmb-sensors.P_7` | pressure sensor 7 | not used in current pH model |
+| `observation.biosmb-sensors.PH_1` | pH sensor 1 | not used because operator stated it was not connected |
+| `observation.biosmb-sensors.PH_2` | pH sensor 2 | only reliable measured output |
+| `observation.biosmb-sensors.COND_1` | conductivity sensor 1 | diagnostic only |
+| `observation.biosmb-sensors.COND_2` | conductivity sensor 2 | diagnostic only |
+| `observation.biosmb-sensors.COND_3` | conductivity sensor 3 | diagnostic only |
+| `observation.biosmb-sensors.COND_4` | conductivity sensor 4 | diagnostic only |
+| `observation.biosmb-sensors.UV_1A` | UV channel 1A | diagnostic only, constant zero in this CSV |
+| `observation.biosmb-sensors.UV_1B` | UV channel 1B | diagnostic only, constant zero in this CSV |
+| `observation.biosmb-sensors.UV_1C` | UV channel 1C | diagnostic only, constant zero in this CSV |
+| `observation.biosmb-sensors.UV_2A` | UV channel 2A | diagnostic only, mostly zero |
+| `observation.biosmb-sensors.UV_2B` | UV channel 2B | diagnostic only, mostly zero |
+| `observation.biosmb-sensors.UV_2C` | UV channel 2C | diagnostic only, mostly zero |
+| `observation.biosmb-sensors.UV_3A` | UV channel 3A | diagnostic only |
+| `observation.biosmb-sensors.UV_3B` | UV channel 3B | diagnostic only |
+| `observation.biosmb-sensors.UV_3C` | UV channel 3C | diagnostic only |
+| `observation.biosmb-sensors.UV_4A` | UV channel 4A | diagnostic only, constant zero in this CSV |
+| `observation.biosmb-sensors.UV_4B` | UV channel 4B | diagnostic only, constant zero in this CSV |
+| `observation.biosmb-sensors.UV_4C` | UV channel 4C | diagnostic only, constant zero in this CSV |
+| `observation.biosmb-flows[0]` | acetic acid inlet flow | model input, renamed `acid_flow` |
+| `observation.biosmb-flows[1]` | sodium acetate inlet flow | model input, renamed `acetate_flow` |
+| `observation.biosmb-flows[2]` | Arium water inlet flow | model input, renamed `water_flow` |
+| `observation.biosmb-flows[3]` | extra logged flow channel | unused, constant zero in this CSV |
+| `observation.biosmb-flows[4]` | extra logged flow channel | unused, constant zero in this CSV |
+| `observation.biosmb-flows[5]` | extra logged flow channel | unused, constant zero in this CSV |
+| `observation.biosmb-flows[6]` | extra logged flow channel | unused, constant zero in this CSV |
+| `observation.mfcs-mass.acid-mass-grams` | logged acid reservoir mass | diagnostic only |
+| `observation.mfcs-mass.sodium-mass-grams` | logged sodium acetate reservoir mass | diagnostic only |
+| `observation.mfcs-mass.water-mass-grams` | logged water reservoir mass | diagnostic only |
+
+Key raw-column observations:
+
+- The three modeling inputs are only flows `[0]`, `[1]`, and `[2]`, mapped to acetic acid, sodium acetate, and Arium water.
+- Flows `[3]` to `[6]` are constant zero and are not part of this mixing setup.
+- `PH_2` ranges from `3.5717` to `5.2186`, while `PH_1` ranges from `1.8568` to `9.1226` and is not physically trusted for this experiment.
+- `target_ph` ranges from `3.7` to `5.7`, but it is a controller objective log, not a plant-model output. It is intentionally excluded from model metrics.
+- The mass columns are useful later for checking consumption and pump consistency, but they are not currently used in the inlet-flow-to-pH model.
+
+## Processed Columns And Trial Definitions
+
+The preprocessing step creates the modeling table used by the runners. Important derived columns are:
+
+| Processed column | Meaning |
+| --- | --- |
+| `sample_index` | chronological row number after sorting |
+| `utc_datetime` | parsed timestamp |
+| `elapsed_s`, `elapsed_min`, `elapsed_h` | elapsed time from first sample |
+| `dt_s` | time since previous logged row |
+| `session_id` | increments after a long time gap greater than `900 s` |
+| `trial_id` | increments after a session break, episode reset, or step reset |
+| `ph_measured` | renamed `PH_2`, the measured model output |
+| `acid_flow` | renamed `biosmb-flows[0]` |
+| `acetate_flow` | renamed `biosmb-flows[1]` |
+| `water_flow` | renamed `biosmb-flows[2]` |
+| `total_flow` | \(F_T = F_H + F_A + F_W\) |
+| `flow_ratio_acetate_acid` | \(F_A/F_H\), the ideal buffer ratio coordinate |
+| `log10_flow_ratio_acetate_acid` | \(\log_{10}(F_A/F_H)\), the pH-ratio coordinate |
+| `valid_for_model` | inclusion flag for fitting and metrics |
+| `uninformative_flat_ph_trial` | audit flag for flat-pH trials with large input-ratio movement |
+| `acid_flow_in_bounds`, `acetate_flow_in_bounds`, `water_flow_in_bounds` | pump-bound audit flags |
+| `acid_analytical_mol_l`, `acetate_analytical_mol_l`, `total_buffer_mol_l`, `sodium_mol_l` | mixed analytical concentrations used by equilibrium chemistry |
+| `ph_equilibrium_charge_balance` | equilibrium model prediction before calibration |
+| `prediction_*` and `residual_*` | model-stage predictions and `PH_2 - prediction` residuals |
+
+The trial summary table is saved here:
+
+```text
+results/dynamic_model_identification_20260522_133621/tables/trial_split_summary.csv
+```
+
+The trial timing summary is saved here:
+
+```text
+results/dynamic_model_identification_20260522_133621/tables/trial_sampling_summary.csv
+```
+
+## Sampling Time Consistency
+
+The sampling is not globally uniform. The latest dynamic run saves sampling diagnostics here:
+
+```text
+results/dynamic_model_identification_20260522_133621/tables/sampling_summary.csv
+```
+
+The key timing results are:
+
+| Group | Median `dt_s` | 5-95 percent range | Long gaps > 15 min | Interpretation |
+| --- | ---: | --- | ---: | --- |
+| overall | `69.984 s` | `69.062-142.487 s` | `6` | mixture of one-minute, two-minute, and session-gap intervals |
+| indices `0-204` | `141.907 s` | `140.794-143.065 s` | `2` | early regime is about `2.36 min`, not one minute |
+| indices `205-290` | `141.392 s` | `140.142-142.467 s` | `0` | flat excluded regime is also about `2.36 min` |
+| indices `291-end` | `69.424 s` | `69.030-140.406 s` | `4` | later regime is mostly about `1.16 min` |
+
+Session-level timing shows the change more clearly:
+
+| Session group | Typical sampling |
+| --- | --- |
+| sessions `0-3` | approximately `140-142 s` |
+| sessions `4-6` | approximately `69-70 s` |
+
+This matters for dynamics. A first-order time constant of about `1.87 s` is far below both the early `142 s` and later `69 s` sample intervals, so the fitted dynamic model collapses to the static calibrated model at the available time resolution. It also means integer-lag estimates are coarse: one lag means roughly `2.36 min` in early trials and roughly `1.16 min` in later trials.
+
 ## Original Modeling Round Before Flat-Trial Filtering
 
 The first full report used these artifacts:
@@ -329,7 +461,7 @@ The updated rerun artifacts are:
 | --- | --- |
 | Henderson-Hasselbalch | `results/henderson_hasselbalch_lab_validation_20260522_022832/` |
 | Equilibrium charge balance | `results/equilibrium_charge_balance_lab_validation_20260522_022832/` |
-| Dynamic identification | `results/dynamic_model_identification_20260522_131048/` |
+| Dynamic identification | `results/dynamic_model_identification_20260522_133621/` |
 
 ### Updated Henderson-Hasselbalch Result
 
@@ -445,27 +577,27 @@ Updated train/test metrics:
 
 The flat-trial patch improved the calibrated held-out test RMSE from `0.1148 pH` to `0.0975 pH`. The improvement came from cleaner static calibration, not from delay or first-order dynamics.
 
-![Filtered measurement input-output behavior](../results/dynamic_model_identification_20260522_131048/figures/measurement_input_output_behavior.png)
+![Filtered measurement input-output behavior](../results/dynamic_model_identification_20260522_133621/figures/measurement_input_output_behavior.png)
 
-![Filtered prediction-only behavior](../results/dynamic_model_identification_20260522_131048/figures/prediction_behavior_only.png)
+![Filtered prediction-only behavior](../results/dynamic_model_identification_20260522_133621/figures/prediction_behavior_only.png)
 
-![Filtered dynamic time response](../results/dynamic_model_identification_20260522_131048/figures/measured_vs_dynamic_prediction_time.png)
+![Filtered dynamic time response](../results/dynamic_model_identification_20260522_133621/figures/measured_vs_dynamic_prediction_time.png)
 
-![Filtered dynamic measured versus predicted scatter](../results/dynamic_model_identification_20260522_131048/figures/measured_vs_dynamic_prediction_scatter.png)
+![Filtered dynamic measured versus predicted scatter](../results/dynamic_model_identification_20260522_133621/figures/measured_vs_dynamic_prediction_scatter.png)
 
-![Filtered dynamic residuals by model with +/- 0.2 pH band](../results/dynamic_model_identification_20260522_131048/figures/residual_time_by_model.png)
+![Filtered dynamic residuals by model with +/- 0.2 pH band](../results/dynamic_model_identification_20260522_133621/figures/residual_time_by_model.png)
 
-![Filtered dynamic residual histograms](../results/dynamic_model_identification_20260522_131048/figures/residual_histogram_by_model.png)
+![Filtered dynamic residual histograms](../results/dynamic_model_identification_20260522_133621/figures/residual_histogram_by_model.png)
 
-![Filtered dynamic lag search](../results/dynamic_model_identification_20260522_131048/figures/lag_search_rmse.png)
+![Filtered dynamic lag search](../results/dynamic_model_identification_20260522_133621/figures/lag_search_rmse.png)
 
-![Filtered dynamic trial examples](../results/dynamic_model_identification_20260522_131048/figures/dynamic_prediction_by_trial_examples.png)
+![Filtered dynamic trial examples](../results/dynamic_model_identification_20260522_133621/figures/dynamic_prediction_by_trial_examples.png)
 
-![Filtered trial input-output examples](../results/dynamic_model_identification_20260522_131048/figures/trial_input_output_examples.png)
+![Filtered trial input-output examples](../results/dynamic_model_identification_20260522_133621/figures/trial_input_output_examples.png)
 
-![Filtered dynamic train/test comparison](../results/dynamic_model_identification_20260522_131048/figures/train_test_metric_comparison.png)
+![Filtered dynamic train/test comparison](../results/dynamic_model_identification_20260522_133621/figures/train_test_metric_comparison.png)
 
-![Regime input distributions](../results/dynamic_model_identification_20260522_131048/figures/regime_input_distributions.png)
+![Regime input distributions](../results/dynamic_model_identification_20260522_133621/figures/regime_input_distributions.png)
 
 ## Why Performance Changes Before Index 200 And After Index 300
 
@@ -501,7 +633,7 @@ The raw equilibrium model works better before index `205` because that early seg
 The relevant diagnostic table is saved as:
 
 ```text
-results/dynamic_model_identification_20260522_131048/tables/regime_summary.csv
+results/dynamic_model_identification_20260522_133621/tables/regime_summary.csv
 ```
 
 ## Final Comparison After The Patch

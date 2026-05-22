@@ -58,6 +58,17 @@ REGIME_SPECS = (
 )
 
 
+RAW_MODEL_COLUMNS = {
+    "utc_time": "chronological sorting and elapsed-time calculation",
+    "episode_number": "trial segmentation",
+    "step_number": "trial segmentation",
+    "observation.biosmb-sensors.PH_2": "measured output",
+    "observation.biosmb-flows[0]": "acetic acid inlet",
+    "observation.biosmb-flows[1]": "sodium acetate inlet",
+    "observation.biosmb-flows[2]": "Arium water inlet",
+}
+
+
 def add_equilibrium_predictions(
     df: pd.DataFrame,
     model: EquilibriumChargeBalanceModel,
@@ -455,6 +466,212 @@ def make_regime_summary(df: pd.DataFrame) -> pd.DataFrame:
             )
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def make_sampling_summary(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    rows.append(summarize_dt_group("overall", "all valid dt_s", df["dt_s"]))
+    for regime_name, sample_range, mask_fn in REGIME_SPECS:
+        region = df.loc[mask_fn(df)]
+        rows.append(summarize_dt_group(regime_name, sample_range, region["dt_s"]))
+    for session_id, group in df.groupby("session_id", sort=True):
+        rows.append(
+            summarize_dt_group(
+                f"session_{int(session_id)}",
+                f"session_id {int(session_id)}",
+                group["dt_s"],
+            )
+        )
+    return pd.DataFrame(rows)
+
+
+def make_trial_sampling_summary(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for trial_id, group in df.groupby("trial_id", sort=True):
+        row = summarize_dt_group(
+            f"trial_{int(trial_id)}",
+            f"trial_id {int(trial_id)}",
+            group["dt_s"],
+        )
+        row.update({
+            "trial_id": int(trial_id),
+            "session_id": int(group["session_id"].iloc[0]),
+            "split": str(group["split"].iloc[0]) if "split" in group else "",
+            "n_total": int(len(group)),
+            "n_model_valid": int(group["valid_for_model"].sum())
+            if "valid_for_model" in group
+            else np.nan,
+            "start_time": str(group["utc_datetime"].iloc[0])
+            if "utc_datetime" in group
+            else "",
+            "end_time": str(group["utc_datetime"].iloc[-1])
+            if "utc_datetime" in group
+            else "",
+        })
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def summarize_dt_group(name: str, description: str, dt_s: pd.Series) -> dict[str, float | str | int]:
+    values = pd.to_numeric(dt_s, errors="coerce").dropna()
+    positive = values.loc[values > 0.0]
+    if positive.empty:
+        return {
+            "group": name,
+            "description": description,
+            "n_intervals": 0,
+            "median_dt_s": np.nan,
+            "mean_dt_s": np.nan,
+            "std_dt_s": np.nan,
+            "min_dt_s": np.nan,
+            "p05_dt_s": np.nan,
+            "p95_dt_s": np.nan,
+            "max_dt_s": np.nan,
+            "intervals_45_to_90_s": 0,
+            "fraction_45_to_90_s": np.nan,
+            "intervals_gt_15_min": 0,
+        }
+    return {
+        "group": name,
+        "description": description,
+        "n_intervals": int(len(positive)),
+        "median_dt_s": float(positive.median()),
+        "mean_dt_s": float(positive.mean()),
+        "std_dt_s": float(positive.std()),
+        "min_dt_s": float(positive.min()),
+        "p05_dt_s": float(positive.quantile(0.05)),
+        "p95_dt_s": float(positive.quantile(0.95)),
+        "max_dt_s": float(positive.max()),
+        "intervals_45_to_90_s": int(positive.between(45.0, 90.0).sum()),
+        "fraction_45_to_90_s": float(positive.between(45.0, 90.0).mean()),
+        "intervals_gt_15_min": int(positive.gt(900.0).sum()),
+    }
+
+
+def profile_dataframe_columns(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
+    rows = []
+    for column in df.columns:
+        series = df[column]
+        numeric = pd.to_numeric(series, errors="coerce")
+        numeric_valid = numeric.dropna()
+        first_valid = series.dropna().iloc[0] if series.notna().any() else ""
+        last_valid = series.dropna().iloc[-1] if series.notna().any() else ""
+        row = {
+            "source": source_name,
+            "column": column,
+            "category": infer_column_category(column),
+            "model_role": infer_model_role(column),
+            "dtype": str(series.dtype),
+            "n_rows": int(len(series)),
+            "non_null": int(series.notna().sum()),
+            "missing": int(series.isna().sum()),
+            "missing_fraction": float(series.isna().mean()),
+            "unique_values": int(series.nunique(dropna=True)),
+            "first_valid_value": str(first_valid),
+            "last_valid_value": str(last_valid),
+            "numeric_non_null": int(len(numeric_valid)),
+            "numeric_mean": float(numeric_valid.mean()) if len(numeric_valid) else np.nan,
+            "numeric_std": float(numeric_valid.std()) if len(numeric_valid) else np.nan,
+            "numeric_min": float(numeric_valid.min()) if len(numeric_valid) else np.nan,
+            "numeric_median": float(numeric_valid.median()) if len(numeric_valid) else np.nan,
+            "numeric_max": float(numeric_valid.max()) if len(numeric_valid) else np.nan,
+            "zero_count": int((numeric_valid == 0.0).sum()) if len(numeric_valid) else 0,
+        }
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def infer_column_category(column: str) -> str:
+    if column in {"_id"}:
+        return "row identifier"
+    if (
+        "utc_time" in column
+        or column == "utc_datetime"
+        or column in {"elapsed_s", "elapsed_min", "elapsed_h", "dt_s"}
+    ):
+        return "time"
+    if column in {"episode_number", "step_number", "target_ph"}:
+        return "controller log"
+    if "biosmb-sensors.P_" in column:
+        return "pressure sensor"
+    if "biosmb-sensors.PH_" in column or column == "ph_measured":
+        return "pH sensor"
+    if "biosmb-sensors.COND_" in column:
+        return "conductivity sensor"
+    if "biosmb-sensors.UV_" in column:
+        return "UV sensor"
+    if "biosmb-flows" in column or column.endswith("_flow") or column == "total_flow":
+        return "flow"
+    if "mass-grams" in column:
+        return "mass balance"
+    if column in {
+        "sample_index",
+        "session_id",
+        "trial_id",
+        "split",
+        "valid_for_model",
+        "uninformative_flat_ph_trial",
+    }:
+        return "analysis index/filter"
+    if "prediction" in column or "residual" in column:
+        return "model diagnostic"
+    if "analytical_mol_l" in column or column in {
+        "total_buffer_mol_l",
+        "sodium_mol_l",
+        "ph_equilibrium_charge_balance",
+    }:
+        return "chemistry feature"
+    if "ratio" in column:
+        return "ratio feature"
+    if "trial_" in column:
+        return "trial diagnostic"
+    if column.endswith("_in_bounds"):
+        return "bounds diagnostic"
+    return "other"
+
+
+def infer_model_role(column: str) -> str:
+    if column in RAW_MODEL_COLUMNS:
+        return RAW_MODEL_COLUMNS[column]
+    if column == "ph_measured":
+        return "renamed measured output from PH_2"
+    if column == "acid_flow":
+        return "renamed acetic acid inlet from biosmb-flows[0]"
+    if column == "acetate_flow":
+        return "renamed sodium acetate inlet from biosmb-flows[1]"
+    if column == "water_flow":
+        return "renamed Arium water inlet from biosmb-flows[2]"
+    if column in {"sample_index", "utc_datetime", "elapsed_s", "elapsed_min", "elapsed_h", "dt_s"}:
+        return "time/index support"
+    if column in {"session_id", "trial_id", "split"}:
+        return "trial/session split support"
+    if column == "total_flow":
+        return "derived throughput and residence-time diagnostic"
+    if "ratio" in column:
+        return "acid/base chemistry coordinate"
+    if column == "valid_for_model":
+        return "model-metric inclusion flag"
+    if column == "uninformative_flat_ph_trial":
+        return "flat-trial exclusion audit flag"
+    if column.endswith("_in_bounds"):
+        return "pump-bound audit flag"
+    if column in {
+        "acid_analytical_mol_l",
+        "acetate_analytical_mol_l",
+        "total_buffer_mol_l",
+        "sodium_mol_l",
+        "ph_equilibrium_charge_balance",
+    }:
+        return "equilibrium model feature or prediction"
+    if "prediction" in column or "residual" in column:
+        return "model validation output"
+    if column == "target_ph":
+        return "controller target log, intentionally not used for model validation"
+    if column == "observation.biosmb-sensors.PH_1":
+        return "unreliable pH sensor, intentionally not used"
+    if "biosmb-flows[" in column and column not in RAW_MODEL_COLUMNS:
+        return "unused logged flow channel"
+    return "not used in current PH_2 model validation"
 
 
 def select_dynamic_comparison_columns(df: pd.DataFrame) -> pd.DataFrame:

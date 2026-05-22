@@ -17,7 +17,10 @@ from helpers.dynamic_model_identification import (
     make_dynamic_parameters_table,
     make_model_metrics_train_test,
     make_regime_summary,
+    make_sampling_summary,
     make_static_calibration_table,
+    make_trial_sampling_summary,
+    profile_dataframe_columns,
     search_lag_models,
     select_dynamic_comparison_columns,
 )
@@ -48,8 +51,13 @@ def main() -> None:
     equilibrium_model = EquilibriumChargeBalanceModel.from_config(config)
 
     raw_data = load_lab_csv(DATA_PATH, column_map)
+    raw_column_profile = profile_dataframe_columns(raw_data, "raw_csv")
     preprocessed = preprocess_lab_data(raw_data, column_map, config)
     preprocessed = add_equilibrium_predictions(preprocessed, equilibrium_model)
+    preprocessed_column_profile = profile_dataframe_columns(
+        preprocessed,
+        "preprocessed_dynamic_input",
+    )
     identified, trial_split_summary = add_trial_split(
         preprocessed,
         train_fraction=TRAIN_FRACTION,
@@ -100,9 +108,13 @@ def main() -> None:
         df=identified,
     )
     regime_summary = make_regime_summary(identified)
+    sampling_summary = make_sampling_summary(identified)
+    trial_sampling_summary = make_trial_sampling_summary(identified)
 
     save_tables(
         table_dir=table_dir,
+        raw_column_profile=raw_column_profile,
+        preprocessed_column_profile=preprocessed_column_profile,
         preprocessed=preprocessed,
         comparison=comparison,
         metrics=metrics,
@@ -111,6 +123,8 @@ def main() -> None:
         dynamic_parameters=dynamic_parameters,
         trial_split_summary=trial_split_summary,
         regime_summary=regime_summary,
+        sampling_summary=sampling_summary,
+        trial_sampling_summary=trial_sampling_summary,
     )
     create_dynamic_model_figures(
         df=identified,
@@ -130,6 +144,8 @@ def main() -> None:
 
 def save_tables(
     table_dir: Path,
+    raw_column_profile: pd.DataFrame,
+    preprocessed_column_profile: pd.DataFrame,
     preprocessed: pd.DataFrame,
     comparison: pd.DataFrame,
     metrics: pd.DataFrame,
@@ -138,8 +154,12 @@ def save_tables(
     dynamic_parameters: pd.DataFrame,
     trial_split_summary: pd.DataFrame,
     regime_summary: pd.DataFrame,
+    sampling_summary: pd.DataFrame,
+    trial_sampling_summary: pd.DataFrame,
 ) -> dict[str, Path]:
     tables = {
+        "raw_column_profile": table_dir / "raw_column_profile.csv",
+        "preprocessed_column_profile": table_dir / "preprocessed_column_profile.csv",
         "preprocessed_lab_data": table_dir / "preprocessed_lab_data.csv",
         "dynamic_model_comparison": table_dir / "dynamic_model_comparison.csv",
         "model_metrics_train_test": table_dir / "model_metrics_train_test.csv",
@@ -148,7 +168,11 @@ def save_tables(
         "dynamic_parameters": table_dir / "dynamic_parameters.csv",
         "trial_split_summary": table_dir / "trial_split_summary.csv",
         "regime_summary": table_dir / "regime_summary.csv",
+        "sampling_summary": table_dir / "sampling_summary.csv",
+        "trial_sampling_summary": table_dir / "trial_sampling_summary.csv",
     }
+    raw_column_profile.to_csv(tables["raw_column_profile"], index=False)
+    preprocessed_column_profile.to_csv(tables["preprocessed_column_profile"], index=False)
     preprocessed.to_csv(tables["preprocessed_lab_data"], index=False)
     comparison.to_csv(tables["dynamic_model_comparison"], index=False)
     metrics.to_csv(tables["model_metrics_train_test"], index=False)
@@ -157,6 +181,8 @@ def save_tables(
     dynamic_parameters.to_csv(tables["dynamic_parameters"], index=False)
     trial_split_summary.to_csv(tables["trial_split_summary"], index=False)
     regime_summary.to_csv(tables["regime_summary"], index=False)
+    sampling_summary.to_csv(tables["sampling_summary"], index=False)
+    trial_sampling_summary.to_csv(tables["trial_sampling_summary"], index=False)
     return tables
 
 
