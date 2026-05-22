@@ -6,11 +6,12 @@ This report documents the first-principles pH modeling sequence for the inline a
 - sodium acetate, 100 mM,
 - Arium ultrapure water.
 
-This report only covers three model families:
+This report covers the main model-development sequence:
 
 - ideal Henderson-Hasselbalch,
 - equilibrium charge balance,
-- dynamic identification built around equilibrium pH.
+- dynamic identification built around equilibrium pH,
+- transport-delay identification using total flow.
 
 It does not evaluate controller targets, MPC, RL, rewards, or `PH_1`. The target pH is excluded from all model-validation metrics. `PH_1` is excluded because the operator stated it was not connected during operation.
 
@@ -599,6 +600,225 @@ The flat-trial patch improved the calibrated held-out test RMSE from `0.1148 pH`
 
 ![Regime input distributions](../results/dynamic_model_identification_20260522_133621/figures/regime_input_distributions.png)
 
+## Transport-Delay Identification With Total Flow
+
+After the integer-lag and first-order dynamic tests, a more physical delay test was added in:
+
+```text
+run_transport_delay_identification.py
+```
+
+The verified result folder is:
+
+```text
+results/transport_delay_identification_20260522_134840/
+```
+
+The purpose was to test whether the lab CSV can identify an effective transport volume from the mixer to `PH_2`. This is different from the earlier integer-lag model. The integer-lag model asks whether shifting by `0`, `1`, `2`, ... logged samples improves prediction. The transport-delay model asks whether a fixed fluid volume must pass before a chemistry change reaches the pH probe.
+
+### Physical Idea
+
+If the mixed stream travels through tubing or a flow cell before reaching `PH_2`, then the transport delay depends on total flow:
+
+$$
+\theta(t) \approx \frac{V_{tube}}{F_T(t)}
+$$
+
+where:
+
+- \(V_{tube}\) is the effective transported volume in `mL`,
+- \(F_T(t)\) is total flow in `mL/min`,
+- \(\theta(t)\) is the delay in `min`.
+
+In seconds:
+
+$$
+\theta_s(t) =
+60\frac{V_{tube}}{F_T(t)}
+$$
+
+The total flow is:
+
+$$
+F_T = F_H + F_A + F_W
+$$
+
+This is where water flow enters the dynamic model. Water still does not strongly change the ideal acetate/acid ratio pH when acid and acetate stock concentrations are equal, but water does change total flow. Therefore water changes the implied residence time and transport delay:
+
+$$
+F_W \uparrow
+\quad\Rightarrow\quad
+F_T \uparrow
+\quad\Rightarrow\quad
+\theta_s \downarrow
+$$
+
+So in this transport model, water is not primarily a pH-ratio input. It is a throughput and delay input.
+
+### Transported-Volume Coordinate
+
+Because the sampling interval is irregular, the runner does not assume a constant time delay. Instead, it builds a transported-volume coordinate within each trial:
+
+$$
+Q_k =
+Q_{k-1}
++
+\frac{F_{T,k-1}\Delta t_k}{60}
+$$
+
+where:
+
+- \(Q_k\) is cumulative transported volume in `mL`,
+- \(F_{T,k-1}\) is the previous logged total flow in `mL/min`,
+- \(\Delta t_k\) is the time between samples in seconds.
+
+This is a zero-order-hold assumption: the logged flow command is treated as constant between two logged samples.
+
+For each candidate \(V_{tube}\), the delayed chemistry coordinate is:
+
+$$
+Q_{delay,k} = Q_k - V_{tube}
+$$
+
+The delayed equilibrium pH is found by interpolation:
+
+$$
+pH_{eq,delay,k}
+=
+pH_{eq}(Q_{delay,k})
+$$
+
+Then an affine calibration is fit on train trials only:
+
+$$
+PH_{2,k}
+=
+b_0(V_{tube})
++
+b_1(V_{tube})pH_{eq,delay,k}
++
+\epsilon_k
+$$
+
+The selected volume is the one that minimizes train RMSE:
+
+$$
+V_{tube}^{*}
+=
+\underset{0 \le V_{tube} \le 60}{\mathrm{arg\,min}}
+\sqrt{
+\frac{1}{N_{train}}
+\sum_{k \in D_{train}}
+\left(
+PH_{2,k}
+-
+b_0(V_{tube})
+-
+b_1(V_{tube})pH_{eq,delay,k}
+\right)^2
+}
+$$
+
+The search used a `0-60 mL` grid and local refinement. A secondary first-order wrapper was also tested after the best transport delay:
+
+$$
+\hat y_k =
+\alpha_k\hat y_{k-1}
++
+(1-\alpha_k)x_k
+$$
+
+$$
+\alpha_k =
+\exp\left(-\frac{\Delta t_k}{\tau}\right)
+$$
+
+This secondary \(\tau\) is only an empirical smoothing diagnostic. It is not treated as a physical tubing-volume estimate.
+
+### Result
+
+The best fit returned:
+
+| Quantity | Value |
+| --- | ---: |
+| best \(V_{tube}\) | `0.000 mL` |
+| median \(\theta_s\) | `0.000 s` |
+| transport calibration | \(PH_2 = 0.6567 + 0.7909pH_{eq,delay}\) |
+| train RMSE improvement over static | `0.0000 pH` |
+| test RMSE improvement over static | `0.0000 pH` |
+| identifiability flag | `weak_non_identifiable_near_zero_volume` |
+
+The train/test comparison was:
+
+| Model stage | Test RMSE | Test mean error | Interpretation |
+| --- | ---: | ---: | --- |
+| Equilibrium baseline | `0.4412` | `-0.4337` | raw chemistry still biased |
+| Static calibrated equilibrium | `0.0975` | `-0.0805` | best current empirical model |
+| Transport-delay calibrated | `0.0975` | `-0.0805` | identical to static because \(V_{tube}=0\) |
+| Transport-delay plus first-order | `0.0975` | `-0.0805` | no added held-out improvement |
+
+The RMSE search confirms that any positive transport volume made the fit worse:
+
+| \(V_{tube}\) mL | Train RMSE | Test RMSE |
+| ---: | ---: | ---: |
+| `0.0` | `0.1500` | `0.0975` |
+| `0.5` | `0.1509` | `0.1015` |
+| `1.0` | `0.1517` | `0.1035` |
+| `2.0` | `0.1549` | `0.1109` |
+| `5.0` | `0.1777` | `0.1578` |
+| `10.0` | `0.2447` | `0.2630` |
+| `20.0` | `0.3099` | `0.3022` |
+| `40.0` | `0.3203` | `0.3016` |
+| `60.0` | `0.3144` | `0.3023` |
+
+![Transport-delay RMSE search](../results/transport_delay_identification_20260522_134840/figures/transport_delay_rmse_search.png)
+
+![Transport-delay time response](../results/transport_delay_identification_20260522_134840/figures/measured_vs_transport_delay_prediction_time.png)
+
+![Transport-delay measured versus predicted scatter](../results/transport_delay_identification_20260522_134840/figures/measured_vs_transport_delay_prediction_scatter.png)
+
+![Transport-delay residuals with +/- 0.2 pH band](../results/transport_delay_identification_20260522_134840/figures/transport_delay_residual_time.png)
+
+![Transport-delay residual histogram](../results/transport_delay_identification_20260522_134840/figures/transport_delay_residual_histogram.png)
+
+![Transport-delay theta over time](../results/transport_delay_identification_20260522_134840/figures/theta_transport_time.png)
+
+![Total flow and cumulative transported volume](../results/transport_delay_identification_20260522_134840/figures/total_flow_cumulative_volume.png)
+
+![Transport-delay trial examples](../results/transport_delay_identification_20260522_134840/figures/transport_delay_trial_examples.png)
+
+### Why The Estimated Volume Is Zero
+
+The zero-volume result should not be read as proof that the physical tubing volume is literally zero. It means that, within this CSV and this sampling rate, adding a nonzero transport delay does not improve prediction.
+
+There are four likely reasons.
+
+First, the sampling interval is too coarse. The later data are mostly sampled every `69-70 s`, and the early data are mostly sampled every `140-142 s`. If the actual tubing delay is, for example, `5-30 s`, the pH change happens inside one sampling interval. The dataset cannot resolve it cleanly.
+
+Second, the static calibration already captures most of the predictable low-frequency relationship:
+
+$$
+PH_2 \approx 0.6567 + 0.7909pH_{eq}
+$$
+
+After this calibration, delaying the chemistry signal mainly misaligns already useful information.
+
+Third, the data are closed-loop or controller-generated, not designed open-loop identification data. The controller changes flows in response to pH behavior, so input changes and output changes are correlated through feedback. That makes physical delay harder to separate from controller action timing, pH probe response, and session effects.
+
+Fourth, positive \(V_{tube}\) removes or weakens early information in each trial because \(Q_k - V_{tube}\) can fall before the available trial history. This is physically correct, but with short or coarse trials it reduces the usable delayed samples and tends to hurt the fit unless a real delay is strongly visible.
+
+The conclusion is:
+
+$$
+V_{tube}^{*} = 0
+$$
+
+for this dataset and model structure. Therefore the current data do not identify a physical transport volume. The safer interpretation is:
+
+```text
+Transport delay is either smaller than the logging resolution, confounded with static calibration, or not excited well enough by this closed-loop dataset.
+```
+
 ## Why Performance Changes Before Index 200 And After Index 300
 
 The performance difference is a real diagnostic clue, not only a plotting artifact.
@@ -645,6 +865,7 @@ results/dynamic_model_identification_20260522_133621/tables/regime_summary.csv
 | Static calibrated equilibrium | yes | held-out test trials | `0.0975` | `-0.0805` | Best current empirical predictor. |
 | Lag calibrated equilibrium | yes | held-out test trials | `0.0975` | `-0.0805` | No delay improvement is identifiable. |
 | First-order dynamic | yes | held-out test trials | `0.0975` | `-0.0805` | No first-order dynamic improvement is identifiable at this sample rate. |
+| Transport-volume delay | yes | held-out test trials | `0.0975` | `-0.0805` | Best volume is `0.000 mL`; no physical delay is identifiable from this CSV. |
 
 The safest current statement is:
 
@@ -743,11 +964,13 @@ The next step should stay inside first-principles model improvement. The most us
 - probe response-time metadata,
 - known synchronization between logged flows and logged pH.
 
-With those data, the next model can test physical transport delay:
+The transport-delay runner already tested physical transport delay on the current CSV:
 
 $$
 \theta(t) \approx \frac{V_{tube}}{F_T(t)}
 $$
+
+and found \(V_{tube}^{*} = 0\). With new open-loop data, the same model can be rerun to test whether a nonzero physical delay becomes identifiable.
 
 mixing residence time:
 
