@@ -95,6 +95,14 @@ The ideal model captured a broad trend but failed as a direct simulator. It over
 
 ![Original Henderson-Hasselbalch time response](../results/henderson_hasselbalch_lab_validation_20260522_003559/figures/measured_vs_hh_prediction_time.png)
 
+![Original Henderson-Hasselbalch measured versus predicted scatter](../results/henderson_hasselbalch_lab_validation_20260522_003559/figures/measured_vs_hh_prediction_scatter.png)
+
+![Original Henderson-Hasselbalch residual with +/- 0.2 pH band](../results/henderson_hasselbalch_lab_validation_20260522_003559/figures/measured_minus_hh_time.png)
+
+![Original Henderson-Hasselbalch residual histogram](../results/henderson_hasselbalch_lab_validation_20260522_003559/figures/measured_minus_hh_histogram.png)
+
+![Original Henderson-Hasselbalch flow-ratio response](../results/henderson_hasselbalch_lab_validation_20260522_003559/figures/flow_ratio_response_map.png)
+
 ## Model 2: Equilibrium Charge Balance
 
 ### Model Equation
@@ -170,6 +178,16 @@ $$
 This model also failed as a direct simulator. The extra equilibrium detail did not reduce the error relative to Henderson-Hasselbalch.
 
 ![Original equilibrium time response](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/measured_vs_equilibrium_prediction_time.png)
+
+![Original equilibrium measured versus predicted scatter](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/measured_vs_equilibrium_prediction_scatter.png)
+
+![Original equilibrium residual with +/- 0.2 pH band](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/measured_minus_equilibrium_time.png)
+
+![Original equilibrium residual histogram](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/measured_minus_equilibrium_histogram.png)
+
+![Original equilibrium total buffer trajectory](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/total_buffer_concentration_trajectory.png)
+
+![Original equilibrium residual versus total buffer](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/residual_vs_total_buffer.png)
 
 ## Model 3: Dynamic Identification From Equilibrium pH
 
@@ -267,6 +285,18 @@ The original conclusion was that static calibration helped, but integer lag and 
 
 ![Original dynamic time response](../results/dynamic_model_identification_20260522_013357/figures/measured_vs_dynamic_prediction_time.png)
 
+![Original dynamic measured versus predicted scatter](../results/dynamic_model_identification_20260522_013357/figures/measured_vs_dynamic_prediction_scatter.png)
+
+![Original dynamic residuals by model](../results/dynamic_model_identification_20260522_013357/figures/residual_time_by_model.png)
+
+![Original dynamic residual histograms](../results/dynamic_model_identification_20260522_013357/figures/residual_histogram_by_model.png)
+
+![Original dynamic lag search](../results/dynamic_model_identification_20260522_013357/figures/lag_search_rmse.png)
+
+![Original dynamic trial examples](../results/dynamic_model_identification_20260522_013357/figures/dynamic_prediction_by_trial_examples.png)
+
+![Original dynamic train/test RMSE comparison](../results/dynamic_model_identification_20260522_013357/figures/train_test_metric_comparison.png)
+
 ## Patch: Flat-Trial Removal And Rerun
 
 After reviewing the time plots, a suspicious region was identified around sample indices `205-290`. These are trials `8`, `9`, and `10`.
@@ -299,7 +329,7 @@ The updated rerun artifacts are:
 | --- | --- |
 | Henderson-Hasselbalch | `results/henderson_hasselbalch_lab_validation_20260522_022832/` |
 | Equilibrium charge balance | `results/equilibrium_charge_balance_lab_validation_20260522_022832/` |
-| Dynamic identification | `results/dynamic_model_identification_20260522_022832/` |
+| Dynamic identification | `results/dynamic_model_identification_20260522_023453/` |
 
 ### Updated Henderson-Hasselbalch Result
 
@@ -321,6 +351,18 @@ $$
 
 ![Filtered Henderson-Hasselbalch time response](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/measured_vs_hh_prediction_time.png)
 
+![Filtered Henderson-Hasselbalch measured versus predicted scatter](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/measured_vs_hh_prediction_scatter.png)
+
+![Filtered Henderson-Hasselbalch residual with +/- 0.2 pH band](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/measured_minus_hh_time.png)
+
+![Filtered Henderson-Hasselbalch residual histogram](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/measured_minus_hh_histogram.png)
+
+![Filtered Henderson-Hasselbalch inlet flow trajectories](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/inlet_flow_trajectories.png)
+
+![Filtered Henderson-Hasselbalch flow-ratio response](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/flow_ratio_response_map.png)
+
+![Filtered Henderson-Hasselbalch lag scan](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/lag_scan_diagnostic.png)
+
 ### Updated Equilibrium Charge-Balance Result
 
 | Metric | Value |
@@ -340,6 +382,24 @@ PH_2 \approx 0.6221 + 0.7937\,pH_{eq}
 $$
 
 ![Filtered equilibrium time response](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/measured_vs_equilibrium_prediction_time.png)
+
+![Filtered equilibrium measured versus predicted scatter](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/measured_vs_equilibrium_prediction_scatter.png)
+
+![Filtered equilibrium residual with +/- 0.2 pH band](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/measured_minus_equilibrium_time.png)
+
+![Filtered equilibrium residual histogram](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/measured_minus_equilibrium_histogram.png)
+
+![Filtered equilibrium inlet flow trajectories](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/inlet_flow_trajectories.png)
+
+![Filtered equilibrium total flow trajectory](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/total_flow_trajectory.png)
+
+![Filtered equilibrium total buffer trajectory](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/total_buffer_concentration_trajectory.png)
+
+![Filtered equilibrium flow-ratio response](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/flow_ratio_response_map.png)
+
+![Filtered equilibrium residual versus total buffer](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/residual_vs_total_buffer.png)
+
+![Filtered equilibrium lag scan](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/lag_scan_diagnostic.png)
 
 ### Updated Dynamic Identification Result
 
@@ -373,9 +433,19 @@ Updated train/test metrics:
 
 The flat-trial patch improved the calibrated held-out test RMSE from `0.1148 pH` to `0.0975 pH`. The improvement came from cleaner static calibration, not from delay or first-order dynamics.
 
-![Filtered dynamic time response](../results/dynamic_model_identification_20260522_022832/figures/measured_vs_dynamic_prediction_time.png)
+![Filtered dynamic time response](../results/dynamic_model_identification_20260522_023453/figures/measured_vs_dynamic_prediction_time.png)
 
-![Filtered dynamic train/test comparison](../results/dynamic_model_identification_20260522_022832/figures/train_test_metric_comparison.png)
+![Filtered dynamic measured versus predicted scatter](../results/dynamic_model_identification_20260522_023453/figures/measured_vs_dynamic_prediction_scatter.png)
+
+![Filtered dynamic residuals by model with +/- 0.2 pH band](../results/dynamic_model_identification_20260522_023453/figures/residual_time_by_model.png)
+
+![Filtered dynamic residual histograms](../results/dynamic_model_identification_20260522_023453/figures/residual_histogram_by_model.png)
+
+![Filtered dynamic lag search](../results/dynamic_model_identification_20260522_023453/figures/lag_search_rmse.png)
+
+![Filtered dynamic trial examples](../results/dynamic_model_identification_20260522_023453/figures/dynamic_prediction_by_trial_examples.png)
+
+![Filtered dynamic train/test comparison](../results/dynamic_model_identification_20260522_023453/figures/train_test_metric_comparison.png)
 
 ## Why Performance Changes Before Index 200 And After Index 300
 

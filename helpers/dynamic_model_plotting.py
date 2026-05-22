@@ -157,6 +157,7 @@ def plot_residual_time_by_model(df: pd.DataFrame, path: Path, stamp_text: str) -
             label=MODEL_LABELS[key],
         )
     ax.axhline(0.0, color="0.25", linestyle="--", linewidth=1.0)
+    ax.axhspan(-0.2, 0.2, color="#94d2bd", alpha=0.16, label="+/- 0.2 pH")
     mark_test_region(ax, df)
     ax.set_xlabel("Chronological sample index")
     ax.set_ylabel("Residual, PH_2 - prediction")
