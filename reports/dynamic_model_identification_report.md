@@ -1,103 +1,53 @@
-# Full pH Model Development Story After Flat-Trial Filtering
+# pH Model Development Story And Flat-Trial Patch
 
-This report summarizes the current first-principles modeling sequence for the inline acetate-buffer pH process. The goal is to predict the reliable measured output, `PH_2`, from the three inlet flowrates:
+This report documents the first-principles pH modeling sequence for the inline acetate-buffer system. The objective is to predict the reliable measured output, `PH_2`, from the three inlet flowrates:
 
 - acetic acid, 100 mM,
 - sodium acetate, 100 mM,
 - Arium ultrapure water.
 
-This is not a controller, MPC, RL, reward-design, or target-tracking report. The target pH is intentionally excluded from model-validation metrics. `PH_1` is also excluded because it was not connected during operation.
+This report only covers three model families:
 
-The latest runs used here are:
+- ideal Henderson-Hasselbalch,
+- equilibrium charge balance,
+- dynamic identification built around equilibrium pH.
 
-| Workflow | Result folder |
-| --- | --- |
-| Henderson-Hasselbalch validation | `results/henderson_hasselbalch_lab_validation_20260522_021555/` |
-| Equilibrium charge-balance validation | `results/equilibrium_charge_balance_lab_validation_20260522_021608/` |
-| Dynamic model identification | `results/dynamic_model_identification_20260522_021628/` |
+It does not evaluate controller targets, MPC, RL, rewards, or `PH_1`. The target pH is excluded from all model-validation metrics. `PH_1` is excluded because the operator stated it was not connected during operation.
 
-## Executive Conclusion
+## Data Mapping
 
-The three model levels now tell a clearer story after the low-information flat-pH trials were removed from model metrics.
-
-| Attempt | Model | Main result after filtering | Conclusion |
-| --- | --- | --- | --- |
-| 1 | Ideal Henderson-Hasselbalch | RMSE `0.3976 pH`, mean error `-0.3660 pH` on `990` valid rows | Failed as a direct plant model. It captures trend but overpredicts `PH_2`. |
-| 2 | Equilibrium charge balance | RMSE `0.3982 pH`, mean error `-0.3668 pH` on `990` valid rows | Also failed as a direct plant model. More ideal equilibrium chemistry did not fix the measurement/process mismatch. |
-| 3 | Dynamic identification from equilibrium pH | test RMSE improved from `0.4412 pH` to `0.0975 pH` after static calibration, best lag `0`, fitted `tau = 1.8741 s` | Static calibration is the useful step. Delay and first-order dynamics are not identifiable from this CSV at the current sampling rate. |
-
-The main empirical relationship found from train trials is:
-
-$$
-PH_2 \approx 0.6567 + 0.7909\,pH_{eq}
-$$
-
-This is an effective calibration of the lab measurement and process, not a final physical dynamic model. The data are chronological and dynamic-looking, but the current CSV still does not support a trusted estimate of tubing delay, mixing volume, or pH-probe time constant.
-
-## Common Data And Preprocessing
-
-The lab CSV used in all three workflows is:
+The source file is:
 
 ```text
 Data/dsp_db.biosmb-rl-controller-treated-dataset.csv
 ```
 
-The fixed data mapping is:
+The fixed mapping is:
 
-| Quantity | CSV column | Role |
-| --- | --- | --- |
-| measured pH | `observation.biosmb-sensors.PH_2` | only reliable output |
-| acetic acid flow | `observation.biosmb-flows[0]` | acid inlet |
-| sodium acetate flow | `observation.biosmb-flows[1]` | acetate inlet |
-| Arium water flow | `observation.biosmb-flows[2]` | water inlet |
+| Quantity | CSV column |
+| --- | --- |
+| measured pH | `observation.biosmb-sensors.PH_2` |
+| acetic acid flow | `observation.biosmb-flows[0]` |
+| sodium acetate flow | `observation.biosmb-flows[1]` |
+| Arium water flow | `observation.biosmb-flows[2]` |
 
-Rows were sorted chronologically. Rows with nonpositive acid, acetate, or water flow are excluded from model metrics.
+Rows are sorted chronologically. Rows with nonpositive acid, acetate, or water flow are excluded from model metrics.
 
-### Flat-Trial Removal
+## Original Modeling Round Before Flat-Trial Filtering
 
-The updated preprocessing marks low-information flat-pH trials as not valid for model fitting or metrics. These trials are not deleted from exported data. They remain in `preprocessed_lab_data.csv` with audit columns, but `valid_for_model = False`.
+The first full report used these artifacts:
 
-The rule is:
+| Workflow | Result folder |
+| --- | --- |
+| Henderson-Hasselbalch | `results/henderson_hasselbalch_lab_validation_20260522_003559/` |
+| Equilibrium charge balance | `results/equilibrium_charge_balance_lab_validation_20260522_005207/` |
+| Dynamic identification | `results/dynamic_model_identification_20260522_013357/` |
 
-$$
-\Delta PH_2 \le 0.05
-\quad\text{and}\quad
-\Delta \log_{10}(F_A/F_H) \ge 0.5
-\quad\text{and}\quad
-n \ge 5
-$$
+At this stage, only the one row with invalid flow was excluded. The suspicious flat-pH trials were still included in model fitting and metrics.
 
-This catches trials where the flow-ratio input changes strongly, but the measured `PH_2` stays almost flat. Such segments are weak or misleading for calibrating a flow-to-pH model.
+## Model 1: Ideal Henderson-Hasselbalch
 
-The latest preprocessing found:
-
-| Quantity | Value |
-| --- | ---: |
-| total source rows | `1086` |
-| rows valid before flat-trial filtering | `1085` |
-| rows valid after all filters | `990` |
-| low-information flat-pH rows flagged | `96` |
-| otherwise valid rows removed by flat-trial filtering | `95` |
-| flat trials flagged | `8`, `9`, `10`, `33` |
-
-The dynamic train/test split still contains the full chronological trial list, but these flagged trials have `n_model_valid = 0`:
-
-| Trial | Split | Rows | Model-valid rows |
-| --- | --- | ---: | ---: |
-| `8` | train | `30` | `0` |
-| `9` | train | `30` | `0` |
-| `10` | train | `26` | `0` |
-| `33` | train | `10` | `0` |
-
-This matters scientifically. The earlier static calibration was distorted by trials where `PH_2` behaved like a nearly straight line even though the inlet ratio moved. Removing those trials lowered the calibrated held-out test RMSE from about `0.1148 pH` to `0.0975 pH`.
-
-## Attempt 1: Ideal Henderson-Hasselbalch Model
-
-### Purpose
-
-The first model asks whether the acid/acetate inlet ratio directly predicts the outlet `PH_2` under ideal buffer assumptions.
-
-### Mathematics
+### Model Equation
 
 For an acetate buffer:
 
@@ -122,63 +72,32 @@ pH_{HH} =
 pK_a + \log_{10}\left(\frac{F_A}{F_H}\right)
 $$
 
-where \(F_H\) is acetic acid flow, \(F_A\) is sodium acetate flow, \(F_W\) is water flow, and \(F_T = F_H + F_A + F_W\).
+Water affects dilution and residence time, but it does not change the ideal Henderson-Hasselbalch pH when both stock concentrations are equal.
 
-Water changes dilution and residence time, but it does not change the ideal Henderson-Hasselbalch pH when the acid and acetate stock concentrations are equal.
-
-### Results
-
-Artifacts:
-
-```text
-results/henderson_hasselbalch_lab_validation_20260522_021555/
-```
+### Original Result
 
 | Metric | Value |
 | --- | ---: |
-| valid rows | `990` |
-| rows excluded from model metrics | `96` |
-| mean error, `PH_2 - pH_HH` | `-0.3660 pH` |
-| MAE | `0.3689 pH` |
-| RMSE | `0.3976 pH` |
-| max absolute error | `0.8451 pH` |
-| correlation | `0.9012` |
+| valid rows | `1085` |
+| mean error, `PH_2 - pH_HH` | `-0.3519 pH` |
+| MAE | `0.3690 pH` |
+| RMSE | `0.4037 pH` |
+| max absolute error | `1.1514 pH` |
+| correlation | `0.8346` |
 
 The affine diagnostic was:
 
 $$
-PH_2 \approx a + b\,pH_{HH}
+PH_2 \approx 1.0139 + 0.7148\,pH_{HH}
 $$
 
-| Diagnostic parameter | Value |
-| --- | ---: |
-| intercept \(a\) | `0.6308` |
-| slope \(b\) | `0.7921` |
-| affine diagnostic RMSE | `0.1365 pH` |
+The ideal model captured a broad trend but failed as a direct simulator. It overpredicted `PH_2` and the measured pH range was compressed relative to ideal chemistry.
 
-The slope below `1` means the measured pH range is compressed relative to the ideal prediction. The negative mean error means the ideal model usually predicts pH higher than the measured `PH_2`.
+![Original Henderson-Hasselbalch time response](../results/henderson_hasselbalch_lab_validation_20260522_003559/figures/measured_vs_hh_prediction_time.png)
 
-### Figures
+## Model 2: Equilibrium Charge Balance
 
-![Henderson-Hasselbalch time response](../results/henderson_hasselbalch_lab_validation_20260522_021555/figures/measured_vs_hh_prediction_time.png)
-
-![Henderson-Hasselbalch scatter](../results/henderson_hasselbalch_lab_validation_20260522_021555/figures/measured_vs_hh_prediction_scatter.png)
-
-![Henderson-Hasselbalch residual over time](../results/henderson_hasselbalch_lab_validation_20260522_021555/figures/measured_minus_hh_time.png)
-
-![Henderson-Hasselbalch residual histogram](../results/henderson_hasselbalch_lab_validation_20260522_021555/figures/measured_minus_hh_histogram.png)
-
-### Interpretation
-
-Henderson-Hasselbalch is useful as a chemistry coordinate, but it is not accurate enough to use as a direct simulator of this lab process. The residual has a strong offset and the prediction range is too wide. The improved correlation after flat-trial filtering shows that removing bad trials helped the diagnostic, but the raw model still fails.
-
-## Attempt 2: Equilibrium Charge-Balance Model
-
-### Purpose
-
-The second model tests whether a more rigorous ideal equilibrium calculation improves prediction. It includes dilution through the mixed analytical concentrations and solves for hydrogen ion concentration directly.
-
-### Mathematics
+### Model Equation
 
 The mixed concentrations are:
 
@@ -202,20 +121,20 @@ $$
 C_{Na} = C_A
 $$
 
-With \(K_a = 10^{-pK_a}\), the equilibrium acetate concentration is:
+With \(K_a = 10^{-pK_a}\), acetate equilibrium gives:
 
 $$
 [A^-] =
 \frac{C_TK_a}{K_a + H^+}
 $$
 
-and water contributes:
+and water gives:
 
 $$
 [OH^-] = \frac{K_w}{H^+}
 $$
 
-The charge-balance root is:
+The charge balance is:
 
 $$
 f(H^+) =
@@ -231,105 +150,46 @@ $$
 pH_{eq} = -\log_{10}(H^+)
 $$
 
-### Results
-
-Artifacts:
-
-```text
-results/equilibrium_charge_balance_lab_validation_20260522_021608/
-```
+### Original Result
 
 | Metric | Value |
 | --- | ---: |
-| valid rows | `990` |
-| rows excluded from model metrics | `96` |
-| mean error, `PH_2 - pH_eq` | `-0.3668 pH` |
-| MAE | `0.3697 pH` |
-| RMSE | `0.3982 pH` |
-| max absolute error | `0.8453 pH` |
-| correlation | `0.9011` |
+| valid rows | `1085` |
+| mean error, `PH_2 - pH_eq` | `-0.3527 pH` |
+| MAE | `0.3696 pH` |
+| RMSE | `0.4042 pH` |
+| max absolute error | `1.1517 pH` |
+| correlation | `0.8346` |
 
-Affine diagnostic:
+The affine diagnostic was:
 
 $$
-PH_2 \approx a + b\,pH_{eq}
+PH_2 \approx 1.0059 + 0.7164\,pH_{eq}
 $$
 
-| Diagnostic parameter | Value |
-| --- | ---: |
-| intercept \(a\) | `0.6221` |
-| slope \(b\) | `0.7937` |
-| affine diagnostic RMSE | `0.1366 pH` |
+This model also failed as a direct simulator. The extra equilibrium detail did not reduce the error relative to Henderson-Hasselbalch.
 
-### Figures
+![Original equilibrium time response](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/measured_vs_equilibrium_prediction_time.png)
 
-![Equilibrium time response](../results/equilibrium_charge_balance_lab_validation_20260522_021608/figures/measured_vs_equilibrium_prediction_time.png)
+## Model 3: Dynamic Identification From Equilibrium pH
 
-![Equilibrium scatter](../results/equilibrium_charge_balance_lab_validation_20260522_021608/figures/measured_vs_equilibrium_prediction_scatter.png)
+### Model Sequence
 
-![Equilibrium residual over time](../results/equilibrium_charge_balance_lab_validation_20260522_021608/figures/measured_minus_equilibrium_time.png)
+The dynamic workflow tested three stages after the raw equilibrium baseline.
 
-![Equilibrium residual histogram](../results/equilibrium_charge_balance_lab_validation_20260522_021608/figures/measured_minus_equilibrium_histogram.png)
-
-![Equilibrium total buffer concentration](../results/equilibrium_charge_balance_lab_validation_20260522_021608/figures/total_buffer_concentration_trajectory.png)
-
-![Equilibrium residual versus total buffer](../results/equilibrium_charge_balance_lab_validation_20260522_021608/figures/residual_vs_total_buffer.png)
-
-### Interpretation
-
-The equilibrium charge-balance model also fails as a direct plant model. Its RMSE is `0.3982 pH`, nearly the same as the Henderson-Hasselbalch RMSE of `0.3976 pH`.
-
-This is the important negative result: the main mismatch is not simply because Henderson-Hasselbalch was too simple. In this operating range, the ideal equilibrium model still produces almost the same biased pH coordinate. The missing pieces are likely measurement calibration, effective chemistry, flow/mixing history, and unresolved experiment timing.
-
-## Attempt 3: Dynamic Identification And Effective Calibration
-
-### Purpose
-
-The lab CSV is chronological and came from a real setup. The sampling interval is roughly one minute, so the data should be treated as time-series data, not independent steady-state samples. The dynamic workflow tests three increasingly complex hypotheses:
-
-1. the equilibrium pH coordinate needs static calibration,
-2. the process has an identifiable sample delay,
-3. the measurement can be improved with a first-order sensor or mixing wrapper.
-
-This is still model identification, not control.
-
-### Trial-Aware Split
-
-The dynamic workflow segmented the data into chronological trials using time gaps, step resets, and episode resets. It then split whole trials:
-
-| Split | Trials | Model-valid samples |
-| --- | ---: | ---: |
-| train | `59` | `731` |
-| test | `26` | `259` |
-
-The flat-pH trials were all in the train part and now contribute zero model-valid samples. Keeping whole trials together prevents lagged features and dynamic states from leaking across trial boundaries.
-
-### Stage 3.1: Equilibrium Baseline
-
-The baseline model is:
+The baseline was:
 
 $$
 \hat y_k = pH_{eq,k}
 $$
 
-There are no fitted parameters. On the held-out test trials, this raw baseline gives:
-
-| Split | Mean error | MAE | RMSE | Max abs | Correlation |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| train | `-0.3430` | `0.3470` | `0.3819` | `0.8453` | `0.8846` |
-| test | `-0.4337` | `0.4337` | `0.4412` | `0.6749` | `0.9832` |
-
-The held-out test RMSE is worse than the all-row filtered RMSE because the later test trials sit in a different operating region and have a stronger offset.
-
-### Stage 3.2: Effective Static Calibration
-
-The fitted static model is:
+The static calibration was:
 
 $$
 \hat y_k = b_0 + b_1pH_{eq,k}
 $$
 
-The parameters were estimated on train trials only with ordinary least squares:
+The parameters were estimated on train trials only using ordinary least squares:
 
 $$
 (b_0^{*}, b_1^{*}) =
@@ -338,72 +198,14 @@ $$
 \left(y_k - b_0 - b_1pH_{eq,k}\right)^2
 $$
 
-Implementation: `numpy.linalg.lstsq`.
-
-Estimated parameters:
-
-| Parameter | Value | Meaning |
-| --- | ---: | --- |
-| \(b_0^{*}\) | `0.6567` | effective pH intercept |
-| \(b_1^{*}\) | `0.7909` | effective pH compression |
-| train samples | `731` | samples used for fitting |
-
-At equal acid/base chemistry near \(pK_a = 4.76045\), this calibration predicts:
-
-$$
-b_0^{*} + b_1^{*}pK_a = 4.4218
-$$
-
-That value should not be interpreted as the true thermodynamic pKa. It is an effective lab measurement and process calibration.
-
-Static calibration results:
-
-| Split | Mean error | MAE | RMSE | Max abs | Correlation |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| train | `0.0000` | `0.1223` | `0.1500` | `0.6949` | `0.8846` |
-| test | `-0.0805` | `0.0822` | `0.0975` | `0.2470` | `0.9832` |
-
-The test RMSE improves from `0.4412 pH` to `0.0975 pH`, a reduction of about `77.9%`.
-
-### Stage 3.3: Integer Delay Search
-
-The delayed static model is:
+The lag model was:
 
 $$
 \hat y_k(d) =
 b_0(d) + b_1(d)pH_{eq,k-d}
 $$
 
-For each integer lag from `0` to `10` samples, the affine parameters were refit on train trials:
-
-$$
-(b_0^{*}(d), b_1^{*}(d)) =
-\underset{b_0,b_1}{\mathrm{arg\,min}}
-\sum_{k \in D_{train}}
-\left(y_k - b_0 - b_1pH_{eq,k-d}\right)^2
-$$
-
-The selected lag minimizes train RMSE:
-
-$$
-d^{*} =
-\underset{d}{\mathrm{arg\,min}}\ RMSE_{train}(d)
-$$
-
-Result:
-
-| Parameter | Value |
-| --- | ---: |
-| best lag \(d^{*}\) | `0` samples |
-| approximate delay \(\theta = d^{*}\Delta t_{median}\) | `0.0 s` |
-| train RMSE at best lag | `0.1500 pH` |
-| test RMSE at best lag | `0.0975 pH` |
-
-Lag `0` being best does not mean the real physical delay is zero. It means this closed-loop CSV, with roughly one-minute sampling and irregular excitation, does not identify a useful integer sample delay.
-
-### Stage 3.4: First-Order Sensor Or Mixing Dynamics
-
-The first-order wrapper filters the calibrated and delayed chemistry signal:
+The first-order wrapper was:
 
 $$
 x_k =
@@ -421,7 +223,7 @@ $$
 \exp\left(-\frac{\Delta t_k}{\tau}\right)
 $$
 
-The time constant was fit by one-dimensional nonlinear optimization:
+The time constant was estimated by scalar nonlinear optimization:
 
 $$
 \tau^{*} =
@@ -433,115 +235,203 @@ $$
 }
 $$
 
-Implementation: bounded scalar optimization over \(\log(\tau)\) using `scipy.optimize.minimize_scalar`.
+### Original Result
 
-Estimated parameters:
-
-| Parameter | Value | Interpretation |
-| --- | ---: | --- |
-| \(\tau^{*}\) | `1.8741 s` | empirical combined sensor/mixing time constant |
-| \(\tau^{*}\) | `0.0312 min` | same value in minutes |
-| median sample interval | `69.7710 s` | much slower than fitted \(\tau^{*}\) |
-| median total flow | `16.3606 mL/min` | used for provisional volume |
-| approximate effective volume | `0.5110 mL` | \(\tau^{*}F_T/60\), diagnostic only |
-
-Because the fitted time constant is much smaller than the median sample interval, the first-order model effectively settles within one sample. It therefore collapses to the static calibrated model at this data resolution.
-
-Dynamic model results:
-
-| Model stage | Split | N | Mean error | MAE | RMSE | Max abs | Corr. |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Equilibrium baseline | train | `731` | `-0.3430` | `0.3470` | `0.3819` | `0.8453` | `0.8846` |
-| Equilibrium baseline | test | `259` | `-0.4337` | `0.4337` | `0.4412` | `0.6749` | `0.9832` |
-| Static calibrated | train | `731` | `0.0000` | `0.1223` | `0.1500` | `0.6949` | `0.8846` |
-| Static calibrated | test | `259` | `-0.0805` | `0.0822` | `0.0975` | `0.2470` | `0.9832` |
-| Lag calibrated | train | `731` | `0.0000` | `0.1223` | `0.1500` | `0.6949` | `0.8846` |
-| Lag calibrated | test | `259` | `-0.0805` | `0.0822` | `0.0975` | `0.2470` | `0.9832` |
-| First-order dynamic | train | `731` | `0.0000` | `0.1223` | `0.1500` | `0.6949` | `0.8846` |
-| First-order dynamic | test | `259` | `-0.0805` | `0.0822` | `0.0975` | `0.2470` | `0.9832` |
-
-### Figures
-
-![Dynamic time response](../results/dynamic_model_identification_20260522_021628/figures/measured_vs_dynamic_prediction_time.png)
-
-![Dynamic scatter](../results/dynamic_model_identification_20260522_021628/figures/measured_vs_dynamic_prediction_scatter.png)
-
-![Dynamic residuals by model](../results/dynamic_model_identification_20260522_021628/figures/residual_time_by_model.png)
-
-![Dynamic residual histograms](../results/dynamic_model_identification_20260522_021628/figures/residual_histogram_by_model.png)
-
-![Dynamic lag search](../results/dynamic_model_identification_20260522_021628/figures/lag_search_rmse.png)
-
-![Dynamic trial examples](../results/dynamic_model_identification_20260522_021628/figures/dynamic_prediction_by_trial_examples.png)
-
-![Dynamic train/test comparison](../results/dynamic_model_identification_20260522_021628/figures/train_test_metric_comparison.png)
-
-### Interpretation
-
-The dynamic workflow found a useful static calibration, but it did not identify useful dynamic parameters. Delay stays at `0` samples, and the fitted first-order time constant is far below the sampling interval.
-
-The corrected conclusion is:
+Original fitted static calibration:
 
 $$
-PH_2 =
-\text{effective calibrated equilibrium pH}
-+ \text{remaining structured residual}
+PH_2 \approx 1.1404 + 0.6928\,pH_{eq}
 $$
 
-not:
+Original dynamic parameters:
+
+| Parameter | Value |
+| --- | ---: |
+| best lag | `0` samples |
+| fitted \(\tau\) | `1.7033 s` |
+| median sample interval | `69.9825 s` |
+| approximate effective volume | `0.4641 mL` |
+
+Original train/test metrics:
+
+| Model stage | Split | N | Mean error | MAE | RMSE |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Equilibrium baseline | train | `826` | `-0.3274` | `0.3495` | `0.3918` |
+| Equilibrium baseline | test | `259` | `-0.4337` | `0.4337` | `0.4412` |
+| Static calibrated | train | `826` | `0.0000` | `0.1443` | `0.1848` |
+| Static calibrated | test | `259` | `-0.0903` | `0.0923` | `0.1148` |
+| Lag calibrated | test | `259` | `-0.0903` | `0.0923` | `0.1148` |
+| First-order dynamic | test | `259` | `-0.0903` | `0.0923` | `0.1148` |
+
+The original conclusion was that static calibration helped, but integer lag and first-order dynamics did not add useful predictive power.
+
+![Original dynamic time response](../results/dynamic_model_identification_20260522_013357/figures/measured_vs_dynamic_prediction_time.png)
+
+## Patch: Flat-Trial Removal And Rerun
+
+After reviewing the time plots, a suspicious region was identified around sample indices `205-290`. These are trials `8`, `9`, and `10`.
+
+The pH behavior in this region is not physically informative for a flow-to-pH model:
+
+| Region | Trials | Rows | Model-valid rows after patch | `PH_2` range | \(\log_{10}(F_A/F_H)\) range |
+| --- | --- | ---: | ---: | ---: | ---: |
+| before suspicious region | `0-7` | `205` | `205` | `3.9301-5.2186` | `-0.8589` to `0.7757` |
+| suspicious flat region | `8-10` | `86` | `0` | `4.5718-4.6248` | `-0.8657` to `0.7988` |
+| after suspicious region | `11-84` | `795` | `785` | `3.5717-5.0708` | `-0.9387` to `0.9417` |
+
+The suspicious region has almost constant `PH_2`, only about `0.053 pH` range, while the acid/base ratio sweeps over about `1.66` log units. A normal ideal buffer model would expect a large pH movement from that ratio change. This is why the region was treated as low-information or inconsistent with the logged inlet-flow-to-pH relationship.
+
+The filter rule is:
 
 $$
-PH_2 =
-\text{validated transport-delay plus sensor-dynamic model}
+\Delta PH_2 \le 0.05
+\quad\text{and}\quad
+\Delta \log_{10}(F_A/F_H) \ge 0.5
+\quad\text{and}\quad
+n \ge 5
 $$
 
-## Cross-Model Comparison
+The patch flags these trials and sets `valid_for_model = False`. The raw rows are still kept in `preprocessed_lab_data.csv` for audit. They are not used for fitted parameters, metrics, or cleaned model-validation traces.
 
-| Model | Fitted? | Validation basis | RMSE | Mean error | Main lesson |
+The updated rerun artifacts are:
+
+| Workflow | Result folder |
+| --- | --- |
+| Henderson-Hasselbalch | `results/henderson_hasselbalch_lab_validation_20260522_022832/` |
+| Equilibrium charge balance | `results/equilibrium_charge_balance_lab_validation_20260522_022832/` |
+| Dynamic identification | `results/dynamic_model_identification_20260522_022832/` |
+
+### Updated Henderson-Hasselbalch Result
+
+| Metric | Value |
+| --- | ---: |
+| valid rows | `990` |
+| excluded rows | `96` |
+| mean error, `PH_2 - pH_HH` | `-0.3660 pH` |
+| MAE | `0.3689 pH` |
+| RMSE | `0.3976 pH` |
+| max absolute error | `0.8451 pH` |
+| correlation | `0.9012` |
+
+Updated affine diagnostic:
+
+$$
+PH_2 \approx 0.6308 + 0.7921\,pH_{HH}
+$$
+
+![Filtered Henderson-Hasselbalch time response](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/measured_vs_hh_prediction_time.png)
+
+### Updated Equilibrium Charge-Balance Result
+
+| Metric | Value |
+| --- | ---: |
+| valid rows | `990` |
+| excluded rows | `96` |
+| mean error, `PH_2 - pH_eq` | `-0.3668 pH` |
+| MAE | `0.3697 pH` |
+| RMSE | `0.3982 pH` |
+| max absolute error | `0.8453 pH` |
+| correlation | `0.9011` |
+
+Updated affine diagnostic:
+
+$$
+PH_2 \approx 0.6221 + 0.7937\,pH_{eq}
+$$
+
+![Filtered equilibrium time response](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/measured_vs_equilibrium_prediction_time.png)
+
+### Updated Dynamic Identification Result
+
+Updated fitted static calibration:
+
+$$
+PH_2 \approx 0.6567 + 0.7909\,pH_{eq}
+$$
+
+Updated dynamic parameters:
+
+| Parameter | Value |
+| --- | ---: |
+| train samples | `731` |
+| test samples | `259` |
+| best lag | `0` samples |
+| fitted \(\tau\) | `1.8741 s` |
+| median sample interval | `69.7710 s` |
+| approximate effective volume | `0.5110 mL` |
+
+Updated train/test metrics:
+
+| Model stage | Split | N | Mean error | MAE | RMSE |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Equilibrium baseline | train | `731` | `-0.3430` | `0.3470` | `0.3819` |
+| Equilibrium baseline | test | `259` | `-0.4337` | `0.4337` | `0.4412` |
+| Static calibrated | train | `731` | `0.0000` | `0.1223` | `0.1500` |
+| Static calibrated | test | `259` | `-0.0805` | `0.0822` | `0.0975` |
+| Lag calibrated | test | `259` | `-0.0805` | `0.0822` | `0.0975` |
+| First-order dynamic | test | `259` | `-0.0805` | `0.0822` | `0.0975` |
+
+The flat-trial patch improved the calibrated held-out test RMSE from `0.1148 pH` to `0.0975 pH`. The improvement came from cleaner static calibration, not from delay or first-order dynamics.
+
+![Filtered dynamic time response](../results/dynamic_model_identification_20260522_022832/figures/measured_vs_dynamic_prediction_time.png)
+
+![Filtered dynamic train/test comparison](../results/dynamic_model_identification_20260522_022832/figures/train_test_metric_comparison.png)
+
+## Why Performance Changes Before Index 200 And After Index 300
+
+The performance difference is a real diagnostic clue, not only a plotting artifact.
+
+Before index `205`, the raw equilibrium model is much closer to `PH_2`:
+
+| Region | Raw equilibrium RMSE | Dynamic calibrated RMSE |
+| --- | ---: | ---: |
+| indices `0-204` | `0.1781 pH` | `0.2333 pH` |
+| indices `291-end` | `0.4379 pH` | `0.0993 pH` |
+
+This means the early part of the dataset and the later part of the dataset behave like different regimes.
+
+The most likely explanation is nonstationarity in the lab setup. Around indices `205-290`, `PH_2` becomes almost flat even while the commanded acid/base ratio changes strongly. After index `290`, there is a long session break and the measured pH response becomes much more active again, but shifted relative to ideal chemistry. Possible causes include:
+
+- the pH probe or flow cell not seeing the newly commanded mixture during the flat region,
+- a logging synchronization problem between flow commands and pH measurement,
+- a large unmodeled dead volume or flushing delay during that part of operation,
+- a temporary mixing or routing abnormality,
+- probe conditioning, calibration drift, or startup effects between sessions.
+
+The raw equilibrium model works better before index `205` because that early segment has a smaller offset from ideal chemistry. The calibrated dynamic model works better after index `291` because the fitted calibration maps the ideal pH coordinate to the lower, compressed pH response that dominates the later data. This is evidence that one global steady-state first-principles model is not enough unless we also model session effects, measurement calibration, and experiment timing.
+
+## Final Comparison After The Patch
+
+| Model | Fitted? | Validation basis | RMSE | Mean error | Conclusion |
 | --- | --- | --- | ---: | ---: | --- |
-| Ideal Henderson-Hasselbalch | no | filtered valid rows | `0.3976` | `-0.3660` | Ratio chemistry alone is biased high. |
-| Equilibrium charge balance | no | filtered valid rows | `0.3982` | `-0.3668` | Ideal equilibrium detail does not fix the lab mismatch. |
-| Static calibrated equilibrium | yes | held-out test trials | `0.0975` | `-0.0805` | Effective calibration is necessary and useful. |
-| Lag calibrated equilibrium | yes | held-out test trials | `0.0975` | `-0.0805` | No sample-lag improvement is identifiable. |
-| First-order dynamic combined | yes | held-out test trials | `0.0975` | `-0.0805` | First-order dynamics add no measurable improvement at this sampling rate. |
+| Ideal Henderson-Hasselbalch | no | filtered valid rows | `0.3976` | `-0.3660` | Still fails as direct plant model. |
+| Equilibrium charge balance | no | filtered valid rows | `0.3982` | `-0.3668` | Still fails as direct plant model. |
+| Static calibrated equilibrium | yes | held-out test trials | `0.0975` | `-0.0805` | Best current empirical predictor. |
+| Lag calibrated equilibrium | yes | held-out test trials | `0.0975` | `-0.0805` | No delay improvement is identifiable. |
+| First-order dynamic | yes | held-out test trials | `0.0975` | `-0.0805` | No first-order dynamic improvement is identifiable at this sample rate. |
 
-The flat-trial filter changed the interpretation in a good way. It removed misleading segments from fitting, improved the static calibration, and made the comparison more honest. However, it did not rescue the raw first-principles models. Both direct chemistry models still miss `PH_2` by about `0.40 pH` RMSE.
+The safest current statement is:
 
-## What We Know Now
+$$
+PH_2 \approx 0.6567 + 0.7909\,pH_{eq}
+$$
 
-1. `PH_2` is not directly equal to ideal buffer pH from acid/acetate flow ratio.
+with the warning that this is an empirical calibration for this CSV, not a validated dynamic simulator.
 
-2. The equilibrium charge-balance model is scientifically better than Henderson-Hasselbalch, but for this dataset it produces almost the same pH coordinate and almost the same error.
+## Next Modeling Step
 
-3. Low-information flat-pH trials existed in the dataset. They are now excluded from model metrics by default, while remaining visible in the exported audit data.
+The next step should stay inside first-principles model improvement. The most useful experiment is a designed open-loop dataset with:
 
-4. The measured pH is compressed relative to ideal chemistry. The latest fitted dynamic-workflow slope is `0.7909`, and the all-row affine diagnostics are about `0.792` to `0.794`.
+- step changes in acid/acetate ratio at fixed total flow,
+- step changes in total flow at fixed acid/acetate ratio,
+- long holds until `PH_2` visibly settles,
+- recorded mixing-point location,
+- tubing inner diameter and length to `PH_2`,
+- flow-cell, static mixer, and dead-volume estimates,
+- probe response-time metadata,
+- known synchronization between logged flows and logged pH.
 
-5. Static calibration is currently the biggest improvement. It reduces held-out test RMSE by about `77.9%` relative to the raw equilibrium test baseline.
-
-6. Delay and first-order sensor or mixing dynamics are not identifiable from this CSV. The data may contain real dynamics, but the sampling interval and excitation are not enough to estimate them reliably.
-
-7. The current best model is an empirical calibrated chemistry predictor. It should be used for analysis, not yet as a trusted dynamic simulator.
-
-## Recommended Next Steps
-
-The next safe modeling work should not jump to control. It should improve the first-principles model and collect data that can separate chemistry, transport, mixing, and measurement effects.
-
-Recommended next actions:
-
-- Run the four improvement workflows already added for effective static chemistry, settled-sample calibration, residual diagnostics, and activity/dilution correction after the same flat-trial preprocessing.
-
-- Compare whether empirical water-fraction, total-flow, or total-buffer concentration terms reduce held-out residuals without overfitting.
-
-- Design an open-loop identification experiment with step changes in acid/acetate ratio at fixed total flow.
-
-- Add separate step changes in total flow at fixed acid/acetate ratio to identify residence-time and dilution effects.
-
-- Hold each step long enough for `PH_2` to visibly settle, then use those settled windows for static chemistry calibration.
-
-- Record hardware metadata: mixing point, tubing inner diameter and length to `PH_2`, static mixer or flow-cell volume, pH probe location, and probe response time.
-
-With hardware metadata, a future model can separately test transport delay:
+With those data, the next model can test physical transport delay:
 
 $$
 \theta(t) \approx \frac{V_{tube}}{F_T(t)}
@@ -560,39 +450,4 @@ $$
 pH_{chem}(t-\theta) - y(t)
 $$
 
-Until that experiment is available, the most defensible model statement is:
-
-$$
-PH_2 \approx 0.6567 + 0.7909\,pH_{eq}
-$$
-
-with remaining residuals that still require better experimental excitation and hardware timing information.
-
-## Artifact Index
-
-Henderson-Hasselbalch artifacts:
-
-- `results/henderson_hasselbalch_lab_validation_20260522_021555/tables/preprocessed_lab_data.csv`
-- `results/henderson_hasselbalch_lab_validation_20260522_021555/tables/overall_metrics.csv`
-- `results/henderson_hasselbalch_lab_validation_20260522_021555/tables/affine_diagnostic.csv`
-- `results/henderson_hasselbalch_lab_validation_20260522_021555/tables/lag_scan.csv`
-- `results/henderson_hasselbalch_lab_validation_20260522_021555/figures/`
-
-Equilibrium charge-balance artifacts:
-
-- `results/equilibrium_charge_balance_lab_validation_20260522_021608/tables/preprocessed_lab_data.csv`
-- `results/equilibrium_charge_balance_lab_validation_20260522_021608/tables/overall_metrics.csv`
-- `results/equilibrium_charge_balance_lab_validation_20260522_021608/tables/affine_diagnostic.csv`
-- `results/equilibrium_charge_balance_lab_validation_20260522_021608/tables/lag_scan.csv`
-- `results/equilibrium_charge_balance_lab_validation_20260522_021608/figures/`
-
-Dynamic identification artifacts:
-
-- `results/dynamic_model_identification_20260522_021628/tables/preprocessed_lab_data.csv`
-- `results/dynamic_model_identification_20260522_021628/tables/dynamic_model_comparison.csv`
-- `results/dynamic_model_identification_20260522_021628/tables/model_metrics_train_test.csv`
-- `results/dynamic_model_identification_20260522_021628/tables/static_calibration_parameters.csv`
-- `results/dynamic_model_identification_20260522_021628/tables/lag_search_metrics.csv`
-- `results/dynamic_model_identification_20260522_021628/tables/dynamic_parameters.csv`
-- `results/dynamic_model_identification_20260522_021628/tables/trial_split_summary.csv`
-- `results/dynamic_model_identification_20260522_021628/figures/`
+The current CSV is valuable for diagnosing failure modes, but it is not enough to identify those physical dynamic parameters reliably.

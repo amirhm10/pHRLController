@@ -75,26 +75,26 @@ def create_dynamic_model_figures(
 
 
 def plot_measured_vs_dynamic_time(df: pd.DataFrame, path: Path, stamp_text: str) -> None:
-    valid = df["valid_for_model"]
+    valid = df["valid_for_model"].astype(bool)
     fig, ax = plt.subplots(figsize=(12, 5.8))
     ax.plot(
         df["sample_index"],
-        df["ph_measured"],
+        df["ph_measured"].where(valid),
         color="#005f73",
         linewidth=1.25,
-        label="measured PH_2",
+        label="measured PH_2 (model-valid)",
     )
     ax.plot(
-        df.loc[valid, "sample_index"],
-        df.loc[valid, "prediction_equilibrium_baseline"],
+        df["sample_index"],
+        df["prediction_equilibrium_baseline"].where(valid),
         color=MODEL_COLORS["equilibrium_baseline"],
         linewidth=1.0,
         alpha=0.8,
         label="equilibrium baseline",
     )
     ax.plot(
-        df.loc[valid, "sample_index"],
-        df.loc[valid, "prediction_dynamic_first_order"],
+        df["sample_index"],
+        df["prediction_dynamic_first_order"].where(valid),
         color=MODEL_COLORS["dynamic_first_order"],
         linewidth=1.25,
         label="first-order dynamic",
@@ -140,7 +140,7 @@ def plot_measured_vs_dynamic_scatter(df: pd.DataFrame, path: Path, stamp_text: s
 
 
 def plot_residual_time_by_model(df: pd.DataFrame, path: Path, stamp_text: str) -> None:
-    valid = df["valid_for_model"]
+    valid = df["valid_for_model"].astype(bool)
     fig, ax = plt.subplots(figsize=(12, 5.8))
     for key in [
         "equilibrium_baseline",
@@ -149,8 +149,8 @@ def plot_residual_time_by_model(df: pd.DataFrame, path: Path, stamp_text: str) -
         "dynamic_first_order",
     ]:
         ax.plot(
-            df.loc[valid, "sample_index"],
-            df.loc[valid, RESIDUAL_COLUMNS[key]],
+            df["sample_index"],
+            df[RESIDUAL_COLUMNS[key]].where(valid),
             color=MODEL_COLORS[key],
             linewidth=1.0,
             alpha=0.85,
