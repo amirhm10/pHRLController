@@ -47,15 +47,30 @@ def create_dynamic_model_figures(
     figure_dir.mkdir(parents=True, exist_ok=True)
 
     paths = {
+        "measurement_input_output_behavior": figure_dir / "measurement_input_output_behavior.png",
+        "prediction_behavior_only": figure_dir / "prediction_behavior_only.png",
+        "regime_input_distributions": figure_dir / "regime_input_distributions.png",
         "measured_vs_dynamic_time": figure_dir / "measured_vs_dynamic_prediction_time.png",
         "measured_vs_dynamic_scatter": figure_dir / "measured_vs_dynamic_prediction_scatter.png",
         "residual_time_by_model": figure_dir / "residual_time_by_model.png",
         "residual_histogram_by_model": figure_dir / "residual_histogram_by_model.png",
         "lag_search_rmse": figure_dir / "lag_search_rmse.png",
         "dynamic_prediction_by_trial_examples": figure_dir / "dynamic_prediction_by_trial_examples.png",
+        "trial_input_output_examples": figure_dir / "trial_input_output_examples.png",
         "train_test_metric_comparison": figure_dir / "train_test_metric_comparison.png",
     }
 
+    plot_measurement_input_output_behavior(
+        df,
+        paths["measurement_input_output_behavior"],
+        stamp_text,
+    )
+    plot_prediction_behavior_only(df, paths["prediction_behavior_only"], stamp_text)
+    plot_regime_input_distributions(
+        df,
+        paths["regime_input_distributions"],
+        stamp_text,
+    )
     plot_measured_vs_dynamic_time(df, paths["measured_vs_dynamic_time"], stamp_text)
     plot_measured_vs_dynamic_scatter(df, paths["measured_vs_dynamic_scatter"], stamp_text)
     plot_residual_time_by_model(df, paths["residual_time_by_model"], stamp_text)
@@ -66,12 +81,121 @@ def create_dynamic_model_figures(
         paths["dynamic_prediction_by_trial_examples"],
         stamp_text,
     )
+    plot_trial_input_output_examples(df, paths["trial_input_output_examples"], stamp_text)
     plot_train_test_metric_comparison(
         metrics,
         paths["train_test_metric_comparison"],
         stamp_text,
     )
     return paths
+
+
+def plot_measurement_input_output_behavior(
+    df: pd.DataFrame,
+    path: Path,
+    stamp_text: str,
+) -> None:
+    x = df["sample_index"]
+    log_ratio = np.log10(df["acetate_flow"] / df["acid_flow"])
+    fig, axes = plt.subplots(4, 1, figsize=(12, 10.2), sharex=True)
+
+    axes[0].plot(x, df["ph_measured"], color="#005f73", linewidth=1.2)
+    axes[0].set_ylabel("PH_2")
+    axes[0].set_title("Measured pH and inlet behavior")
+
+    axes[1].plot(x, df["acid_flow"], color="#ae2012", label="acid")
+    axes[1].plot(x, df["acetate_flow"], color="#0a9396", label="acetate")
+    axes[1].plot(x, df["water_flow"], color="#005f73", label="water")
+    axes[1].set_ylabel("Flow (mL/min)")
+    axes[1].legend(loc="best", ncols=3)
+
+    axes[2].plot(x, df["total_flow"], color="#5f0f40", linewidth=1.2)
+    axes[2].set_ylabel("Total flow\n(mL/min)")
+
+    axes[3].plot(x, log_ratio, color="#ee9b00", linewidth=1.2)
+    axes[3].axhline(0.0, color="0.35", linestyle="--", linewidth=1.0)
+    axes[3].set_ylabel("log10\nacetate/acid")
+    axes[3].set_xlabel("Chronological sample index")
+
+    for ax in axes:
+        mark_flat_trial_regions(ax, df)
+        mark_test_region(ax, df)
+        ax.grid(True, alpha=0.3)
+    finalize_figure(fig, path, stamp_text)
+
+
+def plot_prediction_behavior_only(
+    df: pd.DataFrame,
+    path: Path,
+    stamp_text: str,
+) -> None:
+    valid = df["valid_for_model"].astype(bool)
+    fig, ax = plt.subplots(figsize=(12, 5.8))
+    ax.plot(
+        df["sample_index"],
+        df["prediction_equilibrium_baseline"].where(valid),
+        color=MODEL_COLORS["equilibrium_baseline"],
+        linewidth=1.15,
+        label="equilibrium baseline",
+    )
+    ax.plot(
+        df["sample_index"],
+        df["prediction_static_calibrated"].where(valid),
+        color=MODEL_COLORS["static_calibrated"],
+        linewidth=1.15,
+        label="static calibrated",
+    )
+    ax.plot(
+        df["sample_index"],
+        df["prediction_dynamic_first_order"].where(valid),
+        color=MODEL_COLORS["dynamic_first_order"],
+        linewidth=1.25,
+        label="first-order dynamic",
+    )
+    mark_flat_trial_regions(ax, df)
+    mark_test_region(ax, df)
+    ax.set_xlabel("Chronological sample index")
+    ax.set_ylabel("Predicted pH")
+    ax.set_title("Model-predicted pH signals only")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best")
+    finalize_figure(fig, path, stamp_text)
+
+
+def plot_regime_input_distributions(
+    df: pd.DataFrame,
+    path: Path,
+    stamp_text: str,
+) -> None:
+    working = df.copy()
+    working["log10_flow_ratio"] = np.log10(
+        working["acetate_flow"] / working["acid_flow"]
+    )
+    regimes = [
+        ("early\n0-204", working["sample_index"].le(204)),
+        ("flat excluded\n205-290", working["sample_index"].between(205, 290)),
+        ("later\n291-end", working["sample_index"].ge(291)),
+    ]
+    columns = [
+        ("acid_flow", "Acid flow (mL/min)"),
+        ("acetate_flow", "Acetate flow (mL/min)"),
+        ("water_flow", "Water flow (mL/min)"),
+        ("total_flow", "Total flow (mL/min)"),
+        ("log10_flow_ratio", "log10 acetate/acid"),
+        ("ph_measured", "Measured PH_2"),
+    ]
+
+    fig, axes = plt.subplots(2, 3, figsize=(12, 7.6))
+    for ax, (column, ylabel) in zip(axes.ravel(), columns):
+        data = [
+            working.loc[mask, column].dropna().to_numpy(dtype=float)
+            for _, mask in regimes
+        ]
+        ax.boxplot(data, labels=[label for label, _ in regimes], showfliers=False)
+        ax.set_ylabel(ylabel)
+        ax.grid(True, axis="y", alpha=0.3)
+    axes[0, 0].set_title("Input/output distributions by regime")
+    finalize_figure(fig, path, stamp_text)
 
 
 def plot_measured_vs_dynamic_time(df: pd.DataFrame, path: Path, stamp_text: str) -> None:
@@ -262,6 +386,52 @@ def plot_dynamic_prediction_by_trial_examples(
     finalize_figure(fig, path, stamp_text)
 
 
+def plot_trial_input_output_examples(
+    df: pd.DataFrame,
+    path: Path,
+    stamp_text: str,
+) -> None:
+    trial_ids = select_trial_examples(df)
+    fig, axes = plt.subplots(len(trial_ids), 1, figsize=(12, 3.4 * len(trial_ids)))
+    if len(trial_ids) == 1:
+        axes = [axes]
+
+    for ax, trial_id in zip(axes, trial_ids):
+        group = df.loc[df["trial_id"] == trial_id].copy()
+        x = np.arange(len(group))
+        valid = group["valid_for_model"].astype(bool)
+        ax.plot(x, group["ph_measured"], color="#005f73", marker="o", label="PH_2")
+        ax.plot(
+            x,
+            group["prediction_dynamic_first_order"].where(valid),
+            color=MODEL_COLORS["dynamic_first_order"],
+            marker="^",
+            label="dynamic prediction",
+        )
+        ax.set_ylabel("pH")
+        ax.set_title(f"Trial {int(trial_id)} input/output behavior")
+        ax.grid(True, alpha=0.3)
+
+        ax_flow = ax.twinx()
+        ax_flow.plot(x, group["acid_flow"], color="#ae2012", alpha=0.35, label="acid")
+        ax_flow.plot(
+            x,
+            group["acetate_flow"],
+            color="#0a9396",
+            alpha=0.35,
+            label="acetate",
+        )
+        ax_flow.plot(x, group["water_flow"], color="#5f0f40", alpha=0.35, label="water")
+        ax_flow.set_ylabel("Flow (mL/min)")
+
+        lines, labels = ax.get_legend_handles_labels()
+        flow_lines, flow_labels = ax_flow.get_legend_handles_labels()
+        ax.legend(lines + flow_lines, labels + flow_labels, loc="best", ncols=5)
+
+    axes[-1].set_xlabel("Sample within trial")
+    finalize_figure(fig, path, stamp_text)
+
+
 def plot_train_test_metric_comparison(
     metrics: pd.DataFrame,
     path: Path,
@@ -289,6 +459,31 @@ def plot_train_test_metric_comparison(
     finalize_figure(fig, path, stamp_text)
 
 
+def select_trial_examples(df: pd.DataFrame) -> list[int]:
+    candidates: list[int] = []
+    valid_trials = (
+        df.loc[df["valid_for_model"].astype(bool), "trial_id"].dropna().astype(int)
+    )
+    if valid_trials.empty:
+        return df["trial_id"].dropna().astype(int).head(1).tolist()
+
+    early = valid_trials.loc[valid_trials < 8]
+    later_train = valid_trials.loc[(valid_trials >= 11) & (valid_trials < 59)]
+    test = valid_trials.loc[valid_trials >= 59]
+    for series, selector in [
+        (early, "first"),
+        (later_train, "first"),
+        (test, "first"),
+        (test, "last"),
+    ]:
+        if series.empty:
+            continue
+        trial_id = int(series.min() if selector == "first" else series.max())
+        if trial_id not in candidates:
+            candidates.append(trial_id)
+    return candidates[:4]
+
+
 def mark_test_region(ax, df: pd.DataFrame) -> None:
     test = df.loc[df["split"].eq("test")]
     if test.empty:
@@ -296,6 +491,21 @@ def mark_test_region(ax, df: pd.DataFrame) -> None:
     x0 = test["sample_index"].min()
     x1 = test["sample_index"].max()
     ax.axvspan(x0, x1, color="#f4a261", alpha=0.08, label="test region")
+
+
+def mark_flat_trial_regions(ax, df: pd.DataFrame) -> None:
+    if "uninformative_flat_ph_trial" not in df.columns:
+        return
+    flat = df.loc[df["uninformative_flat_ph_trial"].astype(bool)]
+    if flat.empty:
+        return
+    for _, group in flat.groupby("trial_id", sort=True):
+        ax.axvspan(
+            group["sample_index"].min(),
+            group["sample_index"].max(),
+            color="#d62828",
+            alpha=0.08,
+        )
 
 
 def finalize_figure(fig, path: Path, stamp_text: str) -> None:

@@ -329,7 +329,7 @@ The updated rerun artifacts are:
 | --- | --- |
 | Henderson-Hasselbalch | `results/henderson_hasselbalch_lab_validation_20260522_022832/` |
 | Equilibrium charge balance | `results/equilibrium_charge_balance_lab_validation_20260522_022832/` |
-| Dynamic identification | `results/dynamic_model_identification_20260522_023453/` |
+| Dynamic identification | `results/dynamic_model_identification_20260522_131048/` |
 
 ### Updated Henderson-Hasselbalch Result
 
@@ -420,6 +420,18 @@ Updated dynamic parameters:
 | median sample interval | `69.7710 s` |
 | approximate effective volume | `0.5110 mL` |
 
+What the dynamic model is actually fitting:
+
+The dynamic workflow is not fitting Henderson-Hasselbalch directly, and it is not directly fitting a thermodynamic pKa. It first computes the equilibrium charge-balance prediction \(pH_{eq}\). Then it fits a line from \(pH_{eq}\) to the measured `PH_2`:
+
+$$
+PH_2 = b_0 + b_1pH_{eq} + \epsilon
+$$
+
+This is ordinary least-squares linear regression in pH-space. The fitted intercept and slope can be interpreted as an effective measurement/process bias and compression. They should not be interpreted as a true physical pKa because \(b_1 \ne 1\). If the only mismatch were a pKa shift, the slope would stay close to `1` and the intercept would mainly move the pH scale. Here the slope is `0.7909`, so the measured pH response is compressed relative to equilibrium chemistry.
+
+After that line is fitted, the workflow searches integer sample delay and a first-order filter. Since the best delay is `0` samples and the fitted time constant is only `1.8741 s`, the dynamic model is effectively the static calibrated equilibrium model at this one-minute sampling resolution.
+
 Updated train/test metrics:
 
 | Model stage | Split | N | Mean error | MAE | RMSE |
@@ -433,32 +445,48 @@ Updated train/test metrics:
 
 The flat-trial patch improved the calibrated held-out test RMSE from `0.1148 pH` to `0.0975 pH`. The improvement came from cleaner static calibration, not from delay or first-order dynamics.
 
-![Filtered dynamic time response](../results/dynamic_model_identification_20260522_023453/figures/measured_vs_dynamic_prediction_time.png)
+![Filtered measurement input-output behavior](../results/dynamic_model_identification_20260522_131048/figures/measurement_input_output_behavior.png)
 
-![Filtered dynamic measured versus predicted scatter](../results/dynamic_model_identification_20260522_023453/figures/measured_vs_dynamic_prediction_scatter.png)
+![Filtered prediction-only behavior](../results/dynamic_model_identification_20260522_131048/figures/prediction_behavior_only.png)
 
-![Filtered dynamic residuals by model with +/- 0.2 pH band](../results/dynamic_model_identification_20260522_023453/figures/residual_time_by_model.png)
+![Filtered dynamic time response](../results/dynamic_model_identification_20260522_131048/figures/measured_vs_dynamic_prediction_time.png)
 
-![Filtered dynamic residual histograms](../results/dynamic_model_identification_20260522_023453/figures/residual_histogram_by_model.png)
+![Filtered dynamic measured versus predicted scatter](../results/dynamic_model_identification_20260522_131048/figures/measured_vs_dynamic_prediction_scatter.png)
 
-![Filtered dynamic lag search](../results/dynamic_model_identification_20260522_023453/figures/lag_search_rmse.png)
+![Filtered dynamic residuals by model with +/- 0.2 pH band](../results/dynamic_model_identification_20260522_131048/figures/residual_time_by_model.png)
 
-![Filtered dynamic trial examples](../results/dynamic_model_identification_20260522_023453/figures/dynamic_prediction_by_trial_examples.png)
+![Filtered dynamic residual histograms](../results/dynamic_model_identification_20260522_131048/figures/residual_histogram_by_model.png)
 
-![Filtered dynamic train/test comparison](../results/dynamic_model_identification_20260522_023453/figures/train_test_metric_comparison.png)
+![Filtered dynamic lag search](../results/dynamic_model_identification_20260522_131048/figures/lag_search_rmse.png)
+
+![Filtered dynamic trial examples](../results/dynamic_model_identification_20260522_131048/figures/dynamic_prediction_by_trial_examples.png)
+
+![Filtered trial input-output examples](../results/dynamic_model_identification_20260522_131048/figures/trial_input_output_examples.png)
+
+![Filtered dynamic train/test comparison](../results/dynamic_model_identification_20260522_131048/figures/train_test_metric_comparison.png)
+
+![Regime input distributions](../results/dynamic_model_identification_20260522_131048/figures/regime_input_distributions.png)
 
 ## Why Performance Changes Before Index 200 And After Index 300
 
 The performance difference is a real diagnostic clue, not only a plotting artifact.
 
-Before index `205`, the raw equilibrium model is much closer to `PH_2`:
+Before index `205`, the raw equilibrium model is much closer to `PH_2`. After index `291`, the calibrated model is much closer:
 
 | Region | Raw equilibrium RMSE | Dynamic calibrated RMSE |
 | --- | ---: | ---: |
 | indices `0-204` | `0.1781 pH` | `0.2333 pH` |
 | indices `291-end` | `0.4379 pH` | `0.0993 pH` |
 
-This means the early part of the dataset and the later part of the dataset behave like different regimes.
+The input ranges do not explain this by themselves:
+
+| Regime | Valid rows | mean acid | mean acetate | mean water | mean total flow | mean log-ratio | mean PH_2 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| indices `0-204` | `205` | `5.40` | `5.35` | `5.53` | `16.28` | `-0.011` | `4.626` |
+| indices `205-290` | `0` | `5.93` | `5.55` | `4.47` | `15.95` | `-0.020` | `4.601` |
+| indices `291-end` | `785` | `5.43` | `5.90` | `5.07` | `16.40` | `0.046` | `4.371` |
+
+The early and later regimes have very similar acid-flow, acetate-flow, water-flow, total-flow, and log-ratio ranges. Both regimes explore broad pump ranges. The major difference is the relationship between those inputs and `PH_2`, not the input ranges alone.
 
 The most likely explanation is nonstationarity in the lab setup. Around indices `205-290`, `PH_2` becomes almost flat even while the commanded acid/base ratio changes strongly. After index `290`, there is a long session break and the measured pH response becomes much more active again, but shifted relative to ideal chemistry. Possible causes include:
 
@@ -469,6 +497,12 @@ The most likely explanation is nonstationarity in the lab setup. Around indices 
 - probe conditioning, calibration drift, or startup effects between sessions.
 
 The raw equilibrium model works better before index `205` because that early segment has a smaller offset from ideal chemistry. The calibrated dynamic model works better after index `291` because the fitted calibration maps the ideal pH coordinate to the lower, compressed pH response that dominates the later data. This is evidence that one global steady-state first-principles model is not enough unless we also model session effects, measurement calibration, and experiment timing.
+
+The relevant diagnostic table is saved as:
+
+```text
+results/dynamic_model_identification_20260522_131048/tables/regime_summary.csv
+```
 
 ## Final Comparison After The Patch
 
@@ -487,6 +521,82 @@ PH_2 \approx 0.6567 + 0.7909\,pH_{eq}
 $$
 
 with the warning that this is an empirical calibration for this CSV, not a validated dynamic simulator.
+
+## Controller Implications For Acid, Base, And Water
+
+Even though this report is not yet a control report, the modeling results tell us something important about future controller design.
+
+For ideal Henderson-Hasselbalch chemistry, pH is controlled by the acid/base ratio:
+
+$$
+r = \frac{F_A}{F_H}
+$$
+
+For a target pH under the ideal model:
+
+$$
+r^{*} = 10^{pH^{*} - pK_a}
+$$
+
+But this ratio does not uniquely determine the two pump flowrates. If \(F_A = r^{*}F_H\), then many acid/base pairs produce the same ideal pH ratio. A controller still needs a rule for the scale of the flows:
+
+$$
+F_H = s
+$$
+
+$$
+F_A = r^{*}s
+$$
+
+where \(s\) must satisfy the pump bounds:
+
+$$
+1 \le F_H \le 10
+$$
+
+$$
+1 \le F_A \le 10
+$$
+
+The feasible scale interval is:
+
+$$
+\max\left(1,\frac{1}{r^{*}}\right)
+\le s \le
+\min\left(10,\frac{10}{r^{*}}\right)
+$$
+
+So a pH controller cannot choose only the ratio. It must also choose a throughput objective, a chemical-usage objective, a residence-time objective, or a fixed acid-plus-base flow.
+
+Water is even more underdetermined by ideal pH. In the ideal Henderson-Hasselbalch model with equal acid and acetate stock concentrations, water does not change the acid/base ratio, so it does not change ideal pH. In the equilibrium model, water changes total buffer concentration and ionic strength, but in this operating range the pH still mostly follows the acid/base ratio. In the real system, water can still matter strongly because it changes:
+
+- total flow,
+- dilution and buffer concentration,
+- residence time in tubing or mixer,
+- transport delay to `PH_2`,
+- flushing speed after a flow change.
+
+The total flow is already computed in preprocessing and saved in the model tables:
+
+$$
+F_T = F_H + F_A + F_W
+$$
+
+In the current lab data, the valid median total flow is about `16.36 mL/min`. The configuration file also contains pump bounds `1-10 mL/min`, `default_water_flow = 5.0`, and `default_buffer_flow_sum = 10.0`. Those are defaults, not a final controller policy.
+
+If a future controller specifies a desired total flow \(F_T^{*}\), then water can be chosen after acid and acetate:
+
+$$
+F_W = F_T^{*} - F_H - F_A
+$$
+
+and then checked against:
+
+$$
+1 \le F_W \le 10
+$$
+
+If \(F_W\) is infeasible, the controller must adjust the acid/base scale \(s\), the total-flow target \(F_T^{*}\), or accept a different throughput. This is why future control should likely use both a pH objective and a flow policy, not a pH ratio alone.
 
 ## Next Modeling Step
 

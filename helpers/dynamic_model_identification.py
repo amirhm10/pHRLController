@@ -47,6 +47,17 @@ MODEL_SPECS = {
 }
 
 
+REGIME_SPECS = (
+    ("early_ideal_like", "indices 0-204", lambda df: df["sample_index"].le(204)),
+    (
+        "flat_excluded",
+        "indices 205-290",
+        lambda df: df["sample_index"].between(205, 290, inclusive="both"),
+    ),
+    ("later_calibrated", "indices 291-end", lambda df: df["sample_index"].ge(291)),
+)
+
+
 def add_equilibrium_predictions(
     df: pd.DataFrame,
     model: EquilibriumChargeBalanceModel,
@@ -395,6 +406,55 @@ def make_dynamic_parameters_table(
         "optimizer_success": bool(dynamic_fit.success),
         "physical_interpretation": "provisional_without_geometry",
     }])
+
+
+def make_regime_summary(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    working = df.copy()
+    working["log10_flow_ratio"] = np.log10(
+        working["acetate_flow"] / working["acid_flow"]
+    )
+    for regime_name, sample_range, mask_fn in REGIME_SPECS:
+        region = working.loc[mask_fn(working)]
+        valid = region["valid_for_model"].astype(bool)
+        valid_region = region.loc[valid]
+        row = {
+            "regime": regime_name,
+            "sample_range": sample_range,
+            "n_total": int(len(region)),
+            "n_model_valid": int(valid.sum()),
+        }
+        for column in [
+            "ph_measured",
+            "acid_flow",
+            "acetate_flow",
+            "water_flow",
+            "total_flow",
+            "log10_flow_ratio",
+            "total_buffer_mol_l",
+        ]:
+            source = valid_region if column == "total_buffer_mol_l" else region
+            values = source[column].dropna()
+            prefix = column
+            if len(values):
+                row[f"{prefix}_mean"] = float(values.mean())
+                row[f"{prefix}_std"] = float(values.std())
+                row[f"{prefix}_min"] = float(values.min())
+                row[f"{prefix}_max"] = float(values.max())
+            else:
+                row[f"{prefix}_mean"] = np.nan
+                row[f"{prefix}_std"] = np.nan
+                row[f"{prefix}_min"] = np.nan
+                row[f"{prefix}_max"] = np.nan
+
+        for model_key, spec in MODEL_SPECS.items():
+            residual = valid_region[spec["residual"]].dropna()
+            row[f"{model_key}_rmse"] = rmse(residual)
+            row[f"{model_key}_mean_error"] = (
+                float(residual.mean()) if len(residual) else np.nan
+            )
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def select_dynamic_comparison_columns(df: pd.DataFrame) -> pd.DataFrame:

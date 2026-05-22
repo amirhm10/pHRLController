@@ -16,6 +16,7 @@ from helpers.dynamic_model_identification import (
     fit_first_order_tau,
     make_dynamic_parameters_table,
     make_model_metrics_train_test,
+    make_regime_summary,
     make_static_calibration_table,
     search_lag_models,
     select_dynamic_comparison_columns,
@@ -98,6 +99,7 @@ def main() -> None:
         lag_calibration=lag_calibration,
         df=identified,
     )
+    regime_summary = make_regime_summary(identified)
 
     save_tables(
         table_dir=table_dir,
@@ -108,6 +110,7 @@ def main() -> None:
         lag_search=lag_search,
         dynamic_parameters=dynamic_parameters,
         trial_split_summary=trial_split_summary,
+        regime_summary=regime_summary,
     )
     create_dynamic_model_figures(
         df=identified,
@@ -134,6 +137,7 @@ def save_tables(
     lag_search: pd.DataFrame,
     dynamic_parameters: pd.DataFrame,
     trial_split_summary: pd.DataFrame,
+    regime_summary: pd.DataFrame,
 ) -> dict[str, Path]:
     tables = {
         "preprocessed_lab_data": table_dir / "preprocessed_lab_data.csv",
@@ -143,6 +147,7 @@ def save_tables(
         "lag_search_metrics": table_dir / "lag_search_metrics.csv",
         "dynamic_parameters": table_dir / "dynamic_parameters.csv",
         "trial_split_summary": table_dir / "trial_split_summary.csv",
+        "regime_summary": table_dir / "regime_summary.csv",
     }
     preprocessed.to_csv(tables["preprocessed_lab_data"], index=False)
     comparison.to_csv(tables["dynamic_model_comparison"], index=False)
@@ -151,6 +156,7 @@ def save_tables(
     lag_search.to_csv(tables["lag_search_metrics"], index=False)
     dynamic_parameters.to_csv(tables["dynamic_parameters"], index=False)
     trial_split_summary.to_csv(tables["trial_split_summary"], index=False)
+    regime_summary.to_csv(tables["regime_summary"], index=False)
     return tables
 
 
