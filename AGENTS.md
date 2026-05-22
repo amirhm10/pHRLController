@@ -41,6 +41,7 @@ Lab CSV mapping:
 - `observation.biosmb-flows[1]` is sodium acetate.
 - `observation.biosmb-flows[2]` is Arium water.
 - Do not use `target_ph` for model-validation metrics unless explicitly studying controller behavior.
+- Preprocessing flags low-information flat-pH trials by default and excludes them from `valid_for_model` when `PH_2` is nearly flat while the acid/acetate chemistry input changes strongly. The current rule is at least 5 trial samples, `trial_ph_range <= 0.05`, and `trial_log10_flow_ratio_range >= 0.5`.
 
 ## Repository layout
 

@@ -50,6 +50,10 @@ def preprocess_lab_data(
     column_map: LabPHColumnMap | None = None,
     config: PHProcessConfig | None = None,
     long_gap_s: float = 900.0,
+    exclude_uninformative_flat_ph_trials: bool = True,
+    flat_ph_trial_min_samples: int = 5,
+    flat_ph_range_max: float = 0.05,
+    flat_log10_ratio_range_min: float = 0.5,
 ) -> pd.DataFrame:
     """Prepare lab data for inlet-flow to PH_2 model validation."""
     column_map = column_map or LabPHColumnMap()
@@ -102,6 +106,19 @@ def preprocess_lab_data(
         prepared["flow_ratio_acetate_acid"]
     )
 
+    flat_trial_stats = make_flat_ph_trial_stats(prepared)
+    prepared = prepared.join(flat_trial_stats, on="trial_id")
+    prepared["uninformative_flat_ph_trial"] = (
+        prepared["trial_n_total"].ge(flat_ph_trial_min_samples)
+        & prepared["trial_ph_range"].le(flat_ph_range_max)
+        & prepared["trial_log10_flow_ratio_range"].ge(flat_log10_ratio_range_min)
+    )
+    prepared["valid_for_model_before_flat_trial_filter"] = prepared["valid_for_model"]
+    if exclude_uninformative_flat_ph_trials:
+        prepared["valid_for_model"] = (
+            prepared["valid_for_model"] & ~prepared["uninformative_flat_ph_trial"]
+        )
+
     prepared["acid_flow_in_bounds"] = prepared["acid_flow"].between(
         config.acid_flow_min,
         config.acid_flow_max,
@@ -121,6 +138,12 @@ def preprocess_lab_data(
     prepared.attrs.update(df.attrs)
     prepared.attrs["analysis_columns"] = int(prepared.shape[1])
     prepared.attrs["long_gap_s"] = float(long_gap_s)
+    prepared.attrs["exclude_uninformative_flat_ph_trials"] = bool(
+        exclude_uninformative_flat_ph_trials
+    )
+    prepared.attrs["flat_ph_trial_min_samples"] = int(flat_ph_trial_min_samples)
+    prepared.attrs["flat_ph_range_max"] = float(flat_ph_range_max)
+    prepared.attrs["flat_log10_ratio_range_min"] = float(flat_log10_ratio_range_min)
     return prepared
 
 
@@ -128,3 +151,30 @@ def optional_numeric_column(df: pd.DataFrame, column: str) -> pd.Series:
     if column not in df.columns:
         return pd.Series(pd.NA, index=df.index, dtype="Float64")
     return pd.to_numeric(df[column], errors="coerce")
+
+
+def make_flat_ph_trial_stats(prepared: pd.DataFrame) -> pd.DataFrame:
+    """Summarize each trial for low-information flat-pH detection."""
+    valid = prepared["valid_for_model"]
+    valid_only = prepared.loc[valid].copy()
+    stats = valid_only.groupby("trial_id").agg(
+        trial_n_model_valid=("ph_measured", "size"),
+        trial_ph_min=("ph_measured", "min"),
+        trial_ph_max=("ph_measured", "max"),
+        trial_log10_ratio_min=("log10_flow_ratio_acetate_acid", "min"),
+        trial_log10_ratio_max=("log10_flow_ratio_acetate_acid", "max"),
+        trial_total_flow_min=("total_flow", "min"),
+        trial_total_flow_max=("total_flow", "max"),
+    )
+    total_count = prepared.groupby("trial_id").size().rename("trial_n_total")
+    stats = stats.join(total_count, how="outer")
+    stats["trial_n_model_valid"] = stats["trial_n_model_valid"].fillna(0).astype(int)
+    stats["trial_n_total"] = stats["trial_n_total"].fillna(0).astype(int)
+    stats["trial_ph_range"] = stats["trial_ph_max"] - stats["trial_ph_min"]
+    stats["trial_log10_flow_ratio_range"] = (
+        stats["trial_log10_ratio_max"] - stats["trial_log10_ratio_min"]
+    )
+    stats["trial_total_flow_range"] = (
+        stats["trial_total_flow_max"] - stats["trial_total_flow_min"]
+    )
+    return stats
