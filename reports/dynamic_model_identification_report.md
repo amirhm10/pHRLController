@@ -819,6 +819,76 @@ for this dataset and model structure. Therefore the current data do not identify
 Transport delay is either smaller than the logging resolution, confounded with static calibration, or not excited well enough by this closed-loop dataset.
 ```
 
+### Regime-Specific Transport-Delay Tests
+
+The full-data test mixes two different logging regimes, so two additional subset runners were added:
+
+```text
+run_first_regime_transport_delay_identification.py
+run_second_regime_transport_delay_identification.py
+```
+
+The first runner uses the earlier two-minute-sampling sessions:
+
+```text
+session_id <= 3
+```
+
+The second runner uses the later one-minute-sampling sessions:
+
+```text
+session_id >= 4
+```
+
+This split is based on sampling behavior, not pH target. The goal is to ask whether transport delay becomes more visible when each timing regime is modeled separately.
+
+The result folders are:
+
+| Regime | Result folder |
+| --- | --- |
+| two-minute regime | `results/first_regime_transport_delay_identification_20260522_140759/` |
+| one-minute regime | `results/second_regime_transport_delay_identification_20260522_140308/` |
+
+The subset definitions are:
+
+| Regime | Sessions | Sample indices | Valid rows | Median `dt_s` | 5-95 percent `dt_s` |
+| --- | --- | --- | ---: | ---: | --- |
+| two-minute | `0,1,2,3` | `0-416` | `331` | `141.3665 s` | `140.0400-142.8680 s` |
+| one-minute | `4,5,6` | `417-1085` | `659` | `69.3550 s` | `69.0218-70.2136 s` |
+
+The model comparison is:
+
+| Regime | Static test RMSE | Transport test RMSE | Transport + dynamic test RMSE | Best \(V_{tube}\) | Median \(\theta_s\) | Identifiability |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| two-minute | `0.2914` | `0.2904` | `0.2904` | `1.012 mL` | `3.71 s` | `weak_non_identifiable_small_rmse_gain` |
+| one-minute | `0.0513` | `0.0513` | `0.0516` | `0.467 mL` | `1.72 s` | `weak_non_identifiable_near_zero_volume` |
+
+For the two-minute regime, the search finds a slightly positive volume near `1 mL`. However, the test RMSE improves by only about `0.001 pH`, which is far below the practical improvement threshold of `0.005 pH`. The fitted delay is also only about `3.71 s`, while the sample interval is about `141 s`.
+
+For the one-minute regime, the search finds a volume near `0.467 mL`, corresponding to about `1.72 s`. The held-out test RMSE is effectively unchanged and slightly worse by about `0.00003 pH`. This is even clearer evidence that the apparent positive volume is not a reliable physical delay estimate.
+
+The RMSE searches show the same pattern in both regimes: very small volumes are the only plausible values, and larger volumes quickly damage the fit.
+
+![Two-minute transport-delay RMSE search](../results/first_regime_transport_delay_identification_20260522_140759/figures/transport_delay_rmse_search.png)
+
+![One-minute transport-delay RMSE search](../results/second_regime_transport_delay_identification_20260522_140308/figures/transport_delay_rmse_search.png)
+
+The time-response plots show why the delay is not strongly identifiable. The transport-delay prediction mostly overlays the static calibrated prediction, because the selected physical delay is much shorter than the logging interval.
+
+![Two-minute transport-delay time response](../results/first_regime_transport_delay_identification_20260522_140759/figures/measured_vs_transport_delay_prediction_time.png)
+
+![One-minute transport-delay time response](../results/second_regime_transport_delay_identification_20260522_140308/figures/measured_vs_transport_delay_prediction_time.png)
+
+The regime split also clarifies a bigger modeling issue. The one-minute regime is much easier to calibrate: static test RMSE is only `0.0513 pH`. The two-minute regime has static test RMSE `0.2914 pH`, mainly because the chronological train/test split inside sessions `0-3` crosses a change in process behavior after the flat trials. In other words, the two-minute data are not just slower-sampled; they are also more nonstationary.
+
+The regime-specific conclusion is:
+
+```text
+Splitting by sampling regime does not reveal a trustworthy nonzero transport volume.
+The one-minute regime is better predicted by static calibration.
+The two-minute regime remains nonstationary, and a tiny fitted volume does not explain the mismatch.
+```
+
 ## Why Performance Changes Before Index 200 And After Index 300
 
 The performance difference is a real diagnostic clue, not only a plotting artifact.
@@ -866,6 +936,8 @@ results/dynamic_model_identification_20260522_133621/tables/regime_summary.csv
 | Lag calibrated equilibrium | yes | held-out test trials | `0.0975` | `-0.0805` | No delay improvement is identifiable. |
 | First-order dynamic | yes | held-out test trials | `0.0975` | `-0.0805` | No first-order dynamic improvement is identifiable at this sample rate. |
 | Transport-volume delay | yes | held-out test trials | `0.0975` | `-0.0805` | Best volume is `0.000 mL`; no physical delay is identifiable from this CSV. |
+| Two-minute regime transport delay | yes | held-out test trials | `0.2904` | `-0.2851` | Tiny `1.012 mL` volume gives only `0.001 pH` test RMSE improvement. |
+| One-minute regime transport delay | yes | held-out test trials | `0.0513` | `-0.0001` | Tiny `0.467 mL` volume gives no held-out improvement over static calibration. |
 
 The safest current statement is:
 
@@ -964,13 +1036,13 @@ The next step should stay inside first-principles model improvement. The most us
 - probe response-time metadata,
 - known synchronization between logged flows and logged pH.
 
-The transport-delay runner already tested physical transport delay on the current CSV:
+The transport-delay runners already tested physical transport delay on the current CSV:
 
 $$
 \theta(t) \approx \frac{V_{tube}}{F_T(t)}
 $$
 
-and found \(V_{tube}^{*} = 0\). With new open-loop data, the same model can be rerun to test whether a nonzero physical delay becomes identifiable.
+The full-data result found \(V_{tube}^{*} = 0\). The one-minute and two-minute subset tests found only tiny effective volumes, `0.467 mL` and `1.012 mL`, with no meaningful held-out improvement. With new open-loop data, the same model can be rerun to test whether a nonzero physical delay becomes identifiable.
 
 mixing residence time:
 
