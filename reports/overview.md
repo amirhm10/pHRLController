@@ -94,8 +94,8 @@ The script:
 1. creates a target pH grid from about 3.8 to 5.7,
 2. computes feasible acid, acetate, and water flowrates,
 3. evaluates both the simple and equilibrium models,
-4. saves plots to `outputs/figures/`,
-5. saves the sweep table to `outputs/tables/initial_ph_sweep.csv`.
+4. saves stamped plots to `results/<method>_<YYYYMMDD_HHMMSS>/figures/`,
+5. saves the sweep table to `results/<method>_<YYYYMMDD_HHMMSS>/tables/initial_ph_sweep.csv`.
 
 Run with:
 

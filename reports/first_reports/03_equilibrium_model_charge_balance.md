@@ -1,52 +1,103 @@
-# 03 - Equilibrium Model Charge Balance
+---
+title: "pH Process - Equilibrium Model Charge Balance"
+tags:
+  - pH-control
+  - acetate-buffer
+  - charge-balance
+  - equilibrium-model
+  - first-principles-model
+status: draft
+created: 2026-05-20
+---
 
-## Purpose
+# pH Process - Equilibrium Model Charge Balance
 
-This report documents the second steady-state model for the acetate-buffer process. It moves one step beyond Henderson-Hasselbalch by solving a charge-balance equation for the hydrogen ion concentration.
+## 1. Purpose
 
-This model is still not dynamic. It does not include mixing delay, pump dynamics, or pH probe dynamics.
+The previous note used the simplest Henderson-Hasselbalch model:
 
-## Why use this model?
+$$
+\mathrm{pH}_{ss}\approx pK_a+\log_{10}\left(\frac{F_A}{F_H}\right)
+$$
 
-The simple model is:
+That model is useful for intuition and first flow guesses. This note moves one step further by solving an equilibrium charge-balance model for the acetate buffer.
+
+The new model is still steady-state, but it explicitly includes:
+
+- dilution through the total flowrate,
+- weak-acid equilibrium,
+- sodium ion from sodium acetate,
+- water self-ionization,
+- electroneutrality.
+
+This is the next model before adding pH probe delay, mixing dynamics, and feedback control.
+
+## 2. Why move beyond Henderson-Hasselbalch?
+
+The Henderson-Hasselbalch equation estimates the pH of a weak-acid/conjugate-base buffer from the acid/base ratio.[^hh]
+
+For this project, it gives:
 
 $$
 \mathrm{pH}_{HH}=pK_a+\log_{10}\left(\frac{F_A}{F_H}\right)
 $$
 
-This is good for intuition and first flow guesses. However, it assumes the analytical mixing ratio is close to the equilibrium ratio. That can become less accurate when the solution is dilute or when water self-ionization becomes important.
+However, it assumes that the equilibrium ratio $[A^-]/[HA]$ is close to the analytical mixing ratio. This is usually good for normal buffer concentrations, but it can become less accurate when the solution is very dilute, when one species is nearly absent, or when water self-ionization matters.[^po-senozan]
 
-The equilibrium model uses:
+The charge-balance model keeps the same chemistry but solves the equilibrium more directly.
 
-- analytical concentration balances,
-- acetic acid equilibrium,
-- sodium charge balance,
-- water self-ionization.
+## 3. Model workflow
 
-## Mixed concentrations
+![Equilibrium model workflow](assets/equilibrium_model_workflow.svg)
+
+The idea is:
+
+1. Calculate mixed analytical concentrations from the three flowrates.
+2. Use the acid equilibrium to express $[HA]$ and $[A^-]$ as functions of $H=[H^+]$.
+3. Use water self-ionization to express $[OH^-]$ as a function of $H$.
+4. Solve charge balance for $H$.
+5. Convert $H$ to pH.
+
+Strictly, pH is defined using hydrogen ion activity, not just concentration.[^iupac-ph] Here we still approximate activity by concentration, so this is not yet a full activity-coefficient model.
+
+## 4. Mixed analytical concentrations
 
 Define:
+
+$$
+F_H = \text{acetic acid flowrate}
+$$
+
+$$
+F_A = \text{sodium acetate flowrate}
+$$
+
+$$
+F_W = \text{water flowrate}
+$$
 
 $$
 F_T=F_H+F_A+F_W
 $$
 
-The mixed analytical acid contribution is:
+The stock concentrations are:
+
+$$
+C_H^0=0.1\ \mathrm{M}
+$$
+
+$$
+C_A^0=0.1\ \mathrm{M}
+$$
+
+After ideal mixing:
 
 $$
 C_H=C_H^0\frac{F_H}{F_T}
 $$
 
-The mixed analytical acetate contribution is:
-
 $$
 C_A=C_A^0\frac{F_A}{F_T}
-$$
-
-For the current system:
-
-$$
-C_H^0=C_A^0=0.1\ \mathrm{M}
 $$
 
 The total acetate-family concentration is:
@@ -69,9 +120,9 @@ $$
 
 because sodium acetate contributes one sodium ion per acetate-family species.
 
-## Acid equilibrium
+## 5. Equilibrium speciation
 
-For acetic acid:
+Use:
 
 $$
 HA \rightleftharpoons H^+ + A^-
@@ -80,6 +131,14 @@ $$
 $$
 K_a=\frac{[H^+][A^-]}{[HA]}
 $$
+
+For acetic acid near room temperature:
+
+$$
+pK_a\approx4.76
+$$
+
+This should later be fitted as an effective parameter because temperature, ionic strength, and calibration may shift the apparent value.[^pubchem-acetic]
 
 Let:
 
@@ -103,98 +162,142 @@ $$
 [OH^-](H)=\frac{K_w}{H}
 $$
 
-with:
+with the common room-temperature approximation:
 
 $$
 K_w\approx10^{-14}
 $$
 
-## Charge balance
+## 6. Charge balance
 
-Total positive charge equals total negative charge:
+![Charge balance in the acetate buffer model](assets/equilibrium_model_charge_balance.svg)
+
+At equilibrium, total positive charge equals total negative charge:
 
 $$
 H+C_{Na}=[A^-](H)+[OH^-](H)
 $$
 
-Substitute the equations:
+Substitute the speciation equations:
 
 $$
 H+C_{Na}=C_T\frac{K_a}{K_a+H}+\frac{K_w}{H}
 $$
 
-Move all terms to one side:
+Move everything to one side:
 
 $$
 \boxed{f(H)=H+C_{Na}-C_T\frac{K_a}{K_a+H}-\frac{K_w}{H}=0}
 $$
 
-Then:
+After solving this scalar nonlinear equation:
 
 $$
 \boxed{\mathrm{pH}=-\log_{10}(H)}
 $$
 
-## Code location
+## 7. Comparison with the simplest model
 
-Implemented in:
+![Henderson-Hasselbalch versus exact equilibrium model](assets/equilibrium_model_hh_vs_exact.svg)
 
-```text
-simulation/equilibrium_buffer_model.py
-```
+At normal buffer concentration, for example $C_T=50\ \mathrm{mM}$, the charge-balance model and Henderson-Hasselbalch prediction are almost the same.
 
-Main class:
+At very dilute concentration, for example $C_T=1\ \mathrm{mM}$, the difference becomes larger. This happens because the buffer species no longer dominate the equilibrium as strongly, and water self-ionization becomes more relevant.
+
+## 8. When does Henderson-Hasselbalch start to fail?
+
+![Error versus total buffer concentration](assets/equilibrium_model_error_vs_concentration.svg)
+
+The plotted quantity is:
+
+$$
+\mathrm{error}=\mathrm{pH}_{eq}-\mathrm{pH}_{HH}
+$$
+
+The green region shows the approximate total buffer concentration range expected from $100\ \mathrm{mM}$ stocks and $1$ to $10\ \mathrm{mL/min}$ pump bounds.
+
+The main takeaway is:
+
+- in the expected operating range, the simple model is probably close,
+- at very low concentration, the equilibrium model is safer,
+- acid-rich cases can be more sensitive to dilution.
+
+## 9. Python implementation
 
 ```python
-EquilibriumBufferModel
+import numpy as np
+from scipy.optimize import brentq
+
+
+def ph_equilibrium_acetate(
+    F_H,
+    F_A,
+    F_W,
+    C_H0=0.1,
+    C_A0=0.1,
+    pKa=4.76,
+    Kw=1e-14,
+):
+    if F_H <= 0 or F_A <= 0 or F_W < 0:
+        raise ValueError("Flowrates must be physically valid.")
+
+    F_T = F_H + F_A + F_W
+    C_H = C_H0 * F_H / F_T
+    C_A = C_A0 * F_A / F_T
+
+    C_T = C_H + C_A
+    C_Na = C_A
+    Ka = 10 ** (-pKa)
+
+    def charge_balance_in_pH(pH):
+        H = 10 ** (-pH)
+        A_minus = C_T * Ka / (Ka + H)
+        OH = Kw / H
+        return H + C_Na - A_minus - OH
+
+    return brentq(charge_balance_in_pH, 0.0, 14.0)
 ```
 
-Important methods:
+## 10. How to use this model
 
-```python
-mixed_concentrations(acid_flow, acetate_flow, water_flow)
-predict_ph(acid_flow, acetate_flow, water_flow)
-compare_to_simple(acid_flow, acetate_flow, water_flow)
-flows_from_target(target_ph, water_flow=None, buffer_flow_sum=None, clip=True)
-```
+Use the models in this order:
 
-## Implementation idea
+1. Use Henderson-Hasselbalch for fast target-to-flow calculations.
+2. Use the equilibrium model to check the predicted steady-state pH.
+3. Fit an effective $pK_a$ and possible pH bias using lab data.
+4. Add a first-order-plus-delay dynamic model.
+5. Add feedback control.
+6. Use residual RL only after the baseline works.
 
-The code solves the charge balance in pH-space:
+A useful corrected form after data collection is:
 
-```python
-def charge_balance_in_pH(pH):
-    H = 10 ** (-pH)
-    acetate = C_T * Ka / (Ka + H)
-    hydroxide = Kw / H
-    return H + C_Na - acetate - hydroxide
+$$
+\mathrm{pH}_{meas}\approx \mathrm{pH}_{eq}(F_H,F_A,F_W;pK_{a,eff})+b_{pH}
+$$
 
-pH = brentq(charge_balance_in_pH, 0.0, 14.0)
-```
+where $pK_{a,eff}$ and $b_{pH}$ are fitted from lab data.
 
-Solving in pH-space is convenient because it brackets the solution over the physical pH range 0 to 14.
+## 11. What this model still does not include
 
-## Relation to simple model
+This model still ignores:
 
-The equilibrium model should be close to the simple model in the normal concentration range. If the two models strongly disagree under normal operating conditions, possible causes include:
-
-- wrong stock concentration assumptions,
-- wrong pKa value,
-- temperature effects,
-- pH probe bias,
-- nonideal activity effects,
-- or a coding error.
-
-## What this model still ignores
-
-This model does not include:
-
+- pH probe dynamics,
 - transport delay,
-- pH probe response time,
 - pump dynamics,
+- activity coefficients,
+- temperature dependence of $K_a$ and $K_w$,
+- dissolved carbon dioxide,
 - incomplete mixing,
-- temperature-dependent pKa and Kw,
-- activity coefficient corrections,
-- dissolved carbon dioxide effects.
+- sensor calibration drift.
 
-These are later layers.
+These are later modeling layers.
+
+## 12. References
+
+[^hh]: Henderson-Hasselbalch equation overview and weak-acid/conjugate-base buffer form: https://en.wikipedia.org/wiki/Henderson%E2%80%93Hasselbalch_equation
+
+[^iupac-ph]: IUPAC Gold Book definition of pH as a hydrogen ion activity quantity: https://goldbook.iupac.org/terms/view/P04524
+
+[^pubchem-acetic]: PubChem compound summary for acetic acid, including chemical identity and acid dissociation information: https://pubchem.ncbi.nlm.nih.gov/compound/Acetic-Acid
+
+[^po-senozan]: Po, H. N., and Senozan, N. M. "The Henderson-Hasselbalch Equation: Its History and Limitations." Journal of Chemical Education, 78, 1499-1503, 2001. DOI: https://doi.org/10.1021/ed078p1499

@@ -1,6 +1,5 @@
+from datetime import datetime
 from pathlib import Path
-
-import pandas as pd
 
 from helpers.experiment_grid import dataframe_from_records, make_target_ph_grid
 from helpers.plotting import (
@@ -20,9 +19,15 @@ def main():
     simple_model = SimpleBufferModel(config)
     equilibrium_model = EquilibriumBufferModel(config)
 
-    output_dir = Path("outputs")
-    figure_dir = setup_output_dir(output_dir / "figures")
-    table_dir = setup_output_dir(output_dir / "tables")
+    method_name = "equilibrium_charge_balance"
+    run_time = datetime.now()
+    run_stamp = run_time.strftime("%Y%m%d_%H%M%S")
+    run_time_display = run_time.strftime("%Y-%m-%d %H:%M:%S")
+    stamp_text = f"method={method_name} | run_time={run_time_display}"
+
+    result_dir = setup_output_dir(Path("results") / f"{method_name}_{run_stamp}")
+    figure_dir = setup_output_dir(result_dir / "figures")
+    table_dir = setup_output_dir(result_dir / "tables")
 
     target_ph_values = make_target_ph_grid(
         start=3.8,
@@ -43,14 +48,19 @@ def main():
         records.append(result)
 
     df = dataframe_from_records(records)
+    df["run_method"] = method_name
+    df["run_time"] = run_time_display
     df.to_csv(table_dir / "initial_ph_sweep.csv", index=False)
 
-    plot_target_sweep(df, figure_dir / "target_ph_sweep.png")
-    plot_flow_allocation(df, figure_dir / "flow_allocation.png")
-    plot_model_difference(df, figure_dir / "model_difference.png")
-    plot_ratio_map(df, figure_dir / "ratio_map.png")
+    plot_target_sweep(df, figure_dir / "target_ph_sweep.png", stamp_text=stamp_text)
+    plot_flow_allocation(df, figure_dir / "flow_allocation.png", stamp_text=stamp_text)
+    plot_model_difference(df, figure_dir / "model_difference.png", stamp_text=stamp_text)
+    plot_ratio_map(df, figure_dir / "ratio_map.png", stamp_text=stamp_text)
 
     print("Initial pH sweep completed.")
+    print(f"Method: {method_name}")
+    print(f"Run time: {run_time_display}")
+    print(f"Saved result directory: {result_dir}")
     print(f"Saved table: {table_dir / 'initial_ph_sweep.csv'}")
     print(f"Saved figures in: {figure_dir}")
     print()

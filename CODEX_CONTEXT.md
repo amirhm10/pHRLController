@@ -18,7 +18,8 @@ Current implemented models:
 
 3. `run_initial_simulation.py`
    - Runs target pH sweeps.
-   - Saves plots and a CSV table under `outputs/`.
+   - Saves plots and a CSV table under a timestamped `results/<method>_<YYYYMMDD_HHMMSS>/` directory.
+   - Stamps saved plots with the method and run time.
 
 ## Coding style
 

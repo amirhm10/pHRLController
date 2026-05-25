@@ -6,6 +6,10 @@ venv/
 .env
 .env.*
 .ipynb_checkpoints/
+.vscode/
+Data/*.csv
 outputs/
+results/
+reports/*.html
 .DS_Store
 Thumbs.db

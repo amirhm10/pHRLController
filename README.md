@@ -67,16 +67,20 @@ Run the first simulation sweep:
 python run_initial_simulation.py
 ```
 
-This creates output plots in:
+This creates a timestamped result folder using the active method name, for example:
 
 ```text
-outputs/figures/
+results/equilibrium_charge_balance_YYYYMMDD_HHMMSS/
 ```
 
-and a CSV summary in:
+The saved plots are stamped with the method and run time. The result folder contains:
 
 ```text
-outputs/tables/initial_ph_sweep.csv
+figures/target_ph_sweep.png
+figures/flow_allocation.png
+figures/model_difference.png
+figures/ratio_map.png
+tables/initial_ph_sweep.csv
 ```
 
 ## Current scope
