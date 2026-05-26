@@ -39,13 +39,13 @@ Rows are sorted chronologically. Rows with nonpositive acid, acetate, or water f
 The raw CSV has `1086` rows and `41` columns. The latest dynamic workflow saves a full numeric profile for every raw column here:
 
 ```text
-results/dynamic_model_identification_20260522_133621/tables/raw_column_profile.csv
+results/dynamic_model_identification_20260525_205317/tables/raw_column_profile.csv
 ```
 
 The processed model table also has its own profile:
 
 ```text
-results/dynamic_model_identification_20260522_133621/tables/preprocessed_column_profile.csv
+results/dynamic_model_identification_20260525_205317/tables/preprocessed_column_profile.csv
 ```
 
 The raw data columns are:
@@ -131,13 +131,13 @@ The preprocessing step creates the modeling table used by the runners. Important
 The trial summary table is saved here:
 
 ```text
-results/dynamic_model_identification_20260522_133621/tables/trial_split_summary.csv
+results/dynamic_model_identification_20260525_205317/tables/trial_split_summary.csv
 ```
 
 The trial timing summary is saved here:
 
 ```text
-results/dynamic_model_identification_20260522_133621/tables/trial_sampling_summary.csv
+results/dynamic_model_identification_20260525_205317/tables/trial_sampling_summary.csv
 ```
 
 ## Sampling Time Consistency
@@ -145,7 +145,7 @@ results/dynamic_model_identification_20260522_133621/tables/trial_sampling_summa
 The sampling is not globally uniform. The latest dynamic run saves sampling diagnostics here:
 
 ```text
-results/dynamic_model_identification_20260522_133621/tables/sampling_summary.csv
+results/dynamic_model_identification_20260525_205317/tables/sampling_summary.csv
 ```
 
 The key timing results are:
@@ -164,7 +164,7 @@ Session-level timing shows the change more clearly:
 | sessions `0-3` | approximately `140-142 s` |
 | sessions `4-6` | approximately `69-70 s` |
 
-This matters for dynamics. A first-order time constant of about `1.87 s` is far below both the early `142 s` and later `69 s` sample intervals, so the fitted dynamic model collapses to the static calibrated model at the available time resolution. It also means integer-lag estimates are coarse: one lag means roughly `2.36 min` in early trials and roughly `1.16 min` in later trials.
+This matters for dynamics. A first-order time constant of about `1.71 s` is far below both the early `142 s` and later `69 s` sample intervals, so the fitted dynamic model collapses to the static calibrated model at the available time resolution. It also means integer-lag estimates are coarse: one lag means roughly `2.36 min` in early trials and roughly `1.16 min` in later trials.
 
 ## Original Modeling Round Before Flat-Trial Filtering
 
@@ -177,6 +177,8 @@ The first full report used these artifacts:
 | Dynamic identification | `results/dynamic_model_identification_20260522_013357/` |
 
 At this stage, only the one row with invalid flow was excluded. The suspicious flat-pH trials were still included in model fitting and metrics.
+
+The historical pre-patch result folders are listed for provenance. They are not embedded as figures in this refreshed report because those timestamped artifacts are not present in the current checkout. The current reproducible figures begin with the flat-trial-filtered rerun below.
 
 ## Model 1: Ideal Henderson-Hasselbalch
 
@@ -226,15 +228,10 @@ $$
 
 The ideal model captured a broad trend but failed as a direct simulator. It overpredicted `PH_2` and the measured pH range was compressed relative to ideal chemistry.
 
-![Original Henderson-Hasselbalch time response](../results/henderson_hasselbalch_lab_validation_20260522_003559/figures/measured_vs_hh_prediction_time.png)
 
-![Original Henderson-Hasselbalch measured versus predicted scatter](../results/henderson_hasselbalch_lab_validation_20260522_003559/figures/measured_vs_hh_prediction_scatter.png)
 
-![Original Henderson-Hasselbalch residual with +/- 0.2 pH band](../results/henderson_hasselbalch_lab_validation_20260522_003559/figures/measured_minus_hh_time.png)
 
-![Original Henderson-Hasselbalch residual histogram](../results/henderson_hasselbalch_lab_validation_20260522_003559/figures/measured_minus_hh_histogram.png)
 
-![Original Henderson-Hasselbalch flow-ratio response](../results/henderson_hasselbalch_lab_validation_20260522_003559/figures/flow_ratio_response_map.png)
 
 ## Model 2: Equilibrium Charge Balance
 
@@ -310,17 +307,11 @@ $$
 
 This model also failed as a direct simulator. The extra equilibrium detail did not reduce the error relative to Henderson-Hasselbalch.
 
-![Original equilibrium time response](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/measured_vs_equilibrium_prediction_time.png)
 
-![Original equilibrium measured versus predicted scatter](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/measured_vs_equilibrium_prediction_scatter.png)
 
-![Original equilibrium residual with +/- 0.2 pH band](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/measured_minus_equilibrium_time.png)
 
-![Original equilibrium residual histogram](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/measured_minus_equilibrium_histogram.png)
 
-![Original equilibrium total buffer trajectory](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/total_buffer_concentration_trajectory.png)
 
-![Original equilibrium residual versus total buffer](../results/equilibrium_charge_balance_lab_validation_20260522_005207/figures/residual_vs_total_buffer.png)
 
 ## Model 3: Dynamic Identification From Equilibrium pH
 
@@ -416,19 +407,12 @@ Original train/test metrics:
 
 The original conclusion was that static calibration helped, but integer lag and first-order dynamics did not add useful predictive power.
 
-![Original dynamic time response](../results/dynamic_model_identification_20260522_013357/figures/measured_vs_dynamic_prediction_time.png)
 
-![Original dynamic measured versus predicted scatter](../results/dynamic_model_identification_20260522_013357/figures/measured_vs_dynamic_prediction_scatter.png)
 
-![Original dynamic residuals by model](../results/dynamic_model_identification_20260522_013357/figures/residual_time_by_model.png)
 
-![Original dynamic residual histograms](../results/dynamic_model_identification_20260522_013357/figures/residual_histogram_by_model.png)
 
-![Original dynamic lag search](../results/dynamic_model_identification_20260522_013357/figures/lag_search_rmse.png)
 
-![Original dynamic trial examples](../results/dynamic_model_identification_20260522_013357/figures/dynamic_prediction_by_trial_examples.png)
 
-![Original dynamic train/test RMSE comparison](../results/dynamic_model_identification_20260522_013357/figures/train_test_metric_comparison.png)
 
 ## Patch: Flat-Trial Removal And Rerun
 
@@ -460,9 +444,13 @@ The updated rerun artifacts are:
 
 | Workflow | Result folder |
 | --- | --- |
-| Henderson-Hasselbalch | `results/henderson_hasselbalch_lab_validation_20260522_022832/` |
-| Equilibrium charge balance | `results/equilibrium_charge_balance_lab_validation_20260522_022832/` |
-| Dynamic identification | `results/dynamic_model_identification_20260522_133621/` |
+| Static HH/equilibrium calibration | `results/effective_static_chemistry_calibration_20260525_205542/` |
+| Dynamic identification | `results/dynamic_model_identification_20260525_205317/` |
+| Transport delay identification | `results/transport_delay_identification_20260525_205338/` |
+| Two-minute regime transport delay | `results/first_regime_transport_delay_identification_20260525_205417/` |
+| One-minute regime transport delay | `results/second_regime_transport_delay_identification_20260525_205433/` |
+
+The older standalone Henderson-Hasselbalch and equilibrium validation runners are not present in the current checkout. The static baselines were regenerated with `run_effective_static_chemistry_calibration.py`, which computes raw Henderson-Hasselbalch, raw equilibrium charge balance, bias-corrected, effective-pKa, and affine-calibrated static models from the same preprocessed CSV.
 
 ### Updated Henderson-Hasselbalch Result
 
@@ -479,22 +467,18 @@ The updated rerun artifacts are:
 Updated affine diagnostic:
 
 $$
-PH_2 \approx 0.6308 + 0.7921\,pH_{HH}
+PH_2 \approx 0.6660 + 0.7891\,pH_{HH}
 $$
 
-![Filtered Henderson-Hasselbalch time response](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/measured_vs_hh_prediction_time.png)
+The current static-chemistry rerun summarizes the raw and calibrated static models in combined figures:
 
-![Filtered Henderson-Hasselbalch measured versus predicted scatter](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/measured_vs_hh_prediction_scatter.png)
+![Filtered static chemistry time response](../results/effective_static_chemistry_calibration_20260525_205542/figures/measured_vs_static_calibrations_time.png)
 
-![Filtered Henderson-Hasselbalch residual with +/- 0.2 pH band](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/measured_minus_hh_time.png)
+![Filtered static chemistry measured versus predicted scatter](../results/effective_static_chemistry_calibration_20260525_205542/figures/measured_vs_best_static_scatter.png)
 
-![Filtered Henderson-Hasselbalch residual histogram](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/measured_minus_hh_histogram.png)
+![Filtered static chemistry residual histograms](../results/effective_static_chemistry_calibration_20260525_205542/figures/static_calibration_residual_histograms.png)
 
-![Filtered Henderson-Hasselbalch inlet flow trajectories](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/inlet_flow_trajectories.png)
-
-![Filtered Henderson-Hasselbalch flow-ratio response](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/flow_ratio_response_map.png)
-
-![Filtered Henderson-Hasselbalch lag scan](../results/henderson_hasselbalch_lab_validation_20260522_022832/figures/lag_scan_diagnostic.png)
+![Filtered static chemistry train/test RMSE](../results/effective_static_chemistry_calibration_20260525_205542/figures/static_calibration_train_test_rmse.png)
 
 ### Updated Equilibrium Charge-Balance Result
 
@@ -511,28 +495,8 @@ $$
 Updated affine diagnostic:
 
 $$
-PH_2 \approx 0.6221 + 0.7937\,pH_{eq}
+PH_2 \approx 0.6567 + 0.7909\,pH_{eq}
 $$
-
-![Filtered equilibrium time response](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/measured_vs_equilibrium_prediction_time.png)
-
-![Filtered equilibrium measured versus predicted scatter](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/measured_vs_equilibrium_prediction_scatter.png)
-
-![Filtered equilibrium residual with +/- 0.2 pH band](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/measured_minus_equilibrium_time.png)
-
-![Filtered equilibrium residual histogram](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/measured_minus_equilibrium_histogram.png)
-
-![Filtered equilibrium inlet flow trajectories](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/inlet_flow_trajectories.png)
-
-![Filtered equilibrium total flow trajectory](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/total_flow_trajectory.png)
-
-![Filtered equilibrium total buffer trajectory](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/total_buffer_concentration_trajectory.png)
-
-![Filtered equilibrium flow-ratio response](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/flow_ratio_response_map.png)
-
-![Filtered equilibrium residual versus total buffer](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/residual_vs_total_buffer.png)
-
-![Filtered equilibrium lag scan](../results/equilibrium_charge_balance_lab_validation_20260522_022832/figures/lag_scan_diagnostic.png)
 
 ### Updated Dynamic Identification Result
 
@@ -549,9 +513,9 @@ Updated dynamic parameters:
 | train samples | `731` |
 | test samples | `259` |
 | best lag | `0` samples |
-| fitted \(\tau\) | `1.8741 s` |
+| fitted \(\tau\) | `1.7115 s` |
 | median sample interval | `69.7710 s` |
-| approximate effective volume | `0.5110 mL` |
+| approximate effective volume | `0.4667 mL` |
 
 What the dynamic model is actually fitting:
 
@@ -563,7 +527,7 @@ $$
 
 This is ordinary least-squares linear regression in pH-space. The fitted intercept and slope can be interpreted as an effective measurement/process bias and compression. They should not be interpreted as a true physical pKa because \(b_1 \ne 1\). If the only mismatch were a pKa shift, the slope would stay close to `1` and the intercept would mainly move the pH scale. Here the slope is `0.7909`, so the measured pH response is compressed relative to equilibrium chemistry.
 
-After that line is fitted, the workflow searches integer sample delay and a first-order filter. Since the best delay is `0` samples and the fitted time constant is only `1.8741 s`, the dynamic model is effectively the static calibrated equilibrium model at this one-minute sampling resolution.
+After that line is fitted, the workflow searches integer sample delay and a first-order filter. Since the best delay is `0` samples and the fitted time constant is only `1.7115 s`, the dynamic model is effectively the static calibrated equilibrium model at this one-minute sampling resolution.
 
 Updated train/test metrics:
 
@@ -578,27 +542,27 @@ Updated train/test metrics:
 
 The flat-trial patch improved the calibrated held-out test RMSE from `0.1148 pH` to `0.0975 pH`. The improvement came from cleaner static calibration, not from delay or first-order dynamics.
 
-![Filtered measurement input-output behavior](../results/dynamic_model_identification_20260522_133621/figures/measurement_input_output_behavior.png)
+![Filtered measurement input-output behavior](../results/dynamic_model_identification_20260525_205317/figures/measurement_input_output_behavior.png)
 
-![Filtered prediction-only behavior](../results/dynamic_model_identification_20260522_133621/figures/prediction_behavior_only.png)
+![Filtered prediction-only behavior](../results/dynamic_model_identification_20260525_205317/figures/prediction_behavior_only.png)
 
-![Filtered dynamic time response](../results/dynamic_model_identification_20260522_133621/figures/measured_vs_dynamic_prediction_time.png)
+![Filtered dynamic time response](../results/dynamic_model_identification_20260525_205317/figures/measured_vs_dynamic_prediction_time.png)
 
-![Filtered dynamic measured versus predicted scatter](../results/dynamic_model_identification_20260522_133621/figures/measured_vs_dynamic_prediction_scatter.png)
+![Filtered dynamic measured versus predicted scatter](../results/dynamic_model_identification_20260525_205317/figures/measured_vs_dynamic_prediction_scatter.png)
 
-![Filtered dynamic residuals by model with +/- 0.2 pH band](../results/dynamic_model_identification_20260522_133621/figures/residual_time_by_model.png)
+![Filtered dynamic residuals by model with +/- 0.2 pH band](../results/dynamic_model_identification_20260525_205317/figures/residual_time_by_model.png)
 
-![Filtered dynamic residual histograms](../results/dynamic_model_identification_20260522_133621/figures/residual_histogram_by_model.png)
+![Filtered dynamic residual histograms](../results/dynamic_model_identification_20260525_205317/figures/residual_histogram_by_model.png)
 
-![Filtered dynamic lag search](../results/dynamic_model_identification_20260522_133621/figures/lag_search_rmse.png)
+![Filtered dynamic lag search](../results/dynamic_model_identification_20260525_205317/figures/lag_search_rmse.png)
 
-![Filtered dynamic trial examples](../results/dynamic_model_identification_20260522_133621/figures/dynamic_prediction_by_trial_examples.png)
+![Filtered dynamic trial examples](../results/dynamic_model_identification_20260525_205317/figures/dynamic_prediction_by_trial_examples.png)
 
-![Filtered trial input-output examples](../results/dynamic_model_identification_20260522_133621/figures/trial_input_output_examples.png)
+![Filtered trial input-output examples](../results/dynamic_model_identification_20260525_205317/figures/trial_input_output_examples.png)
 
-![Filtered dynamic train/test comparison](../results/dynamic_model_identification_20260522_133621/figures/train_test_metric_comparison.png)
+![Filtered dynamic train/test comparison](../results/dynamic_model_identification_20260525_205317/figures/train_test_metric_comparison.png)
 
-![Regime input distributions](../results/dynamic_model_identification_20260522_133621/figures/regime_input_distributions.png)
+![Regime input distributions](../results/dynamic_model_identification_20260525_205317/figures/regime_input_distributions.png)
 
 ## Transport-Delay Identification With Total Flow
 
@@ -611,7 +575,7 @@ run_transport_delay_identification.py
 The verified result folder is:
 
 ```text
-results/transport_delay_identification_20260522_134840/
+results/transport_delay_identification_20260525_205338/
 ```
 
 The purpose was to test whether the lab CSV can identify an effective transport volume from the mixer to `PH_2`. This is different from the earlier integer-lag model. The integer-lag model asks whether shifting by `0`, `1`, `2`, ... logged samples improves prediction. The transport-delay model asks whether a fixed fluid volume must pass before a chemistry change reaches the pH probe.
@@ -771,21 +735,21 @@ The RMSE search confirms that any positive transport volume made the fit worse:
 | `40.0` | `0.3203` | `0.3016` |
 | `60.0` | `0.3144` | `0.3023` |
 
-![Transport-delay RMSE search](../results/transport_delay_identification_20260522_134840/figures/transport_delay_rmse_search.png)
+![Transport-delay RMSE search](../results/transport_delay_identification_20260525_205338/figures/transport_delay_rmse_search.png)
 
-![Transport-delay time response](../results/transport_delay_identification_20260522_134840/figures/measured_vs_transport_delay_prediction_time.png)
+![Transport-delay time response](../results/transport_delay_identification_20260525_205338/figures/measured_vs_transport_delay_prediction_time.png)
 
-![Transport-delay measured versus predicted scatter](../results/transport_delay_identification_20260522_134840/figures/measured_vs_transport_delay_prediction_scatter.png)
+![Transport-delay measured versus predicted scatter](../results/transport_delay_identification_20260525_205338/figures/measured_vs_transport_delay_prediction_scatter.png)
 
-![Transport-delay residuals with +/- 0.2 pH band](../results/transport_delay_identification_20260522_134840/figures/transport_delay_residual_time.png)
+![Transport-delay residuals with +/- 0.2 pH band](../results/transport_delay_identification_20260525_205338/figures/transport_delay_residual_time.png)
 
-![Transport-delay residual histogram](../results/transport_delay_identification_20260522_134840/figures/transport_delay_residual_histogram.png)
+![Transport-delay residual histogram](../results/transport_delay_identification_20260525_205338/figures/transport_delay_residual_histogram.png)
 
-![Transport-delay theta over time](../results/transport_delay_identification_20260522_134840/figures/theta_transport_time.png)
+![Transport-delay theta over time](../results/transport_delay_identification_20260525_205338/figures/theta_transport_time.png)
 
-![Total flow and cumulative transported volume](../results/transport_delay_identification_20260522_134840/figures/total_flow_cumulative_volume.png)
+![Total flow and cumulative transported volume](../results/transport_delay_identification_20260525_205338/figures/total_flow_cumulative_volume.png)
 
-![Transport-delay trial examples](../results/transport_delay_identification_20260522_134840/figures/transport_delay_trial_examples.png)
+![Transport-delay trial examples](../results/transport_delay_identification_20260525_205338/figures/transport_delay_trial_examples.png)
 
 ### Why The Estimated Volume Is Zero
 
@@ -846,8 +810,8 @@ The result folders are:
 
 | Regime | Result folder |
 | --- | --- |
-| two-minute regime | `results/first_regime_transport_delay_identification_20260522_140759/` |
-| one-minute regime | `results/second_regime_transport_delay_identification_20260522_140308/` |
+| two-minute regime | `results/first_regime_transport_delay_identification_20260525_205417/` |
+| one-minute regime | `results/second_regime_transport_delay_identification_20260525_205433/` |
 
 The subset definitions are:
 
@@ -869,15 +833,15 @@ For the one-minute regime, the search finds a volume near `0.467 mL`, correspond
 
 The RMSE searches show the same pattern in both regimes: very small volumes are the only plausible values, and larger volumes quickly damage the fit.
 
-![Two-minute transport-delay RMSE search](../results/first_regime_transport_delay_identification_20260522_140759/figures/transport_delay_rmse_search.png)
+![Two-minute transport-delay RMSE search](../results/first_regime_transport_delay_identification_20260525_205417/figures/transport_delay_rmse_search.png)
 
-![One-minute transport-delay RMSE search](../results/second_regime_transport_delay_identification_20260522_140308/figures/transport_delay_rmse_search.png)
+![One-minute transport-delay RMSE search](../results/second_regime_transport_delay_identification_20260525_205433/figures/transport_delay_rmse_search.png)
 
 The time-response plots show why the delay is not strongly identifiable. The transport-delay prediction mostly overlays the static calibrated prediction, because the selected physical delay is much shorter than the logging interval.
 
-![Two-minute transport-delay time response](../results/first_regime_transport_delay_identification_20260522_140759/figures/measured_vs_transport_delay_prediction_time.png)
+![Two-minute transport-delay time response](../results/first_regime_transport_delay_identification_20260525_205417/figures/measured_vs_transport_delay_prediction_time.png)
 
-![One-minute transport-delay time response](../results/second_regime_transport_delay_identification_20260522_140308/figures/measured_vs_transport_delay_prediction_time.png)
+![One-minute transport-delay time response](../results/second_regime_transport_delay_identification_20260525_205433/figures/measured_vs_transport_delay_prediction_time.png)
 
 The regime split also clarifies a bigger modeling issue. The one-minute regime is much easier to calibrate: static test RMSE is only `0.0513 pH`. The two-minute regime has static test RMSE `0.2914 pH`, mainly because the chronological train/test split inside sessions `0-3` crosses a change in process behavior after the flat trials. In other words, the two-minute data are not just slower-sampled; they are also more nonstationary.
 
@@ -923,7 +887,7 @@ The raw equilibrium model works better before index `205` because that early seg
 The relevant diagnostic table is saved as:
 
 ```text
-results/dynamic_model_identification_20260522_133621/tables/regime_summary.csv
+results/dynamic_model_identification_20260525_205317/tables/regime_summary.csv
 ```
 
 ## Final Comparison After The Patch
