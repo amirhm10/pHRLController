@@ -1,0 +1,7 @@
+model_stage,model_label,parameter,value,feature,n_fit,fit_method,condition_number
+equilibrium_bias,Equilibrium + bias,bias,-0.3430422568893844,ph_equilibrium_charge_balance,731,train_mean_offset,
+equilibrium_affine,Equilibrium affine,intercept,0.6567147801378311,intercept,731,ordinary_least_squares,66.6901948819264
+equilibrium_affine,Equilibrium affine,coefficient_ph_equilibrium_charge_balance,0.7909130554967375,ph_equilibrium_charge_balance,731,ordinary_least_squares,66.6901948819264
+equilibrium_affine_summary,Equilibrium affine summary,equation,,PH_2 = b0 + b1 * pH_eq,731,ordinary_least_squares,
+equilibrium_affine_summary,Equilibrium affine summary,b0_intercept,0.6567147801378311,intercept,731,ordinary_least_squares,
+equilibrium_affine_summary,Equilibrium affine summary,b1_slope,0.7909130554967375,ph_equilibrium_charge_balance,731,ordinary_least_squares,
