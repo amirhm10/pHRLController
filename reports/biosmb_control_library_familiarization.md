@@ -2,6 +2,14 @@
 
 This report explains the local `BIOSMBControlLibrary` folder as an experiment-facing interface for the BioSMB hardware. The immediate purpose is not to add MPC, RL, or autonomous feedback control. The safer next use is supervised and open-loop pH experiment design that produces cleaner dynamic identification data for the inline acetate-buffer system.
 
+The experiment design in this report should be built around the current main chemistry model:
+
+```text
+equilibrium charge balance + empirical PH_2 calibration
+```
+
+The older ideal Henderson-Hasselbalch ratio is useful only as intuition for choosing acid/acetate steps. It should not be treated as the main plant model.
+
 The relevant local library folder is:
 
 ```text
@@ -25,6 +33,8 @@ The library is a thin Python wrapper around OPC-UA nodes. It can open and close 
 | [`BIOSMBControlLibrary/opc_emulator/`](../BIOSMBControlLibrary/opc_emulator/) | OPC-UA emulator used for non-hardware testing |
 | [`BIOSMBControlLibrary/docs/`](../BIOSMBControlLibrary/docs/) | Sphinx docs generated from the package docstrings |
 | [`BIOSMBControlLibrary/Presentation.pptx`](../BIOSMBControlLibrary/Presentation.pptx) | Small deck. The visible text indicates the pH setup streams: acetic, Na acetate, and water |
+| [`simulation/equilibrium_charge_balance_model.py`](../simulation/equilibrium_charge_balance_model.py) | Main first-principles chemistry core for the pH project |
+| [`reports/equilibrium_charge_balance_main_model_report.md`](equilibrium_charge_balance_main_model_report.md) | Current evidence and generated data for the equilibrium main model |
 
 ## What The Library Is Doing
 
@@ -68,6 +78,17 @@ For this pH project, the existing data-analysis convention says:
 - `PH_2` is the reliable measured outlet pH.
 - `PH_1` should not be used for model-validation metrics unless the hardware state has changed and is explicitly verified.
 - The project data mapping treats flow channel 1 as acetic acid, flow channel 2 as sodium acetate, and flow channel 3 as water. In this live library, the pump-to-stream mapping must still be confirmed against the actual plumbing before any experiment script assumes it.
+
+The current lab CSV confirms the same active flow channels:
+
+| Project variable | Physical stream | CSV column | BioSMB flow channel |
+| --- | --- | --- | --- |
+| `acid_flow` | acetic acid, 100 mM | `observation.biosmb-flows[0]` | pump/flow 1 |
+| `acetate_flow` | sodium acetate, 100 mM | `observation.biosmb-flows[1]` | pump/flow 2 |
+| `water_flow` | Arium water | `observation.biosmb-flows[2]` | pump/flow 3 |
+| `PH_2` | outlet pH after the routed mixing path | `observation.biosmb-sensors.PH_2` | pH sensor 2 |
+
+Flow channels `observation.biosmb-flows[3]` through `observation.biosmb-flows[6]` are zero in the current CSV and are not part of the pH mixing model. The dataset does not contain a separate outlet-flow column, so outlet behavior is represented by the valve path and the reliable outlet pH measurement `PH_2`.
 
 The manager default is `settings_file="settings.json"`. That means scripts are sensitive to the working directory. If a script is launched from the repository root instead of from `BIOSMBControlLibrary/`, the default settings path may not resolve unless the script passes:
 
@@ -340,7 +361,7 @@ This is the closest existing pattern for structured data logging. For pH work, t
 
 Risk: it repeatedly opens OPC clients and MongoDB clients inside an infinite loop. A future experiment runner should preferably open long-lived connections once, log inside the loop, and close cleanly at the end.
 
-## Mathematical Interpretation For pH Experiments
+## Equilibrium Model Interpretation For pH Experiments
 
 For the inline acetate-buffer system, the manipulated inputs are the three inlet flowrates:
 
@@ -359,18 +380,92 @@ $$
 y(t) = PH_2(t)
 $$
 
-The ideal Henderson-Hasselbalch ratio coordinate is:
+The main first-principles chemistry coordinate is the equilibrium charge-balance pH:
+
+$$
+pH_{eq}(t) = -\log_{10}(H(t))
+$$
+
+where \(H(t)\) is found by solving an electroneutrality equation after mixing the three inlet streams.
+
+The total flow is:
+
+$$
+F_T(t) = F_H(t) + F_A(t) + F_W(t)
+$$
+
+With 100 mM acetic acid stock and 100 mM sodium acetate stock, the mixed analytical concentrations are:
+
+$$
+C_H(t) = C_{H,0}\frac{F_H(t)}{F_T(t)}
+$$
+
+$$
+C_A(t) = C_{A,0}\frac{F_A(t)}{F_T(t)}
+$$
+
+The total acetate-family concentration is:
+
+$$
+C_T(t) = C_H(t) + C_A(t)
+$$
+
+The sodium concentration contributed by sodium acetate is:
+
+$$
+C_{Na}(t) = C_A(t)
+$$
+
+For acetic acid:
+
+$$
+K_a = 10^{-pK_a}
+$$
+
+The acetate concentration implied by acid-base equilibrium is:
+
+$$
+A^{-}(t) = \frac{C_T(t)K_a}{K_a + H(t)}
+$$
+
+Water self-ionization contributes:
+
+$$
+OH^{-}(t) = \frac{K_w}{H(t)}
+$$
+
+The charge-balance residual is:
+
+$$
+f(H(t)) =
+H(t) + C_{Na}(t)
+- \frac{C_T(t)K_a}{K_a + H(t)}
+- \frac{K_w}{H(t)}
+$$
+
+The model solves:
+
+$$
+f(H(t)) = 0
+$$
+
+and then maps the raw equilibrium pH to the observed `PH_2` scale using the current empirical calibration:
+
+$$
+\widehat{PH}_2(t) =
+0.6567 + 0.7909\,pH_{eq}(t)
+$$
+
+This calibration is based on the current lab CSV and should be rechecked after new tubing, sensor calibration, valve routing, or reagent changes.
+
+The ideal Henderson-Hasselbalch expression:
 
 $$
 pH_{HH}(t) =
 pK_a + \log_{10}\left(\frac{F_A(t)}{F_H(t)}\right)
 $$
 
-when the acid and acetate stock concentrations are equal. Water does not directly change this ideal ratio, but it changes dilution, total flow, residence time, transport delay, flushing speed, and possibly sensor response:
-
-$$
-F_T(t) = F_H(t) + F_A(t) + F_W(t)
-$$
+is still useful as a simple way to choose acid/acetate ratios during step-test design. It is not the main model. The main model is the charge-balance calculation because it keeps water, dilution, total buffer concentration, sodium charge, and total flow explicitly in the chemistry coordinate.
 
 A physical delay model would have the form:
 
@@ -380,7 +475,7 @@ $$
 
 where \(\theta(t)\) is in seconds if \(V_{tube}\) is in mL and \(F_T(t)\) is in mL/min.
 
-The existing lab-data analysis found that the current CSV does not identify a trustworthy nonzero transport volume at the logged sample rate. Therefore, the next use of this library should be to create a cleaner open-loop dataset rather than immediately implementing closed-loop control.
+The existing lab-data analysis found that the current CSV does not identify a trustworthy nonzero transport volume at the logged sample rate. Therefore, the next use of this library should be to create a cleaner open-loop dataset that can separate equilibrium chemistry, affine `PH_2` calibration, transport delay, mixing dynamics, and sensor response.
 
 ## Safe pH Experiment Pattern
 
@@ -396,15 +491,17 @@ A pH experiment script should use this sequence:
 5. Configure the intended valve path.
 6. Enable only the required pumps.
 7. Apply bounded flow setpoints.
-8. Poll sensors at a fixed sampling period.
-9. Log timestamped observations.
-10. Always clean up in `finally`.
+8. Compute and log the raw equilibrium prediction and calibrated equilibrium prediction for the commanded flows.
+9. Poll sensors at a fixed sampling period.
+10. Log timestamped observations.
+11. Always clean up in `finally`.
 
 The cleanup block should be treated as mandatory:
 
 ```python
 try:
-    # configure valves, enable selected pumps, set bounded flows, log PH_2
+    # configure valves, enable selected pumps, set bounded flows,
+    # compute equilibrium predictions, and log PH_2
     ...
 finally:
     biosmb.zero_all_flows()
@@ -427,13 +524,13 @@ including delay, mixing dynamics, and sensor response.
 
 Use two kinds of steps.
 
-First, acid/acetate ratio steps at fixed total flow:
+First, equilibrium-coordinate steps at fixed total flow. Practically, this means changing the acid/acetate ratio while keeping total flow approximately constant:
 
 $$
 \frac{F_A}{F_H} \text{ changes}, \quad F_T \text{ approximately constant}
 $$
 
-This excites the pH chemistry coordinate while reducing confounding from total residence time.
+This excites the equilibrium pH coordinate while reducing confounding from total residence time.
 
 Second, total-flow or water-flow steps at fixed acid/acetate ratio:
 
@@ -452,6 +549,9 @@ Recommended data to log at each sample:
 | commanded acid flow | model input |
 | commanded acetate flow | model input |
 | commanded water flow | model input |
+| total flow | dilution and residence-time coordinate |
+| raw `pH_eq` | first-principles equilibrium chemistry coordinate |
+| calibrated equilibrium `PH_2` prediction | current empirical expected `PH_2` before dynamics |
 | measured all flows | detects command/readback mismatch if available |
 | `PH_2` | reliable pH output |
 | `PH_1` | diagnostic only |
@@ -534,14 +634,20 @@ This script should not implement feedback control. It should:
 - reset the system,
 - configure a verified valve path,
 - execute finite-duration open-loop steps,
-- log `PH_2`, diagnostic sensors, flows, and metadata,
+- compute `pH_eq` from the equilibrium charge-balance model for each commanded flow tuple,
+- log `PH_2`, diagnostic sensors, flows, equilibrium predictions, and metadata,
 - clean up in `finally`.
 
 Success would be a timestamped CSV with enough excitation to fit:
 
 $$
-PH_2(t) =
-G\left(F_H(t), F_A(t), F_W(t), \theta, \tau_{mix}, \tau_s\right)
+\widehat{PH}_2(t) =
+G\left(
+0.6567 + 0.7909\,pH_{eq}(F_H(t), F_A(t), F_W(t)),
+\theta,
+\tau_{mix},
+\tau_s
+\right)
 $$
 
 where \(\theta\) is transport delay, \(\tau_{mix}\) is mixing/residence-time behavior, and \(\tau_s\) is pH sensor response. This is the right bridge between the current library and later safe controller design.
