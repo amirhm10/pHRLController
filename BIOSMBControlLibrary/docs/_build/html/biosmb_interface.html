@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>biosmb_interface package &mdash; BioSMB Python Interface 2024-05-02 v0.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=75c6c4f2"></script>
+        <script src="_static/doctools.js?v=9a2dae69"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="biosmb_interface.manager" href="manager.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            BioSMB Python Interface
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="manager.html">biosmb_interface.manager</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">biosmb_interface package</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-biosmb_interface.enum">biosmb_interface.enum</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#biosmb_interface.enum.PumpEnabledState"><code class="docutils literal notranslate"><span class="pre">PumpEnabledState</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.enum.PumpEnabledState.DISABLED"><code class="docutils literal notranslate"><span class="pre">PumpEnabledState.DISABLED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.enum.PumpEnabledState.ENABLED"><code class="docutils literal notranslate"><span class="pre">PumpEnabledState.ENABLED</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#biosmb_interface.enum.ValveState"><code class="docutils literal notranslate"><span class="pre">ValveState</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.enum.ValveState.CLOSED"><code class="docutils literal notranslate"><span class="pre">ValveState.CLOSED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.enum.ValveState.OPEN"><code class="docutils literal notranslate"><span class="pre">ValveState.OPEN</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-biosmb_interface.manager">biosmb_interface.manager</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager"><code class="docutils literal notranslate"><span class="pre">BioSMBManager</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.close_all_valves"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.close_all_valves()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.close_valve"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.close_valve()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.disable_all_pumps"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.disable_all_pumps()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.disable_pump"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.disable_pump()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.enable_all_pumps"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.enable_all_pumps()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.enable_pump"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.enable_pump()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.get_all_flows"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_all_flows()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.get_all_sensors"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_all_sensors()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.get_all_valves"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_all_valves()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.get_conductivity"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_conductivity()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.get_flow"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_flow()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.get_ph"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_ph()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.get_pressure"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_pressure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.get_pump_enabled"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_pump_enabled()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.get_uv"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_uv()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.get_valve"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_valve()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.open_valve"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.open_valve()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.print_status"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.print_status()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.set_all_flows"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.set_all_flows()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.set_flow"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.set_flow()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.set_pump_enabled"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.set_pump_enabled()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.set_valve"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.set_valve()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#biosmb_interface.manager.BioSMBManager.zero_all_flows"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.zero_all_flows()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#biosmb_interface.manager.OPCValveIndex"><code class="docutils literal notranslate"><span class="pre">OPCValveIndex</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-biosmb_interface.utility">biosmb_interface.utility</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#biosmb_interface.utility.print_status_text"><code class="docutils literal notranslate"><span class="pre">print_status_text()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#biosmb_interface.utility.print_valve_state"><code class="docutils literal notranslate"><span class="pre">print_valve_state()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">BioSMB Python Interface</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">biosmb_interface package</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/biosmb_interface.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="biosmb-interface-package">
+<h1>biosmb_interface package<a class="headerlink" href="#biosmb-interface-package" title="Link to this heading"></a></h1>
+<section id="module-biosmb_interface.enum">
+<span id="biosmb-interface-enum"></span><h2>biosmb_interface.enum<a class="headerlink" href="#module-biosmb_interface.enum" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="biosmb_interface.enum.PumpEnabledState">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">biosmb_interface.enum.</span></span><span class="sig-name descname"><span class="pre">PumpEnabledState</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qualname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">boundary</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#biosmb_interface.enum.PumpEnabledState" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></p>
+<p>An enumeration for the enabled state of a pump</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="biosmb_interface.enum.PumpEnabledState.DISABLED">
+<span class="sig-name descname"><span class="pre">DISABLED</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></em><a class="headerlink" href="#biosmb_interface.enum.PumpEnabledState.DISABLED" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="biosmb_interface.enum.PumpEnabledState.ENABLED">
+<span class="sig-name descname"><span class="pre">ENABLED</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1</span></em><a class="headerlink" href="#biosmb_interface.enum.PumpEnabledState.ENABLED" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="biosmb_interface.enum.ValveState">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">biosmb_interface.enum.</span></span><span class="sig-name descname"><span class="pre">ValveState</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qualname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">boundary</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#biosmb_interface.enum.ValveState" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></p>
+<p>An enumeration for the state of a valve</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="biosmb_interface.enum.ValveState.CLOSED">
+<span class="sig-name descname"><span class="pre">CLOSED</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></em><a class="headerlink" href="#biosmb_interface.enum.ValveState.CLOSED" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="biosmb_interface.enum.ValveState.OPEN">
+<span class="sig-name descname"><span class="pre">OPEN</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1</span></em><a class="headerlink" href="#biosmb_interface.enum.ValveState.OPEN" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-biosmb_interface.manager">
+<span id="biosmb-interface-manager"></span><h2>biosmb_interface.manager<a class="headerlink" href="#module-biosmb_interface.manager" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">biosmb_interface.manager.</span></span><span class="sig-name descname"><span class="pre">BioSMBManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">opc_client</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Client</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">settings_file</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'settings.json'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inlet_names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outlet_names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.close_all_valves">
+<span class="sig-name descname"><span class="pre">close_all_valves</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.close_all_valves" title="Link to this definition"></a></dt>
+<dd><p>Closes all valves using the fewest possible OPC-UA writes</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.close_valve">
+<span class="sig-name descname"><span class="pre">close_valve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">valve_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.close_valve" title="Link to this definition"></a></dt>
+<dd><p>Closes the specified valve based on the user friendly name (ie “A3”)</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>valve_name (str): The name of the valve to close (ie “A3”)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.disable_all_pumps">
+<span class="sig-name descname"><span class="pre">disable_all_pumps</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.disable_all_pumps" title="Link to this definition"></a></dt>
+<dd><p>Disables all of the pumps</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.disable_pump">
+<span class="sig-name descname"><span class="pre">disable_pump</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pump_number</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.disable_pump" title="Link to this definition"></a></dt>
+<dd><p>Disables the specified pump.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>pump_number (int): The pump to disable.  Note that pumps are
+numbered from 1 to 7 with pump 1 feeding row 2 of the valve block.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.enable_all_pumps">
+<span class="sig-name descname"><span class="pre">enable_all_pumps</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.enable_all_pumps" title="Link to this definition"></a></dt>
+<dd><p>Enables all of the pumps</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.enable_pump">
+<span class="sig-name descname"><span class="pre">enable_pump</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pump_number</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.enable_pump" title="Link to this definition"></a></dt>
+<dd><p>Enables the specified pump.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>pump_number (int): The pump to enable.  Note that pumps are
+numbered from 1 to 7 with pump 1 feeding row 2 of the valve block.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.get_all_flows">
+<span class="sig-name descname"><span class="pre">get_all_flows</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.get_all_flows" title="Link to this definition"></a></dt>
+<dd><p>Gets all flow rates of all pumps (in ml/min) at the same time. Note that pumps
+are numbered from 1 to 7 with pump 1 feeding row 2 of the valve block.  Also
+note that pumps must be enabled in order to actually run.</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>List[float]: A list with 7 floating point values representing the flow rate of each of the 7 pumps.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.get_all_sensors">
+<span class="sig-name descname"><span class="pre">get_all_sensors</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.get_all_sensors" title="Link to this definition"></a></dt>
+<dd><p>Gets a dictionary with the current value of all BioSMB sensors</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>Dict[str, float]: A dictinoary with keys for each sensor and the corresponding floating
+point measurements.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.get_all_valves">
+<span class="sig-name descname"><span class="pre">get_all_valves</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#biosmb_interface.enum.ValveState" title="biosmb_interface.enum.ValveState"><span class="pre">ValveState</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.get_all_valves" title="Link to this definition"></a></dt>
+<dd><p>Returns a dictionary with the current states of all valves.  This is implemented
+with the fewist possible OPC-UA calls (ie most efficient) to prevent network delays</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><p>Dict[str, ValveState]: A dictionary where the key is the user friendly name of the valve (ie “A3”) and 
+the value is the state of the valve (open or closed)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.get_conductivity">
+<span class="sig-name descname"><span class="pre">get_conductivity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sensor_number</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">float</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.get_conductivity" title="Link to this definition"></a></dt>
+<dd><p>Reads the current conductivity for the specified conductivity sensor (note 1 indexed)</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>sensor_number (int): The sensor number (between 1 and 4)</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: The current conductivity measured by this sensor</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.get_flow">
+<span class="sig-name descname"><span class="pre">get_flow</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pump_number</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">float</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.get_flow" title="Link to this definition"></a></dt>
+<dd><p>Returns the current flow rate for the specified pump in ml/min.  Note
+that pumps are numbered from 1 to 7 with pump 1 feeding row 2 of the valve block.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>pump_number (int): A number between 1 to 7 specifying for which pump to get a flow rate value.</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: The current pump flow rate in ml/min.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.get_ph">
+<span class="sig-name descname"><span class="pre">get_ph</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sensor_number</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">float</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.get_ph" title="Link to this definition"></a></dt>
+<dd><p>Reads the current pH for the specified pH sensor (note 1 indexed)</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>sensor_number (int): The sensor number (1 or 2)</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: The current pH measured by this sensor</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.get_pressure">
+<span class="sig-name descname"><span class="pre">get_pressure</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sensor_number</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">float</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.get_pressure" title="Link to this definition"></a></dt>
+<dd><p>Reads the current pressure for the specified pressure sensor (note 1 indexed)</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>sensor_number (int): The sensor number (between 1 and 7)</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: The current pressure measured by this sensor</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.get_pump_enabled">
+<span class="sig-name descname"><span class="pre">get_pump_enabled</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pump_number</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#biosmb_interface.enum.PumpEnabledState" title="biosmb_interface.enum.PumpEnabledState"><span class="pre">PumpEnabledState</span></a></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.get_pump_enabled" title="Link to this definition"></a></dt>
+<dd><p>Gets the current enabled/disabled state of the specified pump</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>pump_number (int): The pump for which to get the enabled state.  Note that pumps are
+numbered from 1 to 7 with pump 1 feeding row 2 of the valve block.</p>
+</dd>
+<dt>Returns:</dt><dd><p>PumpEnabledState: The current state of the selected pump (as an enumeration)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.get_uv">
+<span class="sig-name descname"><span class="pre">get_uv</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sensor_number</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.get_uv" title="Link to this definition"></a></dt>
+<dd><p>Reads the current UV for the specified UV sensor (note 1 indexed)</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>sensor_number (int): The sensor number (between 1 and 4)</p>
+</dd>
+<dt>Returns:</dt><dd><p>Dict[str, float]: A dictionary with keys “A”, “B”, and “C” for the current values
+of each of the three wavelengths reported by this sensor.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.get_valve">
+<span class="sig-name descname"><span class="pre">get_valve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">valve_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#biosmb_interface.enum.ValveState" title="biosmb_interface.enum.ValveState"><span class="pre">ValveState</span></a></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.get_valve" title="Link to this definition"></a></dt>
+<dd><p>This function gets the state of an individual valve based on the
+user friendly name for that valve (ie “A3”)</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>valve_name (str): The user friendly name for the valve (ie “A3”) note that the frist row is row 1 (same as labeling on BioSMB)</p>
+</dd>
+<dt>Returns:</dt><dd><p>ValveState: The current state of the valve (either open or closed)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.open_valve">
+<span class="sig-name descname"><span class="pre">open_valve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">valve_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.open_valve" title="Link to this definition"></a></dt>
+<dd><p>Opens the specified valve based on the user friendly name (ie “A3”)</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>valve_name (str): The name of the valve to open (ie “A3”)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.print_status">
+<span class="sig-name descname"><span class="pre">print_status</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.print_status" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.set_all_flows">
+<span class="sig-name descname"><span class="pre">set_all_flows</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">flow_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.set_all_flows" title="Link to this definition"></a></dt>
+<dd><p>Sets the flow rates of all pumps (in ml/min) at the same time.  Note that pumps
+are numbered from 1 to 7 with pump 1 feeding row 2 of the valve block.  Also
+note that pumps must be enabled in order to actually run.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>flow_values (List[float]): A list of floating point values with exactly 7 floating point numbers representing
+the desired flow rates for each pump in ml/min.</p>
+</dd>
+<dt>Raises:</dt><dd><p>Exception: Raised if an incorrect number of flow rates is specified (must be exactly 7)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.set_flow">
+<span class="sig-name descname"><span class="pre">set_flow</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pump_number</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">flow_rate</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.set_flow" title="Link to this definition"></a></dt>
+<dd><p>Sets the flow rate of a specified pump in ml/min.  NOte that pumps
+are numbered from 1 to 7 with pump 1 feeding row 2 of the valve block.
+Also note that pumps must be enabled in order to actually run.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>pump_number (int): A number between 1 to 7 specifying for which pump to get a flow rate value.
+flow_rate (float): The desired flow rate in ml/min</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.set_pump_enabled">
+<span class="sig-name descname"><span class="pre">set_pump_enabled</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pump_number</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_state</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#biosmb_interface.enum.PumpEnabledState" title="biosmb_interface.enum.PumpEnabledState"><span class="pre">PumpEnabledState</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.set_pump_enabled" title="Link to this definition"></a></dt>
+<dd><p>Sets the enabled/disabled state of the</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>pump_number (int): The pump for which to set the enabled state.  Note that pumps are
+numbered from 1 to 7 with pump 1 feeding row 2 of the valve block.
+target_state (PumpEnabledState): The desired state of the pump</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.set_valve">
+<span class="sig-name descname"><span class="pre">set_valve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">valve_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">new_state</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#biosmb_interface.enum.ValveState" title="biosmb_interface.enum.ValveState"><span class="pre">ValveState</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.set_valve" title="Link to this definition"></a></dt>
+<dd><p>Sets the state of an individual valve based on the user frindely name for
+that valve (ie “A3”)</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>valve_name (str): The user friendly name for the valve (ie “A3”).  Note that the first row is 1 (same as labeling on BioSMB)
+new_state (ValveState): The desired state for the valve (open or closed)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="biosmb_interface.manager.BioSMBManager.zero_all_flows">
+<span class="sig-name descname"><span class="pre">zero_all_flows</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#biosmb_interface.manager.BioSMBManager.zero_all_flows" title="Link to this definition"></a></dt>
+<dd><p>Sets all flow rates of all pumps to 0.0</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="biosmb_interface.manager.OPCValveIndex">
+<span class="sig-prename descclassname"><span class="pre">biosmb_interface.manager.</span></span><span class="sig-name descname"><span class="pre">OPCValveIndex</span></span><a class="headerlink" href="#biosmb_interface.manager.OPCValveIndex" title="Link to this definition"></a></dt>
+<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">ValveOPCIndex</span></code></p>
+</dd></dl>
+
+</section>
+<section id="module-biosmb_interface.utility">
+<span id="biosmb-interface-utility"></span><h2>biosmb_interface.utility<a class="headerlink" href="#module-biosmb_interface.utility" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="biosmb_interface.utility.print_status_text">
+<span class="sig-prename descclassname"><span class="pre">biosmb_interface.utility.</span></span><span class="sig-name descname"><span class="pre">print_status_text</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">valve_state</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#biosmb_interface.enum.ValveState" title="biosmb_interface.enum.ValveState"><span class="pre">ValveState</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">flows</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inlet_names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outlet_names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#biosmb_interface.utility.print_status_text" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="biosmb_interface.utility.print_valve_state">
+<span class="sig-prename descclassname"><span class="pre">biosmb_interface.utility.</span></span><span class="sig-name descname"><span class="pre">print_valve_state</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">valve_state</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#biosmb_interface.enum.ValveState" title="biosmb_interface.enum.ValveState"><span class="pre">ValveState</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#biosmb_interface.utility.print_valve_state" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="manager.html" class="btn btn-neutral float-left" title="biosmb_interface.manager" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, Brandon Corbett.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
