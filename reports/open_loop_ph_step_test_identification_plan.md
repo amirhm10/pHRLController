@@ -140,7 +140,92 @@ The experiment should be a supervised open-loop step test. The operator or
 script applies a finite schedule of flow commands. No control feedback is used
 to choose the next command.
 
-Use three blocks.
+Use four blocks.
+
+### Block 0: One-Pump-At-A-Time Local Steps
+
+This is the simple experiment idea:
+
+```text
+start at [3, 3, 3], step one pump to 6, return to [3, 3, 3], then repeat for the next pump
+```
+
+It is a good first block because it gives a clean local input-output response
+for each manipulated variable near one operating point.
+
+Use:
+
+$$
+u_0 =
+\begin{bmatrix}
+3 \\
+3 \\
+3
+\end{bmatrix}
+\ \mathrm{mL/min}
+$$
+
+where the vector order is:
+
+$$
+u =
+\begin{bmatrix}
+F_H \\
+F_A \\
+F_W
+\end{bmatrix}
+$$
+
+A practical sequence is:
+
+| Step | `step_type` | `acid_flow_cmd_ml_min` | `acetate_flow_cmd_ml_min` | `water_flow_cmd_ml_min` | `total_flow_cmd_ml_min` | Main information |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| 0 | `baseline` | `3.00` | `3.00` | `3.00` | `9.00` | initial steady condition |
+| 1 | `acid_positive_step` | `6.00` | `3.00` | `3.00` | `12.00` | acid effect plus throughput change |
+| 2 | `baseline_return` | `3.00` | `3.00` | `3.00` | `9.00` | recovery and hysteresis check |
+| 3 | `acetate_positive_step` | `3.00` | `6.00` | `3.00` | `12.00` | acetate effect plus throughput change |
+| 4 | `baseline_return` | `3.00` | `3.00` | `3.00` | `9.00` | recovery and hysteresis check |
+| 5 | `water_positive_step` | `3.00` | `3.00` | `6.00` | `12.00` | water, dilution, and residence-time effect |
+| 6 | `baseline_return` | `3.00` | `3.00` | `3.00` | `9.00` | final repeat of baseline |
+
+Repeat this block at least twice if lab time allows. Repetition is important
+because one pass cannot distinguish true dynamics from drift, slow flushing, or
+probe conditioning.
+
+This block supports a local empirical model around \(u_0\):
+
+$$
+\Delta y_k =
+G_H(q^{-1})\Delta F_{H,k}
++ G_A(q^{-1})\Delta F_{A,k}
++ G_W(q^{-1})\Delta F_{W,k}
++ e_k
+$$
+
+where:
+
+$$
+\Delta y_k = PH_{2,k} - PH_{2,baseline}
+$$
+
+and:
+
+$$
+\Delta u_k = u_k - u_0
+$$
+
+It also supports the chemistry-aware model because each step changes
+\(pH_{eq}\), \(F_T\), or both.
+
+Important limitation:
+
+```text
+stepping one pump from 3 to 6 changes both composition and total flow
+```
+
+For example, `[6, 3, 3]` changes the acid/acetate ratio and total flow. That is
+useful for a local empirical model, but it does not fully separate pH chemistry
+from residence-time effects. That is why the following blocks are still needed.
 
 ### Block A: pH-Coordinate Steps At Fixed Total Flow
 
