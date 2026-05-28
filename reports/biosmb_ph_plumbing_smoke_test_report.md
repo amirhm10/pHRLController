@@ -5,7 +5,7 @@
 This report records the current pH plumbing interpretation before running a
 full open-loop step-test experiment. The immediate goal is not control. The
 goal is to verify the BioSMB OPC interface, pH-relevant valve labels, inlet
-names, and reliable pH readout in a safe emulator-only smoke test.
+names, and reliable pH readout in a simple read-only smoke test.
 
 The intended pH measurement for modeling is:
 
@@ -57,7 +57,7 @@ explicit outlet-path verification flag until that route is checked on hardware.
 The following generated schematic reproduces the useful information from the
 PowerPoint figure in a cleaner, labeled form.
 
-![BioSMB pH plumbing map](../results/biosmb_ph_plumbing_map_20260528_020759/figures/biosmb_ph_plumbing_map.png)
+![BioSMB pH plumbing map](../results/biosmb_ph_plumbing_map_20260528_021943/figures/biosmb_ph_plumbing_map.png)
 
 The key point is that the expert sketch's `P2`, `P3`, and `P4` are valve
 coordinates, not pump numbers. They indicate column `P` on the three pH inlet
@@ -71,8 +71,17 @@ The new smoke-test script is:
 py -3.13 run_biosmb_ph_readonly_smoke_test.py
 ```
 
-It is intentionally emulator-only and read-only from the BioSMB manager side.
-It does not call:
+It is intentionally written in the same style as the expert demo while still
+running against the local emulator. It imports directly from the actual BioSMB
+library and emulator package:
+
+```python
+from asyncua.sync import Client
+from biosmb_interface.manager import BioSMBManager
+from biosmb_opc_emulator import BioSMBOPCEmulator
+```
+
+It is read-only from the BioSMB manager side and does not call:
 
 ```python
 biosmb.enable_pump(...)
@@ -80,18 +89,20 @@ biosmb.set_flow(...)
 biosmb.open_valve(...)
 ```
 
-The root script is intentionally written in the same simple style as the expert
-demo: create a `BioSMBManager`, read the pH-related flows, read `P2/P3/P4`,
-read `biosmb.get_ph(2)`, print, and exit. The local emulator startup and
-temporary settings-file setup are hidden in `helpers/biosmb_emulator.py` so that
-the demonstration script remains easy to read. That helper imports and runs the
-existing emulator but does not modify any file under `BIOSMBControlLibrary/`.
+Unlike `5_21_2026_demo.py`, this script starts the local emulator in the same
+file before creating the client connection. It does not import any project
+helper module and does not modify the emulator library. The configured endpoint
+is local:
+
+```python
+HOST = "127.0.0.1"
+PORT = 4865
+```
 
 Instead, it verifies that:
 
-- the local OPC emulator starts,
-- a temporary emulator `settings.json` mapping can be created,
-- `BioSMBManager` can connect to the emulator,
+- the local OPC emulator can start,
+- `BioSMBManager` can connect to the emulator endpoint,
 - the pH valve labels `P2`, `P3`, and `P4` resolve,
 - pump-flow readbacks for pumps 2, 3, and 4 are readable,
 - `PH_2` can be read using `biosmb.get_ph(2)`,
@@ -104,21 +115,21 @@ Pump readbacks
 pump 2: acetic acid
 pump 3: sodium acetate
 pump 4: Arium water
-P2: closed
-P3: closed
-P4: closed
-current pH from PH_2: 4.5000
-Read-only emulator smoke test complete.
+P2: <valve state>
+P3: <valve state>
+P4: <valve state>
+current pH from PH_2: <PH_2 readback>
+Read-only smoke test complete.
 ```
 
 ## What This Does Not Prove
 
 This smoke test does not prove that the real hardware route is safe, clean, or
 physically connected exactly as expected. It only proves that the emulator
-interface can resolve and read the pH-relevant OPC nodes without issuing any
-pump or valve writes.
+endpoint can resolve and read the pH-relevant nodes without issuing any pump or
+valve writes.
 
-Before a hardware test, the operator should still confirm:
+Before any write-enabled hardware test, the operator should still confirm:
 
 - the physical tubing for pumps 2, 3, and 4,
 - the physical meaning of the `P2/P3/P4` valve path,
@@ -128,6 +139,7 @@ Before a hardware test, the operator should still confirm:
 
 ## Next Step
 
-After this read-only smoke test passes, the next safe script should be a
-supervised valve-only or very low-flow hardware check with guaranteed cleanup.
-Only after that should the full open-loop step-test schedule be run.
+After this read-only smoke test passes on the emulator, the next safe script
+should be a supervised valve-only or very low-flow hardware check with
+guaranteed cleanup. Only after that should the full open-loop step-test schedule
+be run.

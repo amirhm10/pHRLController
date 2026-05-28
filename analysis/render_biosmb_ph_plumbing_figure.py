@@ -2,18 +2,22 @@ from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle, FancyBboxPatch
+from matplotlib.patches import Circle, FancyBboxPatch, Rectangle
 
 
 RESULTS_ROOT = Path("results")
 METHOD_NAME = "biosmb_ph_plumbing_map"
 VALVE_COLUMNS = "ABCDEFGHIJKLMNOP"
 PH_ROWS = {
-    2: ("Acetic acid", "#d9473f"),
-    3: ("Sodium acetate", "#2b78c6"),
-    4: ("Arium water", "#1b8f5a"),
+    2: ("Acetic acid", "100 mM", "#d1495b"),
+    3: ("Sodium acetate", "100 mM", "#2978b5"),
+    4: ("Arium water", "", "#1b998b"),
 }
 PH_COLUMN = "P"
+BACKGROUND = "#f5f7fb"
+INK = "#1c2430"
+MUTED = "#667085"
+GRID = "#b8c0cc"
 
 
 def main() -> None:
@@ -27,185 +31,309 @@ def main() -> None:
 
 
 def render_figure(path: Path) -> None:
-    fig, ax = plt.subplots(figsize=(16, 8), dpi=180)
-    ax.set_facecolor("#f8f9fb")
-    ax.set_xlim(-2.1, len(VALVE_COLUMNS) + 1.8)
-    ax.set_ylim(16.2, -1.2)
+    fig, ax = plt.subplots(figsize=(17.2, 9.2), dpi=200)
+    fig.patch.set_facecolor(BACKGROUND)
+    ax.set_facecolor(BACKGROUND)
+    ax.set_xlim(-3.1, len(VALVE_COLUMNS) + 2.25)
+    ax.set_ylim(16.9, -1.95)
     ax.axis("off")
 
-    draw_grid(ax)
-    draw_ph_annotations(ax)
-    draw_title_and_notes(ax)
+    draw_soft_panel(ax)
+    draw_column_headers(ax)
+    draw_grid_lines(ax)
+    draw_valves(ax)
+    draw_stream_labels(ax)
+    draw_p_column_callout(ax)
+    draw_ph2_callout(ax)
+    draw_title_and_footer(ax)
 
-    fig.tight_layout(pad=0.5)
-    fig.savefig(path, bbox_inches="tight")
+    fig.tight_layout(pad=0.35)
+    fig.savefig(path, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
 
 
-def draw_grid(ax) -> None:
+def draw_soft_panel(ax) -> None:
+    ax.add_patch(
+        FancyBboxPatch(
+            (-2.82, -0.78),
+            19.72,
+            16.75,
+            boxstyle="round,pad=0.035,rounding_size=0.32",
+            facecolor="#ffffff",
+            edgecolor="#d9dee7",
+            linewidth=1.2,
+            zorder=0,
+        )
+    )
+    ax.add_patch(
+        Rectangle(
+            (-2.82, -0.78),
+            19.72,
+            1.18,
+            facecolor="#edf1f7",
+            edgecolor="none",
+            zorder=0.1,
+        )
+    )
+
+
+def draw_column_headers(ax) -> None:
+    for col_idx, column in enumerate(VALVE_COLUMNS):
+        is_p = column == PH_COLUMN
+        ax.text(
+            col_idx,
+            -0.12,
+            column,
+            ha="center",
+            va="center",
+            fontsize=9.5,
+            color=INK if is_p else MUTED,
+            fontweight="bold" if is_p else "normal",
+            zorder=5,
+        )
+        if is_p:
+            ax.add_patch(
+                FancyBboxPatch(
+                    (col_idx - 0.36, -0.46),
+                    0.72,
+                    0.66,
+                    boxstyle="round,pad=0.02,rounding_size=0.1",
+                    facecolor="#fff2cc",
+                    edgecolor="#e1b74f",
+                    linewidth=1.0,
+                    zorder=4,
+                )
+            )
+
+
+def draw_grid_lines(ax) -> None:
     column_count = len(VALVE_COLUMNS)
     for row in range(1, 16):
-        color = PH_ROWS.get(row, (None, "#b7bcc3"))[1]
-        line_width = 2.4 if row in PH_ROWS else 0.9
-        alpha = 0.9 if row in PH_ROWS else 0.55
+        if row in PH_ROWS:
+            color = PH_ROWS[row][2]
+            linewidth = 3.3
+            alpha = 0.95
+        else:
+            color = GRID
+            linewidth = 0.8
+            alpha = 0.43
         ax.plot(
             [0, column_count - 1],
             [row, row],
             color=color,
-            linewidth=line_width,
+            linewidth=linewidth,
             alpha=alpha,
-            zorder=1,
-        )
-    for col_idx, _ in enumerate(VALVE_COLUMNS):
-        ax.plot(
-            [col_idx, col_idx],
-            [1, 15],
-            color="#aeb4bb",
-            linewidth=0.8,
-            alpha=0.6,
+            solid_capstyle="round",
             zorder=1,
         )
 
     for col_idx, column in enumerate(VALVE_COLUMNS):
-        ax.text(
-            col_idx,
-            0.35,
-            column,
-            ha="center",
-            va="center",
-            fontsize=9,
-            color="#30343b",
-            fontweight="bold",
+        color = "#d7aa2d" if column == PH_COLUMN else GRID
+        linewidth = 2.1 if column == PH_COLUMN else 0.8
+        alpha = 0.85 if column == PH_COLUMN else 0.5
+        ax.plot(
+            [col_idx, col_idx],
+            [1, 15],
+            color=color,
+            linewidth=linewidth,
+            alpha=alpha,
+            solid_capstyle="round",
+            zorder=1,
         )
-        ax.text(
-            col_idx,
-            15.75,
-            column,
-            ha="center",
-            va="center",
-            fontsize=9,
-            color="#30343b",
-            fontweight="bold",
-        )
+
+
+def draw_valves(ax) -> None:
+    for col_idx, column in enumerate(VALVE_COLUMNS):
         for row in range(1, 16):
             is_ph_valve = column == PH_COLUMN and row in PH_ROWS
-            face = PH_ROWS[row][1] if is_ph_valve else "#e7e8ea"
-            edge = "#1f2328" if is_ph_valve else "#878c93"
-            width = 1.7 if is_ph_valve else 0.9
-            radius = 0.145 if is_ph_valve else 0.105
+            face = PH_ROWS[row][2] if is_ph_valve else "#eef1f5"
+            edge = "#111827" if is_ph_valve else "#9aa3af"
+            radius = 0.17 if is_ph_valve else 0.115
+            linewidth = 1.9 if is_ph_valve else 0.8
+            alpha = 1.0 if is_ph_valve else 0.92
             ax.add_patch(
                 Circle(
                     (col_idx, row),
                     radius=radius,
                     facecolor=face,
                     edgecolor=edge,
-                    linewidth=width,
-                    zorder=3 if is_ph_valve else 2,
+                    linewidth=linewidth,
+                    alpha=alpha,
+                    zorder=3,
                 )
             )
+
+
+def draw_stream_labels(ax) -> None:
     for row in range(1, 16):
         ax.text(
-            -0.55,
+            -0.52,
             row,
             str(row),
             ha="right",
             va="center",
             fontsize=8,
-            color="#4a4f57",
+            color=MUTED,
+            zorder=5,
         )
 
-
-def draw_ph_annotations(ax) -> None:
-    p_col_idx = VALVE_COLUMNS.index(PH_COLUMN)
-    for row, (label, color) in PH_ROWS.items():
+    for row, (stream, concentration, color) in PH_ROWS.items():
         ax.add_patch(
             FancyBboxPatch(
-                (-1.85, row - 0.33),
-                1.25,
-                0.66,
-                boxstyle="round,pad=0.06,rounding_size=0.08",
+                (-2.55, row - 0.37),
+                1.72,
+                0.74,
+                boxstyle="round,pad=0.08,rounding_size=0.16",
                 facecolor=color,
-                edgecolor=color,
+                edgecolor="none",
                 alpha=0.13,
-                linewidth=0.0,
-                zorder=0,
+                zorder=2,
             )
         )
+        ax.add_patch(
+            Circle(
+                (-2.34, row),
+                radius=0.075,
+                facecolor=color,
+                edgecolor=color,
+                zorder=3,
+            )
+        )
+        label = stream if not concentration else f"{stream}\n{concentration}"
         ax.text(
-            -1.76,
+            -2.2,
             row,
             label,
             ha="left",
             va="center",
-            fontsize=10,
-            color="#1f2328",
+            fontsize=9.5,
+            color=INK,
+            linespacing=1.05,
             fontweight="bold",
+            zorder=5,
         )
+
+
+def draw_p_column_callout(ax) -> None:
+    p_col_idx = VALVE_COLUMNS.index(PH_COLUMN)
+    ax.add_patch(
+        FancyBboxPatch(
+            (p_col_idx - 0.44, 1.55),
+            0.88,
+            3.02,
+            boxstyle="round,pad=0.08,rounding_size=0.2",
+            facecolor="#fff8e6",
+            edgecolor="#e1b74f",
+            linewidth=1.1,
+            alpha=0.72,
+            zorder=2,
+        )
+    )
+    for row, (_, _, color) in PH_ROWS.items():
         ax.text(
-            p_col_idx + 0.33,
-            row - 0.24,
+            p_col_idx + 0.31,
+            row - 0.22,
             f"P{row}",
             ha="left",
             va="center",
-            fontsize=10,
+            fontsize=10.5,
             color=color,
             fontweight="bold",
+            zorder=6,
         )
     ax.annotate(
-        "Expert sketch opens P2, P3, P4",
-        xy=(p_col_idx, 3),
-        xytext=(p_col_idx - 4.6, -0.35),
-        fontsize=10,
-        color="#1f2328",
-        arrowprops={
-            "arrowstyle": "->",
-            "color": "#1f2328",
-            "linewidth": 1.1,
-            "shrinkA": 0,
-            "shrinkB": 6,
-        },
-    )
-    ax.annotate(
-        "Confirmed pH readout:\nPH_2 = biosmb.get_ph(2)",
-        xy=(p_col_idx, 3.9),
-        xytext=(p_col_idx - 3.4, 7.1),
-        fontsize=10,
-        color="#1f2328",
+        "Expert demo opens\nP2, P3, P4",
+        xy=(p_col_idx, 3.0),
+        xytext=(p_col_idx - 3.25, 0.82),
+        fontsize=10.5,
+        color=INK,
+        ha="center",
+        va="center",
         bbox={
-            "boxstyle": "round,pad=0.35,rounding_size=0.12",
-            "facecolor": "#ffffff",
-            "edgecolor": "#c4c9d1",
-            "linewidth": 0.8,
+            "boxstyle": "round,pad=0.35,rounding_size=0.18",
+            "facecolor": "#fff8e6",
+            "edgecolor": "#e1b74f",
+            "linewidth": 1.0,
         },
         arrowprops={
             "arrowstyle": "->",
-            "color": "#1f2328",
-            "linewidth": 1.1,
+            "color": "#8a6b10",
+            "linewidth": 1.35,
             "shrinkA": 2,
-            "shrinkB": 6,
+            "shrinkB": 8,
         },
+        zorder=8,
     )
 
 
-def draw_title_and_notes(ax) -> None:
+def draw_ph2_callout(ax) -> None:
+    p_col_idx = VALVE_COLUMNS.index(PH_COLUMN)
+    ax.annotate(
+        "Confirmed measurement\nPH_2 = biosmb.get_ph(2)",
+        xy=(p_col_idx, 4.0),
+        xytext=(10.4, 7.35),
+        fontsize=11,
+        color=INK,
+        ha="left",
+        va="center",
+        bbox={
+            "boxstyle": "round,pad=0.42,rounding_size=0.18",
+            "facecolor": "#f4f7ff",
+            "edgecolor": "#9fb7e8",
+            "linewidth": 1.0,
+        },
+        arrowprops={
+            "arrowstyle": "->",
+            "color": "#486cb5",
+            "linewidth": 1.35,
+            "shrinkA": 2,
+            "shrinkB": 8,
+        },
+        zorder=8,
+    )
     ax.text(
-        -1.85,
-        -0.55,
+        10.4,
+        8.42,
+        "Physical outlet tubing after this pH path remains unverified.",
+        ha="left",
+        va="center",
+        fontsize=8.8,
+        color=MUTED,
+        zorder=8,
+    )
+
+
+def draw_title_and_footer(ax) -> None:
+    ax.text(
+        -2.55,
+        -1.25,
         "BioSMB pH plumbing map",
         ha="left",
         va="center",
-        fontsize=16,
-        color="#15181d",
+        fontsize=18,
+        color=INK,
         fontweight="bold",
+        zorder=6,
     )
     ax.text(
-        -1.85,
-        16.05,
-        "Valve names are column letter plus row number. Columns run A to P from left to right. Rows 2-4 are the pH inlet rows.",
+        -2.55,
+        -0.72,
+        "Valve coordinates are column letter + row number. Columns run left-to-right from A to P.",
+        ha="left",
+        va="center",
+        fontsize=9.5,
+        color=MUTED,
+        zorder=6,
+    )
+    ax.text(
+        -2.55,
+        16.25,
+        "Rows 2-4 carry the pH inlet streams. Pump 1 is not used; pumps 2-4 map to acid, acetate, and water.",
         ha="left",
         va="center",
         fontsize=9,
-        color="#4a4f57",
+        color=MUTED,
+        zorder=6,
     )
 
 
