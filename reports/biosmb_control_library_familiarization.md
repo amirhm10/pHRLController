@@ -79,6 +79,20 @@ For this pH project, the existing data-analysis convention says:
 - `PH_1` should not be used for model-validation metrics unless the hardware state has changed and is explicitly verified.
 - The project data mapping treats flow channel 1 as acetic acid, flow channel 2 as sodium acetate, and flow channel 3 as water. In this live library, the pump-to-stream mapping must still be confirmed against the actual plumbing before any experiment script assumes it.
 
+Current live pH setup clarification, as of May 28, 2026:
+
+- Pump 1 should not be used because it is reported not working.
+- The working inlet pumps are pump 2 for acetic acid, pump 3 for sodium acetate,
+  and pump 4 for Arium water.
+- The outlet pH measurement should use `current_ph = biosmb.get_ph(2)`, i.e.,
+  pH sensor `PH_2`.
+- The valve grid is addressed as column letter plus row number. Columns run
+  left-to-right from `A` through `P`, so the expert sketch's `P2`, `P3`, and
+  `P4` commands open the far-right `P` column on the three pH inlet rows.
+- The physical outlet tubing or valve path is still not fully verified by the
+  presentation or the demo sketch, so scripts should log the open valves and
+  keep the outlet path marked unverified until the hardware route is confirmed.
+
 The current lab CSV confirms the same active flow channels:
 
 | Project variable | Physical stream | CSV column | BioSMB flow channel |
@@ -318,6 +332,14 @@ Conceptually, this script is pointing in the right direction for pH work because
 ```python
 current_ph = biosmb.get_ph(2)
 ```
+
+For the current live pH setup, this `get_ph(2)` line should be treated as the
+outlet pH measurement. The pump writes in the sketch should not be copied
+directly because pump 1 is reported not working and the intended pH inlets are
+pumps 2, 3, and 4 in the order acetic acid, sodium acetate, and water.
+The valve commands are more useful: because columns run left-to-right from
+`A` to `P`, `P2`, `P3`, and `P4` select the far-right `P` column on the three
+pH inlet rows.
 
 However, it is not safe or runnable as written:
 

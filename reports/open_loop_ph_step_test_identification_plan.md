@@ -33,6 +33,8 @@ This plan is based on:
 - [lab data preprocessing helper](../helpers/lab_data.py),
 - [pH process configuration](../simulation/config.py),
 - [BioSMB manager API](../BIOSMBControlLibrary/biosmb_interface/manager.py),
+- [pH expert sketch](../BIOSMBControlLibrary/5_21_2026_demo.py),
+- [BioSMB pH presentation](../BIOSMBControlLibrary/Presentation.pptx),
 - [current treated lab CSV](../Data/dsp_db.biosmb-rl-controller-treated-dataset.csv).
 
 ## Why This Experiment Is Needed
@@ -65,9 +67,12 @@ Use these names consistently in new code, CSV files, reports, and figures.
 | acetic acid command | `acid_flow_cmd_ml_min` | mL/min |
 | sodium acetate command | `acetate_flow_cmd_ml_min` | mL/min |
 | Arium water command | `water_flow_cmd_ml_min` | mL/min |
-| acetic acid readback | `acid_flow_meas_ml_min` | mL/min, from BioSMB flow channel 1 if available |
-| sodium acetate readback | `acetate_flow_meas_ml_min` | mL/min, from BioSMB flow channel 2 if available |
-| Arium water readback | `water_flow_meas_ml_min` | mL/min, from BioSMB flow channel 3 if available |
+| acetic acid pump number | `acid_pump_number` | live pH default: pump 2 |
+| sodium acetate pump number | `acetate_pump_number` | live pH default: pump 3 |
+| Arium water pump number | `water_pump_number` | live pH default: pump 4 |
+| acetic acid readback | `acid_flow_meas_ml_min` | mL/min, from the mapped acid pump |
+| sodium acetate readback | `acetate_flow_meas_ml_min` | mL/min, from the mapped acetate pump |
+| Arium water readback | `water_flow_meas_ml_min` | mL/min, from the mapped water pump |
 | total commanded flow | `total_flow_cmd_ml_min` | sum of three commanded flows |
 | total measured flow | `total_flow_meas_ml_min` | sum of three measured/readback flows |
 | acid plus acetate flow | `buffer_flow_sum_ml_min` | \(F_H + F_A\) |
@@ -76,16 +81,45 @@ Use these names consistently in new code, CSV files, reports, and figures.
 | water fraction | `water_fraction` | \(F_W/F_T\) |
 | static chemistry coordinate | `ph_equilibrium_charge_balance` | raw equilibrium pH |
 | calibrated static output | `ph_equilibrium_affine` | current empirical `PH_2` prediction |
-| reliable measured output | `ph_measured` | processed `PH_2` |
+| reliable measured output | `ph_measured` | output pH from `biosmb.get_ph(2)` |
+| outlet pH sensor number | `outlet_ph_sensor_number` | live pH default: `2` |
+| outlet pH sensor name | `outlet_ph_sensor_name` | live pH default: `PH_2` |
 | raw reliable pH sensor | `PH_2` | BioSMB pH sensor 2 |
 | diagnostic pH sensor | `PH_1` | log only, not validation output |
 | experiment block | `block_id` | e.g. `ratio_fixed_total`, `total_fixed_composition` |
 | step id | `step_id` | integer or short string |
 | step type | `step_type` | purpose of the step |
 | valve path label | `valve_path_id` | operator-confirmed flow path |
+| open valves | `open_valves` | actual valves commanded open |
+| outlet verification flag | `outlet_path_verified` | `true` only after physical confirmation |
 | sample index | `sample_index` | monotonically increasing integer |
 | elapsed time | `elapsed_s` | seconds since run start |
 | hold time | `hold_elapsed_s` | seconds since current step start |
+
+Live pH plumbing note, as of May 28, 2026:
+
+- Pump 1 should not be used for this pH experiment because it is reported not
+  working.
+- The working pH inlet pumps should start at pump 2 and proceed through pump 4:
+  pump 2 is acetic acid, pump 3 is sodium acetate, and pump 4 is Arium water.
+- The PowerPoint slide visibly lists the pH streams as acetic, sodium acetate,
+  and water. The visible `2` extracted from that slide is the slide-number
+  placeholder, not an outlet label.
+- The expert sketch `5_21_2026_demo.py` opens valves `P2`, `P3`, and `P4`, and
+  reads `current_ph = biosmb.get_ph(2)`. This supports `PH_2` as the outlet pH
+  measurement and `P2/P3/P4` as a pH-case routing clue, but it does not confirm
+  the physical outlet tubing or valve path.
+- The valve drawing and BioSMB valve map use lettered columns left-to-right:
+  `A, B, ..., P`. Therefore `P2`, `P3`, and `P4` mean the far-right `P` column
+  on rows 2, 3, and 4. This is why those valve labels align with the three pH
+  inlet rows.
+- The outlet path remains unverified. New logs should record the valve path and
+  keep `outlet_path_verified = false` until the physical outlet is confirmed.
+
+The historical lab CSV still uses the old recorded columns
+`observation.biosmb-flows[0]`, `[1]`, and `[2]` for acid, acetate, and water in
+that dataset. Do not reinterpret historical CSV columns as the new live pump
+numbers without checking the acquisition mapping for that run.
 
 For compatibility with the existing preprocessing tools, processed analysis
 tables can still expose the compact project names:
@@ -363,6 +397,12 @@ Required raw fields:
 | `step_id` | segmentation for step-response fitting |
 | `step_type` | documents the intended excitation |
 | `hold_elapsed_s` | time since current step started |
+| `acid_pump_number` | BioSMB pump number for acetic acid, live default 2 |
+| `acetate_pump_number` | BioSMB pump number for sodium acetate, live default 3 |
+| `water_pump_number` | BioSMB pump number for Arium water, live default 4 |
+| `acid_inlet_row` | operator-confirmed inlet row or tube label, if available |
+| `acetate_inlet_row` | operator-confirmed inlet row or tube label, if available |
+| `water_inlet_row` | operator-confirmed inlet row or tube label, if available |
 | `acid_flow_cmd_ml_min` | commanded acid input |
 | `acetate_flow_cmd_ml_min` | commanded acetate input |
 | `water_flow_cmd_ml_min` | commanded water input |
@@ -377,19 +417,23 @@ Required raw fields:
 | `water_fraction` | dilution coordinate |
 | `ph_equilibrium_charge_balance` | raw chemistry coordinate |
 | `ph_equilibrium_affine` | current calibrated static prediction |
+| `ph_measured` | outlet pH value read with `biosmb.get_ph(2)` |
+| `outlet_ph_sensor_number` | pH sensor number used for `ph_measured`, default 2 |
+| `outlet_ph_sensor_name` | pH sensor name used for `ph_measured`, default `PH_2` |
 | `PH_2` | reliable pH sensor |
 | `PH_1` | diagnostic pH sensor only |
 | `COND_1` through `COND_4` | dilution and stream-change diagnostics |
 | `P_1` through `P_7` | pressure and blockage diagnostics |
 | `valve_path_id` | reproducibility of routing |
 | `open_valves` | audit of actual route |
+| `outlet_path_verified` | whether the outlet path has been physically confirmed |
 | `settings_file` | OPC node mapping used |
 | `operator_note` | calibration, tubing, or routing notes |
 
 The processed analysis table should map:
 
 ```text
-PH_2 -> ph_measured
+biosmb.get_ph(2) or PH_2 -> ph_measured
 acid_flow_meas_ml_min or acid_flow_cmd_ml_min -> acid_flow
 acetate_flow_meas_ml_min or acetate_flow_cmd_ml_min -> acetate_flow
 water_flow_meas_ml_min or water_flow_cmd_ml_min -> water_flow
@@ -543,9 +587,11 @@ It should:
 5. Confirm pump-to-stream mapping before the run.
 6. Reset the system with `zero_all_flows()`, `disable_all_pumps()`, and
    `close_all_valves()`.
-7. Configure the verified valve path.
-8. Enable only pumps 1, 2, and 3 unless the operator explicitly changes the
-   mapping.
+7. Configure the verified valve path. The pH expert sketch used `P2`, `P3`,
+   and `P4`, meaning the far-right `P` column on stream rows 2, 3, and 4, but
+   the physical outlet tubing still needs confirmation.
+8. Enable only pumps 2, 3, and 4 by default because pump 1 is reported not
+   working for this pH setup.
 9. Apply bounded flow commands using `set_flow()`.
 10. Poll `get_all_sensors()` and `get_all_flows()` at the requested sample
     period.
