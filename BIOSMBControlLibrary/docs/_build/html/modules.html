@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>biosmb_interface &mdash; BioSMB Python Interface 2024-05-02 v0.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=75c6c4f2"></script>
+        <script src="_static/doctools.js?v=9a2dae69"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            BioSMB Python Interface
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="manager.html">biosmb_interface.manager</a></li>
+<li class="toctree-l1"><a class="reference internal" href="biosmb_interface.html">biosmb_interface package</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">BioSMB Python Interface</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">biosmb_interface</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/modules.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="biosmb-interface">
+<h1>biosmb_interface<a class="headerlink" href="#biosmb-interface" title="Link to this heading"></a></h1>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="biosmb_interface.html">biosmb_interface package</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="biosmb_interface.html#module-biosmb_interface.enum">biosmb_interface.enum</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.enum.PumpEnabledState"><code class="docutils literal notranslate"><span class="pre">PumpEnabledState</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.enum.PumpEnabledState.DISABLED"><code class="docutils literal notranslate"><span class="pre">PumpEnabledState.DISABLED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.enum.PumpEnabledState.ENABLED"><code class="docutils literal notranslate"><span class="pre">PumpEnabledState.ENABLED</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.enum.ValveState"><code class="docutils literal notranslate"><span class="pre">ValveState</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.enum.ValveState.CLOSED"><code class="docutils literal notranslate"><span class="pre">ValveState.CLOSED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.enum.ValveState.OPEN"><code class="docutils literal notranslate"><span class="pre">ValveState.OPEN</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="biosmb_interface.html#module-biosmb_interface.manager">biosmb_interface.manager</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager"><code class="docutils literal notranslate"><span class="pre">BioSMBManager</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.close_all_valves"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.close_all_valves()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.close_valve"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.close_valve()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.disable_all_pumps"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.disable_all_pumps()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.disable_pump"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.disable_pump()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.enable_all_pumps"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.enable_all_pumps()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.enable_pump"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.enable_pump()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.get_all_flows"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_all_flows()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.get_all_sensors"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_all_sensors()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.get_all_valves"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_all_valves()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.get_conductivity"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_conductivity()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.get_flow"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_flow()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.get_ph"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_ph()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.get_pressure"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_pressure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.get_pump_enabled"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_pump_enabled()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.get_uv"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_uv()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.get_valve"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.get_valve()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.open_valve"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.open_valve()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.print_status"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.print_status()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.set_all_flows"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.set_all_flows()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.set_flow"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.set_flow()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.set_pump_enabled"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.set_pump_enabled()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.set_valve"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.set_valve()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.BioSMBManager.zero_all_flows"><code class="docutils literal notranslate"><span class="pre">BioSMBManager.zero_all_flows()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.manager.OPCValveIndex"><code class="docutils literal notranslate"><span class="pre">OPCValveIndex</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="biosmb_interface.html#module-biosmb_interface.utility">biosmb_interface.utility</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.utility.print_status_text"><code class="docutils literal notranslate"><span class="pre">print_status_text()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="biosmb_interface.html#biosmb_interface.utility.print_valve_state"><code class="docutils literal notranslate"><span class="pre">print_valve_state()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, Brandon Corbett.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

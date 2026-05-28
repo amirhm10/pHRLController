@@ -1,0 +1,2 @@
+subset_name,filter_rule,source_rows,subset_rows,subset_model_valid_rows,session_ids,sample_index_min,sample_index_max,trial_id_min,trial_id_max,median_dt_s,p05_dt_s,p95_dt_s,median_total_flow_ml_min,median_ph_measured
+two_minute_first_regime,session_id <= 3,1086,417,331,"0,1,2,3",0,416,0,15,141.3665,140.04,142.868,16.391634941101074,4.549225807189941

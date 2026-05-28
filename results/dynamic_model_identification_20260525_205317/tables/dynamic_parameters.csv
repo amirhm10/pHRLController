@@ -1,0 +1,2 @@
+best_lag_samples,theta_approx_s,theta_approx_min,tau_s,tau_min,median_dt_s,median_total_flow_ml_min,v_effective_approx_ml,lag_calibration_intercept,lag_calibration_slope,train_rmse_at_tau,optimizer_success,physical_interpretation
+0,0.0,0.0,1.7114648253499822,0.028524413755833037,69.771,16.36063802242279,0.46667760826100163,0.6567147801378311,0.7909130554967375,0.14996915027754706,True,provisional_without_geometry

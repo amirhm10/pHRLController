@@ -1,0 +1,1 @@
+docker run -p 4842:4842 -d opc-emulator
