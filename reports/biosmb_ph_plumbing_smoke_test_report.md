@@ -68,7 +68,7 @@ rows.
 The new smoke-test script is:
 
 ```powershell
-py -3.13 run_biosmb_ph_readonly_smoke_test.py --port 4865
+py -3.13 run_biosmb_ph_readonly_smoke_test.py
 ```
 
 It is intentionally emulator-only and read-only from the BioSMB manager side.
@@ -79,6 +79,13 @@ biosmb.enable_pump(...)
 biosmb.set_flow(...)
 biosmb.open_valve(...)
 ```
+
+The root script is intentionally written in the same simple style as the expert
+demo: create a `BioSMBManager`, read the pH-related flows, read `P2/P3/P4`,
+read `biosmb.get_ph(2)`, print, and exit. The local emulator startup and
+temporary settings-file setup are hidden in `helpers/biosmb_emulator.py` so that
+the demonstration script remains easy to read. That helper imports and runs the
+existing emulator but does not modify any file under `BIOSMBControlLibrary/`.
 
 Instead, it verifies that:
 
@@ -93,15 +100,15 @@ Instead, it verifies that:
 Expected output includes:
 
 ```text
-BioSMB pH read-only emulator smoke test passed.
-No pump enables, flow writes, or valve-open commands were issued.
+Pump readbacks
 pump 2: acetic acid
 pump 3: sodium acetate
 pump 4: Arium water
-P2: column P, row 2
-P3: column P, row 3
-P4: column P, row 4
-Outlet pH measurement: PH_2 = get_ph(2)
+P2: closed
+P3: closed
+P4: closed
+current pH from PH_2: 4.5000
+Read-only emulator smoke test complete.
 ```
 
 ## What This Does Not Prove
