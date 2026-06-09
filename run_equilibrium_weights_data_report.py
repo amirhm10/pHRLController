@@ -40,6 +40,11 @@ RESULTS_ROOT = Path("results")
 METHOD_NAME = "equilibrium_weights_data_report"
 TRAIN_FRACTION = 0.70
 
+TIMING_REGIMES = (
+    ("two_minute_140s", "sessions 0-3, approximately 140 s sampling", (0, 3)),
+    ("one_minute_69s", "sessions 4-6, approximately 69 s sampling", (4, 6)),
+)
+
 NEW_COLUMN_MAP = LabPHColumnMap(
     ph_measured="pH-sensor",
     acid_flow="flow-acid",
@@ -73,6 +78,9 @@ def main() -> None:
     lab_metrics = make_model_metrics(comparison, EQUILIBRIUM_MAIN_STAGES)
     lab_comparison = select_equilibrium_comparison_columns(comparison)
     bounded_metrics = make_bounded_metrics(comparison)
+    timing_comparison = add_timing_regime_diagnostics(comparison)
+    timing_regime_summary = make_timing_regime_summary(timing_comparison)
+    timing_regime_metrics = make_timing_regime_metrics(timing_comparison)
 
     calibration = extract_equilibrium_calibration(fitted_parameters)
     calibration_parameters = make_calibration_table(fitted_parameters, calibration)
@@ -100,6 +108,9 @@ def main() -> None:
         lab_comparison=lab_comparison,
         lab_metrics=lab_metrics,
         bounded_metrics=bounded_metrics,
+        timing_comparison=timing_comparison,
+        timing_regime_summary=timing_regime_summary,
+        timing_regime_metrics=timing_regime_metrics,
         calibration_parameters=calibration_parameters,
         trial_split_summary=trial_split_summary,
         sampling_summary=sampling_summary,
@@ -121,6 +132,9 @@ def main() -> None:
     create_weight_data_figures(
         raw_data=raw_data,
         comparison=comparison,
+        timing_comparison=timing_comparison,
+        timing_regime_summary=timing_regime_summary,
+        calibration=calibration,
         source_summary=source_summary,
         figure_dir=figure_dir,
         stamp_text=stamp_text,
@@ -129,7 +143,13 @@ def main() -> None:
     print(f"Equilibrium weights-data report artifacts complete: {output_dir}")
     print(f"Tables written: {table_dir}")
     print(f"Figures written: {figure_dir}")
-    print(make_console_summary(lab_metrics, bounded_metrics, calibration, row_summary))
+    print(make_console_summary(
+        lab_metrics,
+        bounded_metrics,
+        timing_regime_summary,
+        calibration,
+        row_summary,
+    ))
 
 
 def make_bounded_metrics(comparison: pd.DataFrame) -> pd.DataFrame:
@@ -140,6 +160,158 @@ def make_bounded_metrics(comparison: pd.DataFrame) -> pd.DataFrame:
         & comparison["water_flow_in_bounds"]
     )
     return make_model_metrics(comparison, EQUILIBRIUM_MAIN_STAGES, mask=bounded)
+
+
+def add_timing_regime_diagnostics(comparison: pd.DataFrame) -> pd.DataFrame:
+    enriched = comparison.copy()
+    enriched["timing_regime"] = "other"
+    enriched["timing_regime_description"] = ""
+    enriched["prediction_timing_local_affine"] = np.nan
+    enriched["residual_timing_local_affine"] = np.nan
+    enriched["timing_local_affine_intercept"] = np.nan
+    enriched["timing_local_affine_slope"] = np.nan
+
+    for regime, description, session_range in TIMING_REGIMES:
+        mask = timing_regime_mask(enriched, session_range)
+        enriched.loc[mask, "timing_regime"] = regime
+        enriched.loc[mask, "timing_regime_description"] = description
+
+        fit_mask = (
+            mask
+            & enriched["valid_for_model"]
+            & enriched["ph_equilibrium_charge_balance"].notna()
+            & enriched["ph_measured"].notna()
+        )
+        if fit_mask.sum() < 2:
+            continue
+
+        x = enriched.loc[fit_mask, "ph_equilibrium_charge_balance"].to_numpy(dtype=float)
+        y = enriched.loc[fit_mask, "ph_measured"].to_numpy(dtype=float)
+        intercept, slope = np.linalg.lstsq(
+            np.column_stack([np.ones(len(x)), x]),
+            y,
+            rcond=None,
+        )[0]
+        pred_mask = mask & enriched["ph_equilibrium_charge_balance"].notna()
+        prediction = (
+            float(intercept)
+            + float(slope) * enriched.loc[pred_mask, "ph_equilibrium_charge_balance"]
+        )
+        enriched.loc[pred_mask, "prediction_timing_local_affine"] = prediction
+        enriched.loc[pred_mask, "residual_timing_local_affine"] = (
+            enriched.loc[pred_mask, "ph_measured"] - prediction
+        )
+        enriched.loc[mask, "timing_local_affine_intercept"] = float(intercept)
+        enriched.loc[mask, "timing_local_affine_slope"] = float(slope)
+    return enriched
+
+
+def timing_regime_mask(df: pd.DataFrame, session_range: tuple[int, int]) -> pd.Series:
+    start, end = session_range
+    return df["session_id"].between(start, end, inclusive="both")
+
+
+def make_timing_regime_summary(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for regime, description, session_range in TIMING_REGIMES:
+        mask = timing_regime_mask(df, session_range)
+        group = df.loc[mask].copy()
+        valid = group["valid_for_model"].astype(bool)
+        valid_group = group.loc[valid]
+        dt = pd.to_numeric(group["dt_s"], errors="coerce").dropna()
+        dt = dt.loc[dt > 0.0]
+        row = {
+            "timing_regime": regime,
+            "description": description,
+            "session_id_min": int(session_range[0]),
+            "session_id_max": int(session_range[1]),
+            "sample_index_min": int(group["sample_index"].min()) if len(group) else np.nan,
+            "sample_index_max": int(group["sample_index"].max()) if len(group) else np.nan,
+            "n_total": int(len(group)),
+            "n_valid": int(valid.sum()),
+            "median_dt_s": safe_float(dt.median()),
+            "p05_dt_s": safe_float(dt.quantile(0.05)),
+            "p95_dt_s": safe_float(dt.quantile(0.95)),
+            "intervals_gt_15_min": int(dt.gt(900.0).sum()) if len(dt) else 0,
+            "ph_min": safe_float(valid_group["ph_measured"].min()),
+            "ph_median": safe_float(valid_group["ph_measured"].median()),
+            "ph_max": safe_float(valid_group["ph_measured"].max()),
+            "ph_eq_min": safe_float(valid_group["ph_equilibrium_charge_balance"].min()),
+            "ph_eq_median": safe_float(valid_group["ph_equilibrium_charge_balance"].median()),
+            "ph_eq_max": safe_float(valid_group["ph_equilibrium_charge_balance"].max()),
+            "acid_median": safe_float(valid_group["acid_flow"].median()),
+            "acetate_median": safe_float(valid_group["acetate_flow"].median()),
+            "water_median": safe_float(valid_group["water_flow"].median()),
+            "total_flow_median": safe_float(valid_group["total_flow"].median()),
+            "rows_any_flow_above_10": int((
+                valid_group["acid_flow"].gt(10.0)
+                | valid_group["acetate_flow"].gt(10.0)
+                | valid_group["water_flow"].gt(10.0)
+            ).sum()),
+            "local_affine_intercept": safe_float(
+                valid_group["timing_local_affine_intercept"].dropna().iloc[0]
+            )
+            if valid_group["timing_local_affine_intercept"].notna().any()
+            else np.nan,
+            "local_affine_slope": safe_float(
+                valid_group["timing_local_affine_slope"].dropna().iloc[0]
+            )
+            if valid_group["timing_local_affine_slope"].notna().any()
+            else np.nan,
+        }
+        for key, residual_col in [
+            ("raw", "residual_equilibrium_raw"),
+            ("global_affine", "residual_equilibrium_affine"),
+            ("local_affine", "residual_timing_local_affine"),
+        ]:
+            residual = valid_group[residual_col].dropna()
+            row[f"{key}_mean_error"] = safe_float(residual.mean())
+            row[f"{key}_mae"] = safe_float(residual.abs().mean())
+            row[f"{key}_rmse"] = residual_rmse(residual)
+            row[f"{key}_max_abs"] = safe_float(residual.abs().max())
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def make_timing_regime_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    specs = [
+        ("raw", "Raw equilibrium", "prediction_equilibrium_raw", "residual_equilibrium_raw"),
+        (
+            "global_affine",
+            "Global equilibrium affine",
+            "prediction_equilibrium_affine",
+            "residual_equilibrium_affine",
+        ),
+        (
+            "timing_local_affine",
+            "Timing-local equilibrium affine",
+            "prediction_timing_local_affine",
+            "residual_timing_local_affine",
+        ),
+    ]
+    for regime, description, session_range in TIMING_REGIMES:
+        mask = timing_regime_mask(df, session_range) & df["valid_for_model"]
+        for key, label, prediction_col, residual_col in specs:
+            metric_mask = mask & df[prediction_col].notna() & df["ph_measured"].notna()
+            residual = df.loc[metric_mask, residual_col].dropna()
+            measured = df.loc[metric_mask, "ph_measured"]
+            predicted = df.loc[metric_mask, prediction_col]
+            rows.append({
+                "timing_regime": regime,
+                "description": description,
+                "model_stage": key,
+                "model_label": label,
+                "n": int(metric_mask.sum()),
+                "mean_error": safe_float(residual.mean()),
+                "mae": safe_float(residual.abs().mean()),
+                "rmse": residual_rmse(residual),
+                "max_abs": safe_float(residual.abs().max()),
+                "correlation": safe_float(measured.corr(predicted))
+                if len(measured.dropna()) > 1
+                else np.nan,
+            })
+    return pd.DataFrame(rows)
 
 
 def make_source_comparison_summary(raw_data: pd.DataFrame) -> pd.DataFrame:
@@ -207,6 +379,9 @@ def make_row_summary(raw_data: pd.DataFrame, preprocessed: pd.DataFrame) -> pd.D
 def create_weight_data_figures(
     raw_data: pd.DataFrame,
     comparison: pd.DataFrame,
+    timing_comparison: pd.DataFrame,
+    timing_regime_summary: pd.DataFrame,
+    calibration: dict[str, float | int],
     source_summary: pd.DataFrame,
     figure_dir: Path,
     stamp_text: str,
@@ -218,11 +393,27 @@ def create_weight_data_figures(
         "legacy_vs_weight_flows": figure_dir / "legacy_vs_weight_flows.png",
         "flow_correction_deltas": figure_dir / "flow_correction_deltas.png",
         "weights_residual_histogram": figure_dir / "weights_residual_histogram.png",
+        "timing_regime_scatter": figure_dir / "timing_regime_equilibrium_scatter.png",
+        "timing_regime_residual_boxplot": (
+            figure_dir / "timing_regime_residual_boxplot.png"
+        ),
     }
     plot_corrected_input_output_behavior(comparison, paths["corrected_input_output_behavior"], stamp_text)
     plot_legacy_vs_weight_flows(raw_data, paths["legacy_vs_weight_flows"], stamp_text)
     plot_flow_correction_deltas(raw_data, paths["flow_correction_deltas"], stamp_text)
     plot_weights_residual_histogram(comparison, paths["weights_residual_histogram"], stamp_text)
+    plot_timing_regime_scatter(
+        timing_comparison,
+        timing_regime_summary,
+        calibration,
+        paths["timing_regime_scatter"],
+        stamp_text,
+    )
+    plot_timing_regime_residual_boxplot(
+        timing_comparison,
+        paths["timing_regime_residual_boxplot"],
+        stamp_text,
+    )
     source_summary.to_csv(figure_dir / "source_summary_used_for_figures.csv", index=False)
     return paths
 
@@ -337,6 +528,106 @@ def plot_weights_residual_histogram(
     finalize_figure(fig, path, stamp_text)
 
 
+def plot_timing_regime_scatter(
+    df: pd.DataFrame,
+    timing_regime_summary: pd.DataFrame,
+    calibration: dict[str, float | int],
+    path: Path,
+    stamp_text: str,
+) -> None:
+    fig, axes = plt.subplots(1, 2, figsize=(13.0, 5.8), sharex=True, sharey=True)
+    x_min = df.loc[df["valid_for_model"], "ph_equilibrium_charge_balance"].min() - 0.1
+    x_max = df.loc[df["valid_for_model"], "ph_equilibrium_charge_balance"].max() + 0.1
+    grid = np.linspace(float(x_min), float(x_max), 100)
+
+    for ax, (regime, description, _) in zip(axes, TIMING_REGIMES):
+        subset = df.loc[df["timing_regime"].eq(regime) & df["valid_for_model"]]
+        summary = timing_regime_summary.loc[
+            timing_regime_summary["timing_regime"].eq(regime)
+        ].iloc[0]
+        ax.scatter(
+            subset["ph_equilibrium_charge_balance"],
+            subset["ph_measured"],
+            s=24,
+            alpha=0.62,
+            color="#0a9396",
+            label="samples",
+        )
+        ax.plot(grid, grid, "--", color="0.35", linewidth=1.0, label="identity")
+        ax.plot(
+            grid,
+            float(calibration["intercept"]) + float(calibration["slope"]) * grid,
+            color="#ae2012",
+            linewidth=1.5,
+            label="global affine",
+        )
+        ax.plot(
+            grid,
+            summary["local_affine_intercept"] + summary["local_affine_slope"] * grid,
+            color="#005f73",
+            linewidth=1.5,
+            label="timing-local affine",
+        )
+        ax.set_title(description)
+        ax.set_xlabel("raw equilibrium pH")
+        ax.grid(True, alpha=0.3)
+    axes[0].set_ylabel("measured pH-sensor")
+    axes[0].legend(loc="best")
+    fig.suptitle("Equilibrium pH versus measured pH by sampling regime")
+    finalize_figure(fig, path, stamp_text)
+
+
+def plot_timing_regime_residual_boxplot(
+    df: pd.DataFrame,
+    path: Path,
+    stamp_text: str,
+) -> None:
+    rows = []
+    for regime, description, _ in TIMING_REGIMES:
+        subset = df.loc[df["timing_regime"].eq(regime) & df["valid_for_model"]]
+        for residual_col, label in [
+            ("residual_equilibrium_raw", "raw"),
+            ("residual_equilibrium_affine", "global affine"),
+            ("residual_timing_local_affine", "timing-local affine"),
+        ]:
+            for value in subset[residual_col].dropna():
+                rows.append({
+                    "timing_regime": regime,
+                    "description": description,
+                    "model": label,
+                    "residual": float(value),
+                })
+    plot_df = pd.DataFrame(rows)
+    labels = []
+    data = []
+    colors = []
+    palette = {
+        "raw": "#ae2012",
+        "global affine": "#ee9b00",
+        "timing-local affine": "#0a9396",
+    }
+    for regime, description, _ in TIMING_REGIMES:
+        for model in ["raw", "global affine", "timing-local affine"]:
+            values = plot_df.loc[
+                plot_df["timing_regime"].eq(regime) & plot_df["model"].eq(model),
+                "residual",
+            ].to_numpy(dtype=float)
+            labels.append(f"{description.split(',')[0]}\n{model}")
+            data.append(values)
+            colors.append(palette[model])
+
+    fig, ax = plt.subplots(figsize=(12.0, 5.8))
+    box = ax.boxplot(data, tick_labels=labels, patch_artist=True, showfliers=False)
+    for patch, color in zip(box["boxes"], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.35)
+    ax.axhline(0.0, color="0.25", linestyle="--", linewidth=1.0)
+    ax.set_ylabel("residual, pH-sensor - prediction")
+    ax.set_title("Residual distributions by timing regime")
+    ax.grid(True, axis="y", alpha=0.3)
+    finalize_figure(fig, path, stamp_text)
+
+
 def mark_test_region(ax, df: pd.DataFrame) -> None:
     test = df.loc[df["split"].eq("test")]
     if test.empty:
@@ -389,6 +680,9 @@ def save_tables(
     lab_comparison: pd.DataFrame,
     lab_metrics: pd.DataFrame,
     bounded_metrics: pd.DataFrame,
+    timing_comparison: pd.DataFrame,
+    timing_regime_summary: pd.DataFrame,
+    timing_regime_metrics: pd.DataFrame,
     calibration_parameters: pd.DataFrame,
     trial_split_summary: pd.DataFrame,
     sampling_summary: pd.DataFrame,
@@ -408,6 +702,9 @@ def save_tables(
         ),
         "lab_metrics": table_dir / "lab_metrics.csv",
         "bounded_metrics": table_dir / "bounded_metrics.csv",
+        "timing_regime_comparison": table_dir / "timing_regime_comparison.csv",
+        "timing_regime_summary": table_dir / "timing_regime_summary.csv",
+        "timing_regime_metrics": table_dir / "timing_regime_metrics.csv",
         "calibration_parameters": table_dir / "calibration_parameters.csv",
         "trial_split_summary": table_dir / "trial_split_summary.csv",
         "sampling_summary": table_dir / "sampling_summary.csv",
@@ -424,6 +721,9 @@ def save_tables(
     lab_comparison.to_csv(tables["lab_equilibrium_model_comparison"], index=False)
     lab_metrics.to_csv(tables["lab_metrics"], index=False)
     bounded_metrics.to_csv(tables["bounded_metrics"], index=False)
+    timing_comparison.to_csv(tables["timing_regime_comparison"], index=False)
+    timing_regime_summary.to_csv(tables["timing_regime_summary"], index=False)
+    timing_regime_metrics.to_csv(tables["timing_regime_metrics"], index=False)
     calibration_parameters.to_csv(tables["calibration_parameters"], index=False)
     trial_split_summary.to_csv(tables["trial_split_summary"], index=False)
     sampling_summary.to_csv(tables["sampling_summary"], index=False)
@@ -439,6 +739,7 @@ def save_tables(
 def make_console_summary(
     lab_metrics: pd.DataFrame,
     bounded_metrics: pd.DataFrame,
+    timing_regime_summary: pd.DataFrame,
     calibration: dict[str, float | int],
     row_summary: pd.DataFrame,
 ) -> str:
@@ -447,6 +748,12 @@ def make_console_summary(
     bounded_affine_test = metric_row(bounded_metrics, "equilibrium_affine", "test")
     valid_rows = int(row_summary.loc[row_summary["check"].eq("valid_for_model_rows"), "value"].iloc[0])
     out_of_bound = int(row_summary.loc[row_summary["check"].eq("any_flow_above_10_ml_min"), "value"].iloc[0])
+    two_min = timing_regime_summary.loc[
+        timing_regime_summary["timing_regime"].eq("two_minute_140s")
+    ].iloc[0]
+    one_min = timing_regime_summary.loc[
+        timing_regime_summary["timing_regime"].eq("one_minute_69s")
+    ].iloc[0]
     return (
         "Key checks: "
         f"valid rows={valid_rows}; "
@@ -454,6 +761,8 @@ def make_console_summary(
         f"raw equilibrium test RMSE={raw_test['rmse']:.4f} pH; "
         f"affine test RMSE={affine_test['rmse']:.4f} pH; "
         f"bounded affine test RMSE={bounded_affine_test['rmse']:.4f} pH; "
+        f"two-minute local RMSE={two_min['local_affine_rmse']:.4f} pH; "
+        f"one-minute local RMSE={one_min['local_affine_rmse']:.4f} pH; "
         f"affine b0={calibration['intercept']:.4f}, "
         f"b1={calibration['slope']:.4f}."
     )
@@ -467,6 +776,14 @@ def metric_row(metrics: pd.DataFrame, model_stage: str, split: str) -> pd.Series
 
 def safe_float(value: float) -> float:
     return float(value) if pd.notna(value) else np.nan
+
+
+def residual_rmse(values: pd.Series | np.ndarray) -> float:
+    array = np.asarray(values, dtype=float)
+    array = array[np.isfinite(array)]
+    if len(array) == 0:
+        return np.nan
+    return float(np.sqrt(np.mean(array**2)))
 
 
 if __name__ == "__main__":

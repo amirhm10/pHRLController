@@ -46,7 +46,7 @@ run_equilibrium_weights_data_report.py
 The generated artifacts are saved in:
 
 ```text
-results/equilibrium_weights_data_report_20260608_235235/
+results/equilibrium_weights_data_report_20260609_001457/
 ```
 
 The runner uses the same model code and validation pattern as the previous
@@ -131,16 +131,16 @@ flow columns, but they are systematically shifted.
 This means the pH output is unchanged relative to `PH_2`, while the main data
 fix is in the three inlet flows.
 
-![Weight-backcalculated flows versus logged flow columns](../results/equilibrium_weights_data_report_20260608_235235/figures/legacy_vs_weight_flows.png)
+![Weight-backcalculated flows versus logged flow columns](../results/equilibrium_weights_data_report_20260609_001457/figures/legacy_vs_weight_flows.png)
 
-![Flow correction distributions](../results/equilibrium_weights_data_report_20260608_235235/figures/flow_correction_deltas.png)
+![Flow correction distributions](../results/equilibrium_weights_data_report_20260609_001457/figures/flow_correction_deltas.png)
 
 ## Weight-Corrected Input And Output Behavior
 
 The corrected data retain broad flow excitation and broad pH variation. The old
 flat-pH region is no longer flagged by the preprocessing rule.
 
-![Weights-corrected pH and inlet behavior](../results/equilibrium_weights_data_report_20260608_235235/figures/corrected_input_output_behavior.png)
+![Weights-corrected pH and inlet behavior](../results/equilibrium_weights_data_report_20260609_001457/figures/corrected_input_output_behavior.png)
 
 The main corrected-data ranges are:
 
@@ -286,7 +286,7 @@ rather than a strong affine compression.
 The new metrics are saved here:
 
 ```text
-results/equilibrium_weights_data_report_20260608_235235/tables/lab_metrics.csv
+results/equilibrium_weights_data_report_20260609_001457/tables/lab_metrics.csv
 ```
 
 | Model stage | Split | N | Mean error | MAE | RMSE | Max abs | Correlation |
@@ -304,6 +304,131 @@ results/equilibrium_weights_data_report_20260608_235235/tables/lab_metrics.csv
 Because the new affine slope is close to `1`, the bias-only and affine models
 are nearly identical. This is another sign that the corrected flow data make
 the chemistry model more physically coherent.
+
+## Split By Measurement Timing
+
+The new dataset still contains two sampling regimes:
+
+| Report part | Sessions | Sample indices | Median `dt_s` | Valid rows |
+| --- | --- | ---: | ---: | ---: |
+| Part 1, two-minute regime | `0-3` | `0-306` | `141.2375 s` | `307` |
+| Part 2, one-minute regime | `4-6` | `307-961` | `69.3550 s` | `655` |
+
+The timing-regime tables are saved here:
+
+```text
+results/equilibrium_weights_data_report_20260609_001457/tables/timing_regime_summary.csv
+results/equilibrium_weights_data_report_20260609_001457/tables/timing_regime_metrics.csv
+```
+
+The global affine model in the previous section is fit once using the same
+train/test split as before. To understand whether the two timing blocks behave
+differently, this section also reports a timing-local affine diagnostic fit
+inside each regime:
+
+$$
+pH\text{-sensor} \approx b_{0,r} + b_{1,r}pH_{eq}
+$$
+
+where \(r\) denotes either the two-minute or one-minute timing regime. These
+timing-local fits are diagnostic fits on each regime, not independent held-out
+controller-ready models.
+
+![Equilibrium pH versus measured pH by sampling regime](../results/equilibrium_weights_data_report_20260609_001457/figures/timing_regime_equilibrium_scatter.png)
+
+![Residual distributions by timing regime](../results/equilibrium_weights_data_report_20260609_001457/figures/timing_regime_residual_boxplot.png)
+
+## Part 1: Two-Minute Timing Regime
+
+This part contains sessions `0-3`, where the typical sampling interval is about
+`140-142 s`.
+
+| Quantity | Value |
+| --- | ---: |
+| sessions | `0-3` |
+| sample indices | `0-306` |
+| valid rows | `307` |
+| median `dt_s` | `141.2375 s` |
+| 5-95 percent `dt_s` range | `140.0045-142.8897 s` |
+| measured pH range | `3.6229-5.2186` |
+| raw equilibrium pH range | `3.8945-5.3442` |
+| rows with any inferred flow above `10 mL/min` | `71` |
+
+The model behavior in this timing block is:
+
+| Model | Mean error | MAE | RMSE | Max abs | Correlation |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| raw equilibrium | `-0.1601` | `0.1633` | `0.2209` | `0.4181` | `0.8875` |
+| global affine | `0.1067` | `0.1667` | `0.1862` | `0.3682` | `0.8875` |
+| timing-local affine | `0.0000` | `0.1450` | `0.1518` | `0.2802` | `0.8875` |
+
+The timing-local affine diagnostic is:
+
+$$
+pH\text{-sensor} \approx 0.0260 + 0.9603\,pH_{eq}
+$$
+
+This is still close to a unity-slope chemistry coordinate, but the RMSE remains
+larger than in the one-minute regime. The two-minute data therefore remain the
+less clean part of the dataset. The coarse sampling also means this block is
+not suitable for identifying fast delay or probe-response dynamics.
+
+## Part 2: One-Minute Timing Regime
+
+This part contains sessions `4-6`, where the typical sampling interval is about
+`69-70 s`.
+
+| Quantity | Value |
+| --- | ---: |
+| sessions | `4-6` |
+| sample indices | `307-961` |
+| valid rows | `655` |
+| median `dt_s` | `69.3550 s` |
+| 5-95 percent `dt_s` range | `69.0210-70.1963 s` |
+| measured pH range | `3.5717-5.0256` |
+| raw equilibrium pH range | `3.9188-5.3592` |
+| rows with any inferred flow above `10 mL/min` | `109` |
+
+The model behavior in this timing block is:
+
+| Model | Mean error | MAE | RMSE | Max abs | Correlation |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| raw equilibrium | `-0.3467` | `0.3467` | `0.3503` | `0.5699` | `0.9887` |
+| global affine | `-0.0803` | `0.0820` | `0.0941` | `0.3008` | `0.9887` |
+| timing-local affine | `0.0000` | `0.0324` | `0.0448` | `0.3270` | `0.9887` |
+
+The timing-local affine diagnostic is:
+
+$$
+pH\text{-sensor} \approx -0.7443 + 1.0842\,pH_{eq}
+$$
+
+This block is much cleaner after local affine calibration. The high correlation
+and low timing-local RMSE suggest that sessions `4-6` are the better subset for
+static first-principles validation. The data still sample only about once per
+minute, so they are better for static calibration than for fast dynamic
+identification.
+
+## Timing-Regime Interpretation
+
+The two parts should not be merged without remembering that they have different
+measurement timing and different effective calibration behavior.
+
+| Quantity | Two-minute regime | One-minute regime |
+| --- | ---: | ---: |
+| median `dt_s` | `141.2375 s` | `69.3550 s` |
+| valid rows | `307` | `655` |
+| raw RMSE | `0.2209` | `0.3503` |
+| global affine RMSE | `0.1862` | `0.0941` |
+| timing-local affine RMSE | `0.1518` | `0.0448` |
+| timing-local affine slope | `0.9603` | `1.0842` |
+
+The one-minute block is clearly more internally consistent after affine
+calibration. The two-minute block is not useless, but it should be treated as a
+separate regime in any future modeling or reporting. A single global affine
+calibration is acceptable as a compact overall summary, but it hides the fact
+that sessions `4-6` are much more accurately represented by a local static
+equilibrium map.
 
 ## Comparison Against The Previous Dataset
 
@@ -333,29 +458,29 @@ The answer is therefore mixed but encouraging:
 The time-response plot shows that the raw equilibrium prediction is still above
 the measured pH, but the offset is smaller than before.
 
-![Lab pH against equilibrium core predictions](../results/equilibrium_weights_data_report_20260608_235235/figures/lab_equilibrium_validation_time.png)
+![Lab pH against equilibrium core predictions](../results/equilibrium_weights_data_report_20260609_001457/figures/lab_equilibrium_validation_time.png)
 
 The scatter plot is the most important qualitative result. Compared with the
 previous logged-flow result, the fitted trend has a slope close to the identity
 line. The split between early and later behavior is still visible, but the
 global compression problem is much weaker.
 
-![Measured pH versus raw equilibrium pH](../results/equilibrium_weights_data_report_20260608_235235/figures/lab_equilibrium_validation_scatter.png)
+![Measured pH versus raw equilibrium pH](../results/equilibrium_weights_data_report_20260609_001457/figures/lab_equilibrium_validation_scatter.png)
 
 The residual plots show that affine calibration removes the main offset, but
 structured residuals remain with respect to sample index and chemistry
 coordinates.
 
-![Equilibrium residuals before and after empirical calibration](../results/equilibrium_weights_data_report_20260608_235235/figures/lab_equilibrium_residuals.png)
+![Equilibrium residuals before and after empirical calibration](../results/equilibrium_weights_data_report_20260609_001457/figures/lab_equilibrium_residuals.png)
 
 The train/test RMSE plot shows the raw-to-calibrated improvement.
 
-![Equilibrium train/test RMSE](../results/equilibrium_weights_data_report_20260608_235235/figures/lab_equilibrium_train_test_rmse.png)
+![Equilibrium train/test RMSE](../results/equilibrium_weights_data_report_20260609_001457/figures/lab_equilibrium_train_test_rmse.png)
 
 The test residual histogram shows that bias-only and affine calibration are
 nearly equivalent for the corrected dataset.
 
-![Weights-corrected test residual distributions](../results/equilibrium_weights_data_report_20260608_235235/figures/weights_residual_histogram.png)
+![Weights-corrected test residual distributions](../results/equilibrium_weights_data_report_20260609_001457/figures/weights_residual_histogram.png)
 
 ## Generated Pump-Grid Interpretation
 
@@ -375,12 +500,12 @@ Across the generated grid:
 | total buffer concentration, mol/L | `0.0167` | `0.0667` | `0.0952` |
 | water fraction | `0.0476` | `0.3333` | `0.8333` |
 
-![Generated pump-grid heatmaps](../results/equilibrium_weights_data_report_20260608_235235/figures/generated_pump_grid_heatmaps.png)
+![Generated pump-grid heatmaps](../results/equilibrium_weights_data_report_20260609_001457/figures/generated_pump_grid_heatmaps.png)
 
 Water still mostly changes dilution, total flow, and future residence-time
 coordinates rather than the ideal equal-stock acid/acetate ratio.
 
-![Generated water dilution sensitivity](../results/equilibrium_weights_data_report_20260608_235235/figures/generated_water_dilution_sensitivity.png)
+![Generated water dilution sensitivity](../results/equilibrium_weights_data_report_20260609_001457/figures/generated_water_dilution_sensitivity.png)
 
 ## What Improved
 
@@ -423,6 +548,11 @@ chemistry equation. Possible causes include pH probe calibration offset,
 temperature or activity effects, unmodeled mixing or residence time, and
 remaining timing differences between flow changes and pH readings.
 
+The timing split confirms this concern. Sessions `4-6` are much more internally
+consistent than sessions `0-3` after timing-local affine calibration. The
+two-minute block should be reported separately when discussing static model
+accuracy.
+
 The 180 rows with at least one inferred flow above `10 mL/min` are also worth
 checking. The nominal pump bounds are `1-10 mL/min`, so values above `10` may
 reflect backcalculation assumptions, density assumptions, timing windows, or
@@ -453,3 +583,7 @@ The model is better, but it is still not ready as a dynamic plant simulator.
 The next safe step remains an open-loop dynamic experiment with verified
 valve routing, fixed sampling, enough hold time for settling, and logged
 commanded and measured flows.
+
+For static model interpretation, the one-minute timing regime should be treated
+as the cleaner subset. For dynamic model identification, neither regime is
+fast enough to resolve short transport delay or pH probe response reliably.
