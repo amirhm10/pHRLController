@@ -67,8 +67,10 @@ def main() -> None:
     write_report(
         result_dir=result_dir,
         model=model,
+        sensor_consistency=diagnostic["sensor_consistency"],
         changepoint=diagnostic["changepoint"],
         segment_metrics=diagnostic["segment_metrics"],
+        charge_balance_metrics=diagnostic["charge_balance_metrics"],
         flow_source_metrics=diagnostic["flow_source_metrics"],
         selected_column_medians=diagnostic["selected_column_medians"],
         column_shift_ranking=diagnostic["column_shift_ranking"],
@@ -93,8 +95,10 @@ def main() -> None:
 def write_report(
     result_dir: Path,
     model: HendersonHasselbalchModel,
+    sensor_consistency: pd.DataFrame,
     changepoint: pd.DataFrame,
     segment_metrics: pd.DataFrame,
+    charge_balance_metrics: pd.DataFrame,
     flow_source_metrics: pd.DataFrame,
     selected_column_medians: pd.DataFrame,
     column_shift_ranking: pd.DataFrame,
@@ -149,16 +153,22 @@ Check why the Henderson-Hasselbalch residual changes inside the slower-sampling 
 The static model remains
 
 $$
-\\mathrm{{pH}}_{{HH,k}} = pK_a + \\log_{{10}}\\left(\\frac{{C_A F_{{A,k}}}}{{C_H F_{{H,k}}}}\\right),
+\\mathrm{{pH}}_{{HH,k}} = pK_a + \\log_{{10}}\\left(\\frac{{C_{{acetate}} F_{{acetate,k}}}}{{C_{{acid}} F_{{acid,k}}}}\\right),
 $$
 
-with `pK_a = {model.pKa:.3f}`, `C_H = {model.acid_stock_mol_l:.3f}` mol/L, and `C_A = {model.base_stock_mol_l:.3f}` mol/L.
+with `pK_a = {model.pKa:.3f}`, `C_acid = {model.acid_stock_mol_l:.3f}` mol/L, and `C_acetate = {model.base_stock_mol_l:.3f}` mol/L.
 
 The residual is
 
 $$
 e_k = \\mathrm{{pH}}_k - \\mathrm{{pH}}_{{HH,k}}.
 $$
+
+The measured pH used in this residual is the prepared last-column `pH-sensor`, which is numerically the same as `observation.biosmb-sensors.PH_2` in this dataset. `PH_1` is not used as a pH validation channel.
+
+Reliable pH-channel check:
+
+{markdown_table(sensor_consistency, digits=6)}
 
 A single mean-residual changepoint scan found the largest persistent shift at sample `{int(cp["changepoint_sample_index"])}`. The sampling-rate phase change starts later at sample `{int(cp["phase2_start_sample_index"])}`.
 
@@ -182,25 +192,35 @@ Using the raw `observation.biosmb-flows[0:2]` columns does not remove the jump. 
 
 ## Effective pKa Or Concentration Interpretation
 
-If the model is written as
+For each sample, the effective pKa diagnostic is computed as
 
 $$
-\\mathrm{{pH}}_k = pK_a^{{eff}} + \\log_{{10}}\\left(\\frac{{F_{{A,k}}}}{{F_{{H,k}}}}\\right),
+pK_{{a,k}}^{{eff}} =
+\\mathrm{{pH}}_{{sensor,k}}
+- \\log_{{10}}\\left(\\frac{{C_{{acetate}} F_{{acetate,k}}}}{{C_{{acid}} F_{{acid,k}}}}\\right).
 $$
 
-then `pK_a^{{eff}}` changes from about `4.72` before the jump to about `4.42` after the jump. A real acetic-acid `pK_a` change of about `0.30` pH units is not a normal explanation for the same chemistry. It is better interpreted as either a pH measurement offset, a stock/pump ratio change, or another session-level system change.
+Because both stock concentrations are assumed to be 0.100 mol/L, this simplifies to `pH_sensor - log10(flow_sodium / flow_acid)`. The segment mean also equals `pK_a + mean_residual`. This is a lumped intercept diagnostic, not proof that the true thermodynamic acetic-acid pKa changed.
+
+The lumped `pK_a^{{eff}}` changes from about `4.72` before the jump to about `4.42` after the jump. A real acetic-acid `pK_a` change of about `0.30` pH units is not a normal explanation for the same chemistry. It is better interpreted as either a pH measurement offset, a stock/pump ratio change, or another session-level system change.
 
 If the shift were explained only by effective stock concentration ratio, the post-jump data would imply
 
 $$
-\\frac{{(C_A/C_H)_{{actual}}}}{{(C_A/C_H)_{{assumed}}}} \\approx 10^{{\\bar e}} \\approx 0.46.
+\\frac{{(C_{{acetate}}/C_{{acid}})_{{actual}}}}{{(C_{{acetate}}/C_{{acid}})_{{assumed}}}} \\approx 10^{{\\bar e}} \\approx 0.46.
 $$
 
 That would mean the effective sodium-acetate-to-acetic-acid strength was roughly half of the assumed ratio after the jump. The CSV has no direct stock concentration column, so this cannot be confirmed from the log alone.
 
+## Dilution And Charge-Balance Check
+
+I also checked whether replacing the Henderson-Hasselbalch approximation with a full acetate charge-balance equilibrium model could explain the bias. This model includes dilution by water through the mixed analytical concentrations. It changes the predicted pH by less than `0.01` pH unit in this dataset, so dilution/equilibrium effects are not large enough to explain the persistent `0.3` pH offset.
+
+{markdown_table(charge_balance_metrics)}
+
 ## Raw Column Evidence
 
-Several raw fields change at the same boundary. Most importantly, `PH_1` jumps from the low-pH range to about 8, and the reservoir mass readings reset upward. This supports a lab-session or hardware/state change rather than a simple sampling-interval effect.
+Several raw fields change at the same boundary. `PH_1` also jumps from the low-pH range to about 8, but it is not treated as a reliable pH measurement. It is only a session/instrumentation-state flag here. The stronger evidence is that the reliable `PH_2`/`pH-sensor` channel shifts downward, reservoir mass readings reset upward, and conductivity/UV channels change at the same boundary. This supports a lab-session or hardware/state change rather than a simple sampling-interval effect.
 
 Selected medians by segment:
 
@@ -232,7 +252,8 @@ The most plausible explanations from the available log are:
 
 1. A pH measurement calibration or probe-state offset changed at the new session.
 2. The effective acid/base stock or pump calibration ratio changed after reservoir replacement or setup changes.
-3. The treated flow columns encode a corrected flow estimate, but the raw observed flow columns do not explain the offset.
+3. A physical setup or solution-property change occurred at the same overnight/reservoir-reset boundary.
+4. The treated flow columns encode a corrected flow estimate, but the raw observed flow columns do not explain the offset.
 
 ## Recommended Next Step
 

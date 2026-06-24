@@ -64,8 +64,14 @@ def make_residual_shift_diagnostic(
 
     return {
         "comparison": comparison,
+        "sensor_consistency": make_sensor_consistency_table(raw_data),
         "changepoint": make_changepoint_table(comparison, changepoint, phase2_start),
         "segment_metrics": make_segment_metrics(comparison, segment_slices),
+        "charge_balance_metrics": make_charge_balance_metrics(
+            comparison,
+            model,
+            segment_slices,
+        ),
         "flow_source_metrics": make_flow_source_metrics(
             raw_data,
             model,
@@ -89,6 +95,42 @@ def make_residual_shift_diagnostic(
         ),
         "long_gap_events": make_long_gap_events(raw_data, comparison),
     }
+
+
+def make_sensor_consistency_table(raw_data: pd.DataFrame) -> pd.DataFrame:
+    if (
+        "observation.biosmb-sensors.PH_2" not in raw_data.columns
+        or "pH-sensor" not in raw_data.columns
+    ):
+        return pd.DataFrame(
+            [
+                {
+                    "candidate_sensor": "observation.biosmb-sensors.PH_2",
+                    "prepared_sensor": "pH-sensor",
+                    "n_compared": 0,
+                    "max_abs_difference": np.nan,
+                    "mean_abs_difference": np.nan,
+                    "rows_above_1e_6": np.nan,
+                }
+            ]
+        )
+
+    ph2 = pd.to_numeric(raw_data["observation.biosmb-sensors.PH_2"], errors="coerce")
+    prepared_sensor = pd.to_numeric(raw_data["pH-sensor"], errors="coerce")
+    valid = ph2.notna() & prepared_sensor.notna()
+    difference = (ph2.loc[valid] - prepared_sensor.loc[valid]).abs()
+    return pd.DataFrame(
+        [
+            {
+                "candidate_sensor": "observation.biosmb-sensors.PH_2",
+                "prepared_sensor": "pH-sensor",
+                "n_compared": int(valid.sum()),
+                "max_abs_difference": safe_max_abs(difference),
+                "mean_abs_difference": safe_mean(difference),
+                "rows_above_1e_6": int(difference.gt(1e-6).sum()),
+            }
+        ]
+    )
 
 
 def find_best_mean_residual_changepoint(
@@ -191,6 +233,131 @@ def make_segment_metrics(
             }
         )
     return pd.DataFrame(rows)
+
+
+def make_charge_balance_metrics(
+    comparison: pd.DataFrame,
+    model: HendersonHasselbalchModel,
+    segment_slices: dict[str, slice],
+    kw: float = 1e-14,
+) -> pd.DataFrame:
+    charge_balance_ph = predict_charge_balance_ph_array(
+        acid_flow=comparison["acid_flow"],
+        base_flow=comparison["acetate_flow"],
+        water_flow=comparison["water_flow"],
+        acid_stock_mol_l=model.acid_stock_mol_l,
+        base_stock_mol_l=model.base_stock_mol_l,
+        pka=model.pKa,
+        kw=kw,
+    )
+    comparison = comparison.copy()
+    comparison["ph_predicted_charge_balance"] = charge_balance_ph
+    comparison["charge_balance_minus_hh"] = (
+        comparison["ph_predicted_charge_balance"] - comparison["ph_predicted_hh"]
+    )
+    comparison["ph_minus_charge_balance"] = (
+        comparison["ph_measured"] - comparison["ph_predicted_charge_balance"]
+    )
+
+    rows = []
+    for segment_name, segment_slice in segment_slices.items():
+        group = comparison.iloc[segment_slice]
+        charge_balance_minus_hh = group["charge_balance_minus_hh"].dropna()
+        ph_minus_charge_balance = group["ph_minus_charge_balance"].dropna()
+        rows.append(
+            {
+                "segment": segment_name,
+                "n": int(len(charge_balance_minus_hh)),
+                "mean_charge_balance_minus_hh": safe_mean(charge_balance_minus_hh),
+                "min_charge_balance_minus_hh": float(
+                    charge_balance_minus_hh.min()
+                ),
+                "max_charge_balance_minus_hh": float(
+                    charge_balance_minus_hh.max()
+                ),
+                "mean_ph_minus_charge_balance": safe_mean(
+                    ph_minus_charge_balance
+                ),
+                "rmse_ph_minus_charge_balance": rmse(ph_minus_charge_balance),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def predict_charge_balance_ph_array(
+    acid_flow: pd.Series,
+    base_flow: pd.Series,
+    water_flow: pd.Series,
+    acid_stock_mol_l: float,
+    base_stock_mol_l: float,
+    pka: float,
+    kw: float,
+) -> np.ndarray:
+    acid = np.asarray(acid_flow, dtype=float)
+    base = np.asarray(base_flow, dtype=float)
+    water = np.asarray(water_flow, dtype=float)
+    prediction = np.full(acid.shape, np.nan, dtype=float)
+    valid = (
+        np.isfinite(acid)
+        & np.isfinite(base)
+        & np.isfinite(water)
+        & (acid > 0.0)
+        & (base > 0.0)
+        & (water >= 0.0)
+    )
+    for index in np.flatnonzero(valid):
+        prediction[index] = solve_charge_balance_ph(
+            acid_flow=acid[index],
+            base_flow=base[index],
+            water_flow=water[index],
+            acid_stock_mol_l=acid_stock_mol_l,
+            base_stock_mol_l=base_stock_mol_l,
+            pka=pka,
+            kw=kw,
+        )
+    return prediction
+
+
+def solve_charge_balance_ph(
+    acid_flow: float,
+    base_flow: float,
+    water_flow: float,
+    acid_stock_mol_l: float,
+    base_stock_mol_l: float,
+    pka: float,
+    kw: float,
+) -> float:
+    total_flow = acid_flow + base_flow + water_flow
+    total_buffer = (
+        acid_stock_mol_l * acid_flow + base_stock_mol_l * base_flow
+    ) / total_flow
+    sodium = base_stock_mol_l * base_flow / total_flow
+    ka = 10.0 ** (-pka)
+
+    def residual(hydrogen: float) -> float:
+        acetate = total_buffer * ka / (ka + hydrogen)
+        hydroxide = kw / hydrogen
+        return hydrogen + sodium - acetate - hydroxide
+
+    lower = 1e-14
+    upper = 1.0
+    lower_value = residual(lower)
+    upper_value = residual(upper)
+    if not np.isfinite(lower_value) or not np.isfinite(upper_value):
+        return np.nan
+    if lower_value * upper_value > 0.0:
+        return np.nan
+
+    for _ in range(160):
+        midpoint = 0.5 * (lower + upper)
+        midpoint_value = residual(midpoint)
+        if lower_value * midpoint_value <= 0.0:
+            upper = midpoint
+            upper_value = midpoint_value
+        else:
+            lower = midpoint
+            lower_value = midpoint_value
+    return float(-np.log10(0.5 * (lower + upper)))
 
 
 def make_flow_source_metrics(
