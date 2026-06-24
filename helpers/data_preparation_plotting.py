@@ -176,7 +176,11 @@ def plot_time_series(
     ax.plot(prepared_data["sample_index"], prepared_data[column], **plot_kwargs)
 
 
-def add_phase_background(ax, prepared_data: pd.DataFrame) -> None:
+def add_phase_background(
+    ax,
+    prepared_data: pd.DataFrame,
+    label_phases: bool = True,
+) -> None:
     if "sampling_phase_id" not in prepared_data.columns:
         return
 
@@ -201,21 +205,22 @@ def add_phase_background(ax, prepared_data: pd.DataFrame) -> None:
             )
         previous_end = end
 
-        label = str(group["sampling_phase"].iloc[0])
-        normal_delta_t = group.loc[~group["long_time_gap"], "delta_t_min"].dropna()
-        if not normal_delta_t.empty:
-            label = f"{label}\nmedian dt={normal_delta_t.median():.2f} min"
-        center = (start + end) / 2.0
-        ax.text(
-            center,
-            0.98,
-            label,
-            transform=ax.get_xaxis_transform(),
-            ha="center",
-            va="top",
-            fontsize=8,
-            color="0.25",
-        )
+        if label_phases:
+            label = str(group["sampling_phase"].iloc[0])
+            normal_delta_t = group.loc[~group["long_time_gap"], "delta_t_min"].dropna()
+            if not normal_delta_t.empty:
+                label = f"{label}\nmedian dt={normal_delta_t.median():.2f} min"
+            center = (start + end) / 2.0
+            ax.text(
+                center,
+                0.98,
+                label,
+                transform=ax.get_xaxis_transform(),
+                ha="center",
+                va="top",
+                fontsize=8,
+                color="0.25",
+            )
     ax.set_xlim(x_min, x_max)
 
 
