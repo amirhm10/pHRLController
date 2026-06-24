@@ -1,0 +1,736 @@
+\documentclass[aspectratio=169]{beamer}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{ragged2e}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{booktabs}
+
+\usetikzlibrary{arrows.meta,positioning,calc}
+
+\graphicspath{%
+  {../../../results/data_preparation_20260624_123926/figures/}%
+  {../../../results/henderson_hasselbalch_prepared_validation_20260624_125349/figures/}%
+  {../../../results/hh_residual_shift_diagnostic_20260624_132406/figures/}%
+}
+
+\definecolor{maroon1}{rgb}{0.478, 0, 0.235}
+\definecolor{maroonDim}{RGB}{108,43,72}
+\definecolor{blockTint}{RGB}{246,244,247}
+\definecolor{lightgray}{rgb}{0.94,0.94,0.97}
+\definecolor{lightgray2}{rgb}{0.5,0.5,0.5}
+\definecolor{maccblue}{RGB}{28,74,117}
+\definecolor{maccgreen}{RGB}{44,118,92}
+\definecolor{maccred}{RGB}{156,58,52}
+\definecolor{maccorange}{RGB}{216,100,42}
+
+\usetheme{Copenhagen}
+\usecolortheme[named=maroon1]{structure}
+
+\setbeamerfont{caption}{size=\scriptsize}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\setbeamercolor{block title}{fg=white,bg=maroonDim}
+
+\newcommand{\FH}{F_H}
+\newcommand{\FA}{F_A}
+\newcommand{\FW}{F_W}
+\newcommand{\FT}{F_T}
+\newcommand{\FB}{F_B}
+\newcommand{\Cbuf}{C_{\mathrm{buf}}}
+\newcommand{\pH}{\mathrm{pH}}
+\newcommand{\refnote}[1]{{\bfseries\color{maroon1}\scriptsize (#1)}}
+
+\expandafter\def\expandafter\insertshorttitle\expandafter{%
+\insertshorttitle\hfill%
+\insertframenumber\,/\,\inserttotalframenumber}
+
+\title[pH Modeling Update]{%
+\textbf{First-Principles pH Modeling for an Inline Acetate Buffer System}}
+
+\author[A. H. Hamedi]{%
+\underline{\bf \scriptsize A. H. Hamedi}\\
+\vspace{0.18cm}{\scriptsize \color{maroon1} pH Modeling and Control Update}}
+
+\date[pH Update]{%
+{\scriptsize June 24, 2026}}
+
+\begin{document}
+
+%============================= Slide 1 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=white,bg=maroonDim}
+
+\vspace{0.65cm}
+\begin{block}{}
+\begin{center}
+\usebeamercolor{title in headline}{\Large{\inserttitle}\\[0.5ex]}
+\end{center}
+\end{block}
+
+\vspace{0.28cm}
+\begin{center}
+\usebeamercolor{author in headline}{\small{\insertauthor}\\[1ex]}
+\end{center}
+
+\vfill
+\begin{center}
+{\scriptsize Acetic acid -- sodium acetate -- Arium water inline mixing}
+\end{center}
+\end{frame}
+
+%============================= Slide 2 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{Presentation Outline}}
+\small
+
+\begin{enumerate}\justifying
+  \setlength\itemsep{0.55ex}
+  \item Why Henderson-Hasselbalch is the first-principles baseline.
+  \item Why water is weak as a direct steady-state pH input.
+  \item What the updated data show.
+  \item Where the model prediction becomes biased.
+  \item How apparent pKa was calculated and interpreted.
+  \item Controller structures from the source document.
+\end{enumerate}
+\end{frame}
+
+%============================= Slide 3 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{The Acetic-Acid/Acetate Pair Is the Buffer}}
+\small
+
+\vspace{-0.10cm}
+\begin{columns}[T,onlytextwidth]
+
+\begin{column}{0.45\textwidth}
+\begin{block}{Source-document terminology}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.55ex}
+  \item Flow 0: acetic acid, $\FH$
+  \item Flow 1: sodium acetate, $\FA$
+  \item Flow 2: water, $\FW$
+  \item Acid and acetate stocks: about 100 mM
+\end{itemize}
+\end{block}
+
+\vspace{0.05cm}
+\begin{block}{Main modeling split}
+\justifying
+Separate the \textbf{chemical pH effect} from the \textbf{hydraulic/dynamic effect}.
+\end{block}
+\end{column}
+
+\begin{column}{0.52\textwidth}
+\begin{block}{Henderson-Hasselbalch baseline}
+\vspace{-0.15cm}
+\[
+  \pH \approx pK_a+\log_{10}\frac{C_{A^-}}{C_{HA}}
+\]
+\vspace{-0.18cm}
+\[
+  C_{HA}=\frac{C_0\FH}{\FH+\FA+\FW},
+  \qquad
+  C_{A^-}=\frac{C_0\FA}{\FH+\FA+\FW}
+\]
+\vspace{-0.18cm}
+\[
+  \pH \approx pK_a+\log_{10}\frac{\FA}{\FH}
+\]
+\vspace{-0.18cm}
+\end{block}
+
+\vspace{0.05cm}
+\begin{beamercolorbox}[rounded=true,center,sep=4pt,wd=0.96\linewidth]{block body}
+{\bfseries The actual pH actuator is mainly the sodium-acetate/acetic-acid ratio.}
+\end{beamercolorbox}
+\end{column}
+\end{columns}
+\end{frame}
+
+%============================= Slide 4 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{Water Cancels From Ideal pH, But Not From Dynamics}}
+\small
+
+\vspace{-0.12cm}
+\begin{columns}[T,onlytextwidth]
+\begin{column}{0.47\textwidth}
+\begin{block}{Why water is weak for steady pH}
+\justifying
+In the acetate-buffer region, water is a weak steady-state pH input. The model should not force water to explain pH changes.
+\end{block}
+
+\vspace{0.05cm}
+\begin{block}{What the data check found}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.45ex}
+  \item Charge-balance model includes dilution by water.
+  \item Difference from HH: about $0.001$ pH on average.
+  \item Maximum checked difference: less than $0.009$ pH.
+\end{itemize}
+\end{block}
+\end{column}
+
+\begin{column}{0.50\textwidth}
+\begin{block}{How water still matters}
+\vspace{-0.12cm}
+\[
+  \Cbuf=\frac{C_0(\FH+\FA)}{\FT},
+  \qquad
+  \FT=\FH+\FA+\FW
+\]
+\vspace{-0.18cm}
+\[
+  \tau \approx \frac{V_{\mathrm{eff}}}{\FT}
+\]
+\vspace{-0.15cm}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.38ex}
+  \item dilution and buffer strength
+  \item total flow and residence time
+  \item mixing delay and PH\_2 sensor response
+  \item activity coefficients and apparent pKa
+\end{itemize}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+%============================= Slide 5 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{The Updated Data Are Treated as One Sequential Record}}
+\scriptsize
+
+\vspace{-0.15cm}
+\begin{columns}[T,onlytextwidth]
+
+\begin{column}{0.62\textwidth}
+\centering
+\includegraphics[width=\linewidth,height=0.72\textheight,keepaspectratio]{all_features_four_subplots.png}
+\end{column}
+
+\begin{column}{0.35\textwidth}
+\begin{block}{Prepared features}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.45ex}
+  \item timestep column: \texttt{time}
+  \item last four columns:
+  \item \texttt{flow-acid}
+  \item \texttt{flow-sodium}
+  \item \texttt{flow-water}
+  \item \texttt{pH-sensor}
+\end{itemize}
+\end{block}
+
+\vspace{0.05cm}
+\begin{block}{Sampling phases}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+phase & samples & median $\Delta t$\\
+\midrule
+1 & 0--308 & 2.347 min\\
+2 & 309--961 & 1.152 min\\
+\bottomrule
+\end{tabular}
+\end{block}
+
+\vspace{0.05cm}
+{\scriptsize The x-axis is sample index, so long calendar gaps do not create empty plot regions.}
+\end{column}
+\end{columns}
+\end{frame}
+
+%============================= Slide 6 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{PH\_2 and the Last Column Are the Reliable pH Source}}
+\scriptsize
+
+\vspace{-0.12cm}
+\begin{columns}[T,onlytextwidth]
+
+\begin{column}{0.60\textwidth}
+\centering
+\includegraphics[width=\linewidth,height=0.72\textheight,keepaspectratio]{ph_with_acid_base_flows.png}
+\end{column}
+
+\begin{column}{0.37\textwidth}
+\begin{block}{Sensor choice}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.50ex}
+  \item Model validation uses the last-column \texttt{pH-sensor}.
+  \item \texttt{pH-sensor} matches \texttt{PH\_2}.
+  \item 962 rows compared.
+  \item Maximum absolute difference: about $5\times 10^{-10}$.
+  \item \texttt{PH\_1} is not used for pH metrics.
+\end{itemize}
+\end{block}
+
+\vspace{0.05cm}
+\begin{beamercolorbox}[rounded=true,center,sep=4pt,wd=0.96\linewidth]{block body}
+{\bfseries The validation target is PH\_2 / pH-sensor.}
+\end{beamercolorbox}
+\end{column}
+\end{columns}
+\end{frame}
+
+%============================= Slide 7 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{The HH Model Follows the Trend But Has a Bias}}
+\scriptsize
+
+\vspace{-0.15cm}
+\begin{columns}[T,onlytextwidth]
+
+\begin{column}{0.61\textwidth}
+\centering
+\includegraphics[width=\linewidth,height=0.72\textheight,keepaspectratio]{ph_vs_hh_prediction.png}
+\end{column}
+
+\begin{column}{0.36\textwidth}
+\begin{block}{Overall metrics}
+\begin{tabular}{@{}lc@{}}
+\toprule
+metric & value\\
+\midrule
+$n$ & 962\\
+mean error & -0.286\\
+MAE & 0.287\\
+RMSE & 0.314\\
+max abs. error & 0.568\\
+correlation & 0.913\\
+\bottomrule
+\end{tabular}
+\end{block}
+
+\vspace{0.05cm}
+\begin{block}{Interpretation}
+\justifying
+The acid/base ratio explains the direction of pH movement, but the static model misses an intercept-like effect.
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+%============================= Slide 8 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{The Residual Shift Starts at Sample 183, Not 309}}
+\scriptsize
+
+\vspace{-0.15cm}
+\begin{columns}[T,onlytextwidth]
+
+\begin{column}{0.62\textwidth}
+\centering
+\includegraphics[width=\linewidth,height=0.72\textheight,keepaspectratio]{hh_residual_shift_overview.png}
+\end{column}
+
+\begin{column}{0.35\textwidth}
+\begin{block}{Changepoint evidence}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.45ex}
+  \item Bias starts at sample 183.
+  \item Sampling-rate phase change starts at sample 309.
+  \item Sample 183 follows an overnight/session gap.
+  \item Reservoir mass readings reset upward.
+\end{itemize}
+\end{block}
+
+\vspace{0.05cm}
+\begin{block}{Mean residual}
+\begin{tabular}{@{}lc@{}}
+\toprule
+segment & residual\\
+\midrule
+0--182 & -0.037\\
+183--308 & -0.336\\
+309--961 & -0.347\\
+\bottomrule
+\end{tabular}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+%============================= Slide 9 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{Apparent pKa Is a Lumped Intercept Diagnostic}}
+\small
+
+\vspace{-0.12cm}
+\begin{columns}[T,onlytextwidth]
+
+\begin{column}{0.48\textwidth}
+\begin{block}{Calculation}
+\vspace{-0.10cm}
+\[
+  pK_{a,\mathrm{app},k}
+  =
+  \pH_k-\log_{10}
+  \left(\frac{C_{acetate,0}F_{acetate,k}}
+  {C_{acid,0}F_{acid,k}}\right)
+\]
+\vspace{-0.20cm}
+\[
+  C_{acid,0}=C_{acetate,0}
+  \quad\Rightarrow\quad
+  pK_{a,\mathrm{app},k}
+  =
+  \pH_k-\log_{10}\frac{F_{acetate,k}}{F_{acid,k}}
+\]
+\vspace{-0.20cm}
+\end{block}
+
+\vspace{0.05cm}
+\begin{block}{Not the pure textbook pKa}
+\justifying
+It includes sensor bias, activity effect, temperature effect, stock concentration error, and mixing/delay error.
+\end{block}
+\end{column}
+
+\begin{column}{0.49\textwidth}
+\begin{block}{What changed in the data}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+segment & residual & $pK_{a,\mathrm{app}}$\\
+\midrule
+0--182 & -0.037 & 4.723\\
+183--308 & -0.336 & 4.424\\
+309--961 & -0.347 & 4.413\\
+\bottomrule
+\end{tabular}
+\end{block}
+
+\vspace{0.05cm}
+\begin{beamercolorbox}[rounded=true,center,sep=4pt,wd=0.96\linewidth]{block body}
+{\bfseries Before sample 183 looks reasonable; after sample 183 is a different intercept regime.}
+\end{beamercolorbox}
+\end{column}
+\end{columns}
+\end{frame}
+
+%============================= Slide 10 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{The Post-183 Apparent pKa Is Not a Temperature pKa}}
+\small
+
+\vspace{-0.12cm}
+\begin{columns}[T,onlytextwidth]
+\begin{column}{0.48\textwidth}
+\begin{block}{Temperature explanation check}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.55ex}
+  \item Literature pKa near room temperature is about 4.76.
+  \item The source document notes normal aqueous temperature dependence stays near this range.
+  \item The post-183 value is about 4.41.
+  \item This is too large to be normal temperature variation.
+\end{itemize}
+\end{block}
+\end{column}
+
+\begin{column}{0.49\textwidth}
+\begin{block}{Equivalent ratio interpretation}
+\vspace{-0.10cm}
+\[
+  10^{-0.336}\approx 0.46
+\]
+\vspace{-0.18cm}
+\justifying
+After sample 183, the data behave as if the effective acetate/acid strength ratio were about half of the assumed value, or as if the reliable pH sensor had an offset of about $-0.3$ pH.
+\end{block}
+
+\vspace{0.05cm}
+\begin{beamercolorbox}[rounded=true,center,sep=4pt,wd=0.96\linewidth]{block body}
+{\bfseries Interpret this as a session-dependent calibration/intercept shift.}
+\end{beamercolorbox}
+\end{column}
+\end{columns}
+\end{frame}
+
+%============================= Slide 11 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{Raw Three-Flow Control Is Not a Unique pH Problem}}
+\small
+
+\vspace{-0.10cm}
+\begin{columns}[T,onlytextwidth]
+\begin{column}{0.45\textwidth}
+\begin{block}{Direct raw action}
+\vspace{-0.12cm}
+\[
+  u=\begin{bmatrix}F_{acid}\\F_{acetate}\end{bmatrix}
+\]
+\vspace{-0.20cm}
+\[
+  \pH \approx pK_a+\log_{10}\frac{F_{acetate}}{F_{acid}}
+\]
+\vspace{-0.16cm}
+\end{block}
+
+\vspace{0.05cm}
+\begin{block}{Same pH, different usage}
+\[
+  (1,1),\quad (3,3),\quad (8,8)
+  \quad\Rightarrow\quad
+  \frac{F_{acetate}}{F_{acid}}=1
+\]
+\end{block}
+\end{column}
+
+\begin{column}{0.52\textwidth}
+\begin{block}{Document warning}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.45ex}
+  \item The pH-tracking reward is not uniquely defined.
+  \item RL can drift to unnecessarily high flows.
+  \item RL can drift to very low flows.
+  \item Pump actions can chatter.
+  \item Water or total flow can look useful for a pH problem.
+\end{itemize}
+\end{block}
+
+\vspace{0.05cm}
+\begin{beamercolorbox}[rounded=true,center,sep=4pt,wd=0.96\linewidth]{block body}
+{\bfseries Do not let RL freely choose acid and acetate independently for the first controller.}
+\end{beamercolorbox}
+\end{column}
+\end{columns}
+\end{frame}
+
+%============================= Slide 12 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{Controller Structure: Ratio-Based Controller}}
+\scriptsize
+
+\vspace{-0.12cm}
+\begin{columns}[T,onlytextwidth]
+\begin{column}{0.38\textwidth}
+\begin{block}{Reparameterize the action}
+\vspace{-0.12cm}
+\[
+  r=\frac{F_{acetate}}{F_{acid}},
+  \qquad
+  z=\log_{10}\frac{F_{acetate}}{F_{acid}}
+\]
+\vspace{-0.20cm}
+\[
+  \pH \approx pK_a+z
+\]
+\vspace{-0.16cm}
+\[
+  F_B=F_{acid}+F_{acetate}
+\]
+\vspace{-0.16cm}
+\end{block}
+
+\vspace{0.05cm}
+\begin{block}{Deterministic flow allocator}
+\vspace{-0.12cm}
+\[
+  r=10^z,\quad
+  F_{acid}=\frac{F_B}{1+r},\quad
+  F_{acetate}=\frac{rF_B}{1+r}
+\]
+\vspace{-0.16cm}
+\end{block}
+\end{column}
+
+\begin{column}{0.59\textwidth}
+\centering
+\resizebox{1.00\linewidth}{!}{%
+\begin{tikzpicture}[
+  box/.style={draw=black!55,rounded corners=2pt,align=center,fill=white,
+    inner sep=4.4pt,text width=1.85cm,minimum height=0.82cm,font=\scriptsize},
+  cmd/.style={draw=maccgreen!75!black,line width=1.1pt,rounded corners=2pt,align=center,fill=maccgreen!8,
+    inner sep=4.4pt,text width=1.85cm,minimum height=0.82cm,font=\scriptsize},
+  alloc/.style={draw=maroon1,line width=1.1pt,rounded corners=2pt,align=center,fill=maroon1!7,
+    inner sep=4.4pt,text width=2.15cm,minimum height=0.90cm,font=\scriptsize},
+  arr/.style={-{Latex[length=2.5mm,width=1.8mm]},line width=1.15pt,draw=black!70},
+  garr/.style={-{Latex[length=2.5mm,width=1.8mm]},line width=1.25pt,draw=maccgreen!75!black}
+]
+\node[box] (sp) at (0.0,1.2) {pH setpoint\\$\pH_{sp}$};
+\node[cmd] (rl) at (2.25,1.2) {RL controls\\only $z$};
+\node[box] (fb) at (2.25,-0.45) {$F_B=F_{B,\mathrm{fixed}}$\\$\FW=F_{W,\mathrm{fixed}}$};
+\node[alloc] (alloc) at (5.00,0.40) {deterministic\\flow allocator};
+\node[box] (acid) at (7.55,1.15) {$F_{acid}$\\pump};
+\node[box] (base) at (7.55,-0.35) {$F_{acetate}$\\pump};
+
+\draw[arr] (sp.east) -- (rl.west);
+\draw[garr] (rl.east) -- node[above,font=\scriptsize] {$z$} (alloc.west);
+\draw[arr] (fb.east) -- (alloc.west);
+\draw[arr] (alloc.east) -- (acid.west);
+\draw[arr] (alloc.east) -- (base.west);
+
+\node[draw=maccblue,line width=0.9pt,rounded corners=2pt,fill=maccblue!5,align=center,
+  text width=6.7cm,inner sep=4pt,font=\scriptsize] at (3.75,-1.85)
+  {First RL version: RL controls only $z$; $F_B$ and $\FW$ are fixed or chosen by a simple rule.};
+\end{tikzpicture}}
+\end{column}
+\end{columns}
+\end{frame}
+
+%============================= Slide 13 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{Controller Structure: HH Baseline + RL Correction}}
+\scriptsize
+
+\vspace{-0.12cm}
+\begin{columns}[T,onlytextwidth]
+\begin{column}{0.40\textwidth}
+\begin{block}{Baseline plus correction}
+\vspace{-0.12cm}
+\[
+  z_{HH}=\pH_{sp}-pK_a
+\]
+\vspace{-0.20cm}
+\[
+  z_{RL}=z_{HH}+\Delta z_{RL}
+\]
+\vspace{-0.20cm}
+\[
+  r=10^{z_{RL}}
+\]
+\vspace{-0.16cm}
+\end{block}
+
+\vspace{0.05cm}
+\begin{block}{What $\Delta z_{RL}$ corrects}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.35ex}
+  \item sensor bias
+  \item mixing delay
+  \item activity effects
+  \item model mismatch
+\end{itemize}
+\end{block}
+\end{column}
+
+\begin{column}{0.57\textwidth}
+\centering
+\resizebox{1.00\linewidth}{!}{%
+\begin{tikzpicture}[
+  box/.style={draw=black!55,rounded corners=2pt,align=center,fill=white,
+    inner sep=4.2pt,text width=1.90cm,minimum height=0.78cm,font=\scriptsize},
+  hh/.style={draw=maccblue,line width=1.1pt,rounded corners=2pt,align=center,fill=maccblue!6,
+    inner sep=4.2pt,text width=1.95cm,minimum height=0.80cm,font=\scriptsize},
+  rl/.style={draw=maccgreen!75!black,line width=1.1pt,rounded corners=2pt,align=center,fill=maccgreen!8,
+    inner sep=4.2pt,text width=1.95cm,minimum height=0.80cm,font=\scriptsize},
+  alloc/.style={draw=maroon1,line width=1.1pt,rounded corners=2pt,align=center,fill=maroon1!7,
+    inner sep=4.2pt,text width=2.15cm,minimum height=0.86cm,font=\scriptsize},
+  arr/.style={-{Latex[length=2.5mm,width=1.8mm]},line width=1.15pt,draw=black!70},
+  barr/.style={-{Latex[length=2.5mm,width=1.8mm]},line width=1.20pt,draw=maccblue},
+  garr/.style={-{Latex[length=2.5mm,width=1.8mm]},line width=1.20pt,draw=maccgreen!75!black}
+]
+\node[box] (sp) at (0.0,0.85) {$\pH_{sp}$};
+\node[hh] (hh) at (2.15,0.85) {HH baseline\\$z_{HH}$};
+\node[rl] (rl) at (4.40,0.85) {RL correction\\$\Delta z_{RL}$};
+\node[alloc] (alloc) at (6.80,0.85) {deterministic\\flow allocator};
+\node[box] (plant) at (9.05,0.85) {pumps +\\plant};
+\node[box] (meas) at (6.80,-1.00) {PH\_2 /\\pH-sensor};
+
+\draw[arr] (sp.east) -- (hh.west);
+\draw[barr] (hh.east) -- (rl.west);
+\draw[garr] (rl.east) -- node[above,font=\scriptsize] {$z_{RL}$} (alloc.west);
+\draw[arr] (alloc.east) -- (plant.west);
+\draw[arr] (plant.south) |- (meas.east);
+\draw[arr] (meas.west) -| (rl.south);
+
+\node[draw=maccblue,line width=0.9pt,rounded corners=2pt,fill=maccblue!5,align=center,
+  text width=7.5cm,inner sep=4pt,font=\scriptsize] at (4.60,-2.45)
+  {This is more physically meaningful than asking RL to discover the acid/base ratio from raw flows.};
+\end{tikzpicture}}
+\end{column}
+\end{columns}
+\end{frame}
+
+%============================= Slide 14 ============================
+\begin{frame}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamercolor{block body}{fg=black,bg=blockTint}
+\frametitle{\large \textbf{Controller Structures to Carry Forward}}
+\scriptsize
+
+\vspace{-0.14cm}
+\begin{columns}[T,onlytextwidth]
+\begin{column}{0.31\textwidth}
+\begin{block}{1. Ratio-based controller}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.38ex}
+  \item $a_k=\Delta z_k$ or $a_k=z_k$
+  \item deterministic flow allocator
+  \item removes non-uniqueness
+\end{itemize}
+\end{block}
+\end{column}
+
+\begin{column}{0.32\textwidth}
+\begin{block}{2. HH baseline + RL correction}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.38ex}
+  \item $z_{HH}=\pH_{sp}-pK_a$
+  \item $z_{RL}=z_{HH}+\Delta z_{RL}$
+  \item correction learns mismatch
+\end{itemize}
+\end{block}
+\end{column}
+
+\begin{column}{0.32\textwidth}
+\begin{block}{3. Chemical usage objective}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.38ex}
+  \item allow RL to control $F_B$
+  \item reward must include usage objective
+  \item require $C_{buffer}\ge C_{min}$
+\end{itemize}
+\end{block}
+\end{column}
+\end{columns}
+
+\vspace{0.12cm}
+\begin{block}{Clean hierarchy from the document}
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+pH tracking & control acid/acetate ratio\\
+buffer strength & control total acid+acetate flow\\
+dilution/residence time & control water or total flow\\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{block}
+
+\vfill
+\begin{beamercolorbox}[rounded=true,center,sep=5pt,wd=0.96\linewidth]{block body}
+{\large \bfseries Thank you}
+\end{beamercolorbox}
+\end{frame}
+
+\end{document}

@@ -320,74 +320,7 @@ $$
 
 This removes the acid/base non-uniqueness from the control problem.
 
-## 10. Two Suggested Next Parts
-
-### Part 1: Calibrated Dynamic First-Principles Model
-
-The immediate next modeling part should not be RL or MPC yet. It should be a calibrated dynamic model built around the HH baseline:
-
-$$
-\mathrm{pH}_{static,k}
-= pK_{a,regime}^{eff}
-+ \log_{10}\left(
-\frac{F_{acetate,k}}{F_{acid,k}}
-\right),
-$$
-
-followed by delay, mixing, and sensor response:
-
-$$
-\mathrm{pH}_{mix,k}
-= G_{mix}(q^{-1})\,\mathrm{pH}_{static,k-d},
-$$
-
-$$
-\mathrm{pH}_{sensor,k}
-= G_{sensor}(q^{-1})\,\mathrm{pH}_{mix,k}.
-$$
-
-The first calibration should separate at least two regimes:
-
-- Regime 1: samples 0-182.
-- Regime 2: samples 183 onward.
-
-Confirmation criterion:
-
-If the regime-specific intercept removes the `0.3` pH bias but residual lag remains, then the next missing component is dynamic delay/sensor response.
-
-### Part 2: Ratio-Based Controller Or Residual-RL Controller
-
-After the calibrated dynamic model is validated, controller work can start in a physically constrained action space.
-
-The first controller should control the ratio or pH-equivalent ratio command, not raw acid and acetate flows independently. A possible control input is:
-
-$$
-u_k =
-\left[
-\log_{10}(r_k),\,
-F_{buffer,k}
-\right],
-$$
-
-with water either fixed or assigned to a secondary objective such as maintaining total flow, residence time, or dilution.
-
-A later RL design should use HH as a baseline and learn only a correction:
-
-$$
-u_k = u_{HH,k} + \Delta u_{RL,k},
-$$
-
-or
-
-$$
-\mathrm{pH}_{pred,k}
-= \mathrm{pH}_{HH,k}
-+ \Delta \mathrm{pH}_{cal/dyn/RL,k}.
-$$
-
-The purpose of the learned correction would be sensor bias, regime shift, mixing delay, activity effects, and other model mismatch. The RL agent should not be asked to rediscover the acid/base ratio from raw pump flows.
-
-## 11. Slide-Ready Narrative
+## 10. Slide-Ready Narrative
 
 The report can become a slide deck with this sequence:
 
@@ -400,18 +333,18 @@ The report can become a slide deck with this sequence:
 7. Residual shift: bias starts at sample 183, not sample 309.
 8. Apparent pKa: before sample 183 is reasonable, after sample 183 is not physically a temperature pKa.
 9. Interpretation: regime-dependent offset from calibration, stock/pump ratio, or setup/session change.
-10. Next model: calibrated HH plus delay, mixing, and sensor response.
-11. Controller implication: use ratio-based action coordinates.
-12. Final direction: deterministic flow allocator first, residual/RL correction later.
+10. Controller implication: raw three-flow control is non-unique for pH tracking.
+11. Controller structure: ratio-based controller with deterministic flow allocator.
+12. Controller structure: Henderson-Hasselbalch baseline with RL correction.
 
-## 12. Limitations
+## 11. Limitations
 
 - The Word document contains equation objects that were reconstructed here from surrounding text and from repository model definitions.
 - No new external citation was verified in this report. Literature claims from the source document should be checked before a thesis or conference slide deck.
 - The CSV does not include temperature, pH calibration records, stock concentration assay records, tubing changes, or operator notes.
 - The current evidence identifies the timing and likely class of the residual shift, but not the exact physical cause.
 
-## 13. Immediate Next Work
+## 12. Immediate Next Work
 
 The next report/code step should fit and validate a regime-specific calibrated HH model:
 
