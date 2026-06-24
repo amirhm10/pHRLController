@@ -15,25 +15,26 @@ FEATURE_SPECS = {
     "acid_flow": {
         "label": "Acetic acid flow",
         "ylabel": "mL/min",
-        "color": "#b23a48",
+        "color": "#7f4f5f",
     },
     "acetate_flow": {
         "label": "Sodium acetate flow",
         "ylabel": "mL/min",
-        "color": "#287271",
+        "color": "#416f6f",
     },
     "water_flow": {
         "label": "Arium water flow",
         "ylabel": "mL/min",
-        "color": "#33658a",
+        "color": "#5f7189",
     },
     "ph_measured": {
         "label": "Measured pH",
         "ylabel": "pH",
-        "color": "#5a189a",
+        "color": "#6a587f",
     },
 }
-PLOT_GAP_THRESHOLD_MIN = 30.0
+PHASE_SHADE_COLORS = ("#efe7da", "#dce8e3", "#e6e1ec")
+PHASE_SEPARATOR_COLOR = "#4d4d4d"
 
 
 def create_data_preparation_figures(
@@ -82,7 +83,8 @@ def plot_single_feature(
         markersize=2.6,
         markeredgewidth=0.0,
     )
-    ax.set_xlabel("Elapsed time (min)")
+    add_phase_background(ax, prepared_data)
+    ax.set_xlabel("Sequential sample index")
     ax.set_ylabel(spec["ylabel"])
     ax.set_title(spec["label"])
     ax.grid(True, alpha=0.3)
@@ -108,11 +110,12 @@ def plot_all_features_four_subplots(
             color=spec["color"],
             linewidth=1.35,
         )
+        add_phase_background(ax, prepared_data)
         ax.set_ylabel(spec["ylabel"])
         ax.set_title(spec["label"], fontsize=11)
         ax.grid(True, alpha=0.3)
 
-    axes[-1].set_xlabel("Elapsed time (min)")
+    axes[-1].set_xlabel("Sequential sample index")
     finalize_figure(fig, output_path, stamp_text)
 
 
@@ -134,6 +137,7 @@ def plot_ph_with_acid_base_flows(
         color=FEATURE_SPECS["ph_measured"]["color"],
         linewidth=1.45,
     )
+    add_phase_background(axes[0], prepared_data)
     axes[0].set_ylabel("pH")
     axes[0].set_title("Measured pH")
     axes[0].grid(True, alpha=0.3)
@@ -146,6 +150,7 @@ def plot_ph_with_acid_base_flows(
         linewidth=1.35,
         label="Acetic acid",
     )
+    add_phase_background(axes[1], prepared_data)
     plot_time_series(
         axes[1],
         prepared_data,
@@ -154,7 +159,7 @@ def plot_ph_with_acid_base_flows(
         linewidth=1.35,
         label="Sodium acetate",
     )
-    axes[1].set_xlabel("Elapsed time (min)")
+    axes[1].set_xlabel("Sequential sample index")
     axes[1].set_ylabel("Flowrate (mL/min)")
     axes[1].set_title("Acid and conjugate-base flows")
     axes[1].grid(True, alpha=0.3)
@@ -168,16 +173,50 @@ def plot_time_series(
     column: str,
     **plot_kwargs,
 ) -> None:
-    elapsed = pd.to_numeric(prepared_data["elapsed_min"], errors="coerce")
-    gap_breaks = elapsed.diff().gt(PLOT_GAP_THRESHOLD_MIN).fillna(False)
-    segments = gap_breaks.cumsum()
+    ax.plot(prepared_data["sample_index"], prepared_data[column], **plot_kwargs)
 
-    label = plot_kwargs.pop("label", None)
-    for segment_index, (_, segment) in enumerate(prepared_data.groupby(segments)):
-        kwargs = plot_kwargs.copy()
-        if segment_index == 0 and label:
-            kwargs["label"] = label
-        ax.plot(segment["elapsed_min"], segment[column], **kwargs)
+
+def add_phase_background(ax, prepared_data: pd.DataFrame) -> None:
+    if "sampling_phase_id" not in prepared_data.columns:
+        return
+
+    x_min = float(prepared_data["sample_index"].iloc[0]) - 0.5
+    x_max = float(prepared_data["sample_index"].iloc[-1]) + 0.5
+    previous_end = None
+    for color_index, (_, group) in enumerate(
+        prepared_data.groupby("sampling_phase_id", sort=True)
+    ):
+        start = float(group["sample_index"].iloc[0]) - 0.5
+        end = float(group["sample_index"].iloc[-1]) + 0.5
+        color = PHASE_SHADE_COLORS[color_index % len(PHASE_SHADE_COLORS)]
+        ax.axvspan(start, end, color=color, alpha=0.55, zorder=-2)
+        if previous_end is not None:
+            separator_x = start
+            ax.axvline(
+                separator_x,
+                color=PHASE_SEPARATOR_COLOR,
+                linewidth=1.2,
+                alpha=0.8,
+                zorder=-1,
+            )
+        previous_end = end
+
+        label = str(group["sampling_phase"].iloc[0])
+        normal_delta_t = group.loc[~group["long_time_gap"], "delta_t_min"].dropna()
+        if not normal_delta_t.empty:
+            label = f"{label}\nmedian dt={normal_delta_t.median():.2f} min"
+        center = (start + end) / 2.0
+        ax.text(
+            center,
+            0.98,
+            label,
+            transform=ax.get_xaxis_transform(),
+            ha="center",
+            va="top",
+            fontsize=8,
+            color="0.25",
+        )
+    ax.set_xlim(x_min, x_max)
 
 
 def finalize_figure(fig, output_path: str | Path, stamp_text: str) -> None:

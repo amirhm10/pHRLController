@@ -9,6 +9,8 @@ import pandas as pd
 
 
 DEFAULT_DATA_PATH = Path("Data/dsp_db.biosmb-rl-controller-treated-dataset-weights.csv")
+SAMPLING_PHASE_SPLIT_DT_MIN = 1.7
+LONG_GAP_DT_MIN = 30.0
 
 KNOWN_FEATURE_RENAMES = {
     "flow-acid": "acid_flow",
@@ -66,6 +68,7 @@ def prepare_time_feature_data(selected_data: pd.DataFrame) -> pd.DataFrame:
     prepared["sample_index"] = np.arange(len(selected_data), dtype=int)
     prepared["time"] = pd.to_numeric(selected_data[time_column], errors="coerce")
     prepared["elapsed_min"] = make_elapsed_minutes(selected_data[time_column])
+    prepared["delta_t_min"] = prepared["elapsed_min"].diff()
 
     mapping_rows = []
     used_names: set[str] = set()
@@ -82,6 +85,7 @@ def prepare_time_feature_data(selected_data: pd.DataFrame) -> pd.DataFrame:
         )
 
     add_basic_derived_columns(prepared)
+    add_sampling_phase_columns(prepared)
     prepared.attrs.update(selected_data.attrs)
     prepared.attrs["column_mapping"] = mapping_rows
     prepared.attrs["analysis_columns"] = int(prepared.shape[1])
@@ -140,6 +144,45 @@ def add_basic_derived_columns(prepared: pd.DataFrame) -> None:
         )
 
 
+def add_sampling_phase_columns(
+    prepared: pd.DataFrame,
+    split_dt_min: float = SAMPLING_PHASE_SPLIT_DT_MIN,
+    long_gap_dt_min: float = LONG_GAP_DT_MIN,
+) -> None:
+    """Label sequential sampling phases from the original timestamp spacing."""
+    delta_t = pd.to_numeric(prepared["delta_t_min"], errors="coerce")
+    normal_dt = delta_t.gt(0.0) & delta_t.le(long_gap_dt_min)
+
+    interval_regime = pd.Series(pd.NA, index=prepared.index, dtype="object")
+    interval_regime.loc[normal_dt & delta_t.le(split_dt_min)] = "fast_sampling"
+    interval_regime.loc[normal_dt & delta_t.gt(split_dt_min)] = "slow_sampling"
+
+    sample_regime = interval_regime.bfill().ffill()
+    if sample_regime.isna().all():
+        sample_regime = pd.Series("unknown_sampling", index=prepared.index)
+
+    phase_change = sample_regime.ne(sample_regime.shift()).fillna(True)
+    phase_id = phase_change.cumsum().astype(int)
+
+    prepared["long_time_gap"] = delta_t.gt(long_gap_dt_min).fillna(False)
+    prepared["sampling_regime"] = sample_regime.astype(str)
+    prepared["sampling_phase_id"] = phase_id
+    prepared["sampling_phase"] = [
+        make_sampling_phase_label(pid, regime)
+        for pid, regime in zip(phase_id, prepared["sampling_regime"])
+    ]
+    prepared["sampling_phase_transition"] = phase_change
+
+
+def make_sampling_phase_label(phase_id: int, regime: str) -> str:
+    regime_labels = {
+        "slow_sampling": "slower sampling",
+        "fast_sampling": "faster sampling",
+        "unknown_sampling": "unknown sampling",
+    }
+    return f"Phase {phase_id}: {regime_labels.get(regime, regime.replace('_', ' '))}"
+
+
 def make_preparation_overview(
     raw_data: pd.DataFrame,
     selected_data: pd.DataFrame,
@@ -159,6 +202,8 @@ def make_preparation_overview(
         "elapsed_min_start": float(elapsed.min()),
         "elapsed_min_end": float(elapsed.max()),
         "elapsed_min_span": float(elapsed.max() - elapsed.min()),
+        "sampling_phase_count": int(prepared_data["sampling_phase_id"].nunique()),
+        "long_time_gap_count": int(prepared_data["long_time_gap"].sum()),
     }
     return pd.DataFrame([overview])
 
@@ -194,3 +239,26 @@ def make_feature_summary(prepared_data: pd.DataFrame) -> pd.DataFrame:
 def make_column_mapping(prepared_data: pd.DataFrame) -> pd.DataFrame:
     mapping_rows = prepared_data.attrs.get("column_mapping", [])
     return pd.DataFrame(mapping_rows, columns=["source_column", "prepared_column"])
+
+
+def make_sampling_phase_summary(prepared_data: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for phase_id, group in prepared_data.groupby("sampling_phase_id", sort=True):
+        normal_delta_t = group.loc[
+            ~group["long_time_gap"], "delta_t_min"
+        ].dropna()
+        rows.append(
+            {
+                "sampling_phase_id": int(phase_id),
+                "sampling_phase": str(group["sampling_phase"].iloc[0]),
+                "sampling_regime": str(group["sampling_regime"].iloc[0]),
+                "start_sample_index": int(group["sample_index"].iloc[0]),
+                "end_sample_index": int(group["sample_index"].iloc[-1]),
+                "n": int(len(group)),
+                "median_delta_t_min": float(normal_delta_t.median()),
+                "min_delta_t_min": float(normal_delta_t.min()),
+                "max_delta_t_min": float(normal_delta_t.max()),
+                "long_time_gap_count": int(group["long_time_gap"].sum()),
+            }
+        )
+    return pd.DataFrame(rows)
