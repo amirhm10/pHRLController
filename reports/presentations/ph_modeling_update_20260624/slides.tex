@@ -52,43 +52,86 @@
 \begin{frame}
 \setbeamertemplate{blocks}[rounded][shadow=false]
 \setbeamercolor{block body}{fg=black,bg=blockTint}
-\frametitle{\large \textbf{HH is the baseline because water cancels from the ideal ratio}}
+\frametitle{\large \textbf{Henderson-Hasselbalch Model}}
 \scriptsize
 
-\vspace{-0.18cm}
+\vspace{-0.10cm}
 \begin{columns}[T,onlytextwidth]
-\begin{column}{0.43\textwidth}
-\begin{block}{Acetate-buffer model}
-\vspace{-0.14cm}
+\begin{column}{0.50\textwidth}
+\begin{block}{Acetate-buffer relation}
+\vspace{-0.12cm}
 \[
-  C_{HA}=\frac{C_0\FH}{\FH+\FA+\FW},
-  \qquad
-  C_{A^-}=\frac{C_0\FA}{\FH+\FA+\FW}
+  \pH = pK_a+\log_{10}\frac{[A^-]}{[HA]}
 \]
 \vspace{-0.20cm}
 \[
-  \pH \approx pK_a+\log_{10}\frac{C_{A^-}}{C_{HA}}
-  \approx pK_a+\log_{10}\frac{\FA}{\FH}
+  C_{HA}^{mix}=\frac{C_0\FH}{\FH+\FA+\FW},
+  \qquad
+  C_{A^-}^{mix}=\frac{C_0\FA}{\FH+\FA+\FW}
 \]
-\vspace{-0.16cm}
+\vspace{-0.14cm}
 \end{block}
 
 \vspace{0.04cm}
-\begin{block}{Small interpretation}
-\justifying
-Water should not be forced to explain steady-state pH. It belongs in dilution, buffer strength, total flow, delay, and sensor-response terms.
-\end{block}
-
-\vspace{0.04cm}
-\begin{block}{Data check}
-\justifying
-Charge-balance equilibrium with water changes HH by less than $0.01$ pH in the checked data.
+\begin{block}{Why water cancels}
+\vspace{-0.12cm}
+\[
+  \frac{C_{A^-}^{mix}}{C_{HA}^{mix}}
+  =
+  \frac{C_0\FA/(\FH+\FA+\FW)}
+       {C_0\FH/(\FH+\FA+\FW)}
+  =
+  \frac{\FA}{\FH}
+\]
+\vspace{-0.10cm}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.35ex}
+  \item The same total-flow denominator appears in both buffer components.
+  \item With equal 100 mM stocks, the steady-state pH ratio is acid/acetate only.
+\end{itemize}
 \end{block}
 \end{column}
 
-\begin{column}{0.55\textwidth}
-\centering
-\includegraphics[width=\linewidth,height=0.74\textheight,keepaspectratio]{slide_water_charge_balance.png}
+\begin{column}{0.47\textwidth}
+\begin{block}{Steady-state calculation}
+\vspace{-0.10cm}
+\[
+  \pH_{HH,k}
+  =
+  pK_a+\log_{10}\left(
+  \frac{F_{acetate,k}}{F_{acid,k}}
+  \right)
+\]
+\vspace{-0.10cm}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.35ex}
+  \item Water is not a primary steady-state pH actuator.
+  \item It dilutes acid and acetate together.
+  \item The acid/acetate ratio is unchanged.
+\end{itemize}
+\end{block}
+
+\vspace{0.04cm}
+\begin{block}{Where water still matters}
+\vspace{-0.12cm}
+\[
+  F_T=\FH+\FA+\FW,
+  \qquad
+  \tau \approx \frac{V}{F_T}
+\]
+\vspace{-0.16cm}
+\[
+  \Cbuf =
+  \frac{C_0(\FH+\FA)}{\FH+\FA+\FW}
+\]
+\vspace{-0.12cm}
+\begin{itemize}\raggedright
+  \setlength\itemsep{0.35ex}
+  \item dilution and buffer strength,
+  \item hydraulic residence time and transport delay,
+  \item mixing and sensor response.
+\end{itemize}
+\end{block}
 \end{column}
 \end{columns}
 \end{frame}
@@ -97,59 +140,42 @@ Charge-balance equilibrium with water changes HH by less than $0.01$ pH in the c
 \begin{frame}
 \setbeamertemplate{blocks}[rounded][shadow=false]
 \setbeamercolor{block body}{fg=black,bg=blockTint}
-\frametitle{\large \textbf{Updated dataset: sequential view of flows and PH\_2}}
+\frametitle{\large \textbf{Data}}
 \scriptsize
 
-\vspace{-0.22cm}
+\vspace{-0.30cm}
 \centering
-\includegraphics[width=0.98\linewidth,height=0.78\textheight,keepaspectratio]{slide_data_overview.png}
-
-\vspace{-0.05cm}
-\begin{beamercolorbox}[rounded=true,center,sep=3.5pt,wd=0.95\linewidth]{block body}
-{\bfseries Small interpretation:} x-axis is sample index. Sample 183 is the main residual-shift boundary; sample 309 is only the sampling-rate phase change.
-\end{beamercolorbox}
+\makebox[\linewidth][c]{%
+\includegraphics[width=1.06\paperwidth,height=0.84\textheight,keepaspectratio]{slide_data_overview.png}}
 \end{frame}
 
 %============================= Slide 3 ============================
 \begin{frame}
 \setbeamertemplate{blocks}[rounded][shadow=false]
 \setbeamercolor{block body}{fg=black,bg=blockTint}
-\frametitle{\large \textbf{HH prediction tracks the trend, but the residual becomes biased}}
+\frametitle{\large \textbf{Model performance}}
 \scriptsize
 
-\vspace{-0.20cm}
+\vspace{-0.28cm}
 \centering
-\includegraphics[width=0.98\linewidth,height=0.74\textheight,keepaspectratio]{slide_hh_prediction_residual.png}
-
-\vspace{-0.03cm}
-\begin{columns}[T,onlytextwidth]
-\begin{column}{0.58\textwidth}
-\begin{beamercolorbox}[rounded=true,center,sep=3.5pt,wd=\linewidth]{block body}
-Overall: mean error $=-0.286$, MAE $=0.287$, RMSE $=0.314$, correlation $=0.913$.
-\end{beamercolorbox}
-\end{column}
-\begin{column}{0.39\textwidth}
-\begin{beamercolorbox}[rounded=true,center,sep=3.5pt,wd=\linewidth]{block body}
-Bias is an intercept problem more than a ratio-trend problem.
-\end{beamercolorbox}
-\end{column}
-\end{columns}
+\makebox[\linewidth][c]{%
+\includegraphics[width=1.02\paperwidth,height=0.83\textheight,keepaspectratio]{slide_hh_prediction_residual.png}}
 \end{frame}
 
 %============================= Slide 4 ============================
 \begin{frame}
 \setbeamertemplate{blocks}[rounded][shadow=false]
 \setbeamercolor{block body}{fg=black,bg=blockTint}
-\frametitle{\large \textbf{The residual shift occurs at the overnight/session boundary}}
+\frametitle{\large \textbf{Residual shift evidence at sample 183}}
 \scriptsize
 
-\vspace{-0.20cm}
+\vspace{-0.25cm}
 \centering
-\includegraphics[width=0.98\linewidth,height=0.77\textheight,keepaspectratio]{slide_shift_context.png}
+\includegraphics[width=1.01\paperwidth,height=0.73\textheight,keepaspectratio]{slide_shift_context.png}
 
-\vspace{-0.04cm}
+\vspace{-0.02cm}
 \begin{beamercolorbox}[rounded=true,center,sep=3.5pt,wd=0.95\linewidth]{block body}
-{\bfseries Small interpretation:} after sample 183, PH\_2 remains below the HH prediction while reservoir masses reset upward.
+Basis for the session/overnight label: timestamp jumps from 2026-05-12 20:32 to 2026-05-13 13:37, the episode/step counters reset, and reservoir masses reset upward. PH\_1 is shown only as context.
 \end{beamercolorbox}
 \end{frame}
 
@@ -323,43 +349,10 @@ First RL version: RL controls only $z$; $F_B$ and $\FW$ are fixed or chosen by a
 \begin{frame}
 \setbeamertemplate{blocks}[rounded][shadow=false]
 \setbeamercolor{block body}{fg=black,bg=blockTint}
-\frametitle{\large \textbf{Controller structures 2--3: correction and usage objective}}
+\frametitle{\large \textbf{Controller structure 2: chemical usage objective}}
 \scriptsize
 
-\vspace{-0.14cm}
-\begin{columns}[T,onlytextwidth]
-\begin{column}{0.48\textwidth}
-\begin{block}{HH baseline + RL correction}
 \vspace{-0.12cm}
-\[
-  z_{HH}=\pH_{sp}-pK_a,
-  \qquad
-  z_{RL}=z_{HH}+\Delta z_{RL}
-\]
-\vspace{-0.18cm}
-\[
-  r=10^{z_{RL}},
-  \qquad
-  F_{acid}=\frac{F_B}{1+r},
-  \qquad
-  F_{acetate}=\frac{rF_B}{1+r}
-\]
-\vspace{-0.15cm}
-\end{block}
-
-\vspace{0.04cm}
-\begin{block}{$\Delta z_{RL}$ corrects}
-\begin{itemize}\raggedright
-  \setlength\itemsep{0.35ex}
-  \item sensor bias,
-  \item mixing delay,
-  \item activity effects,
-  \item model mismatch.
-\end{itemize}
-\end{block}
-\end{column}
-
-\begin{column}{0.49\textwidth}
 \begin{block}{Chemical usage objective}
 \vspace{-0.12cm}
 \[
@@ -383,14 +376,20 @@ First RL version: RL controls only $z$; $F_B$ and $\FW$ are fixed or chosen by a
 
 \vspace{0.04cm}
 \begin{block}{Clean hierarchy from the document}
-\begin{tabular}{@{}ll@{}}
-pH tracking & control acid/acetate ratio\\
-buffer strength & control total acid+acetate flow\\
-dilution/residence time & control water or total flow\\
+\renewcommand{\arraystretch}{1.18}
+\centering
+\begin{tabular}{@{}l@{\quad$\rightarrow$\quad}l@{}}
+pH tracking & acid/acetate ratio\\
+buffer strength & total acid+acetate flow\\
+dilution/residence time & water or total flow\\
 \end{tabular}
 \end{block}
-\end{column}
-\end{columns}
+
+\vspace{0.04cm}
+\begin{block}{Pre-training implication}
+\justifying
+With this model and objective, we can start pre-training an RL agent, but we still have to decide the agent structure and the calibrated dynamic model used for training.
+\end{block}
 \end{frame}
 
 \end{document}

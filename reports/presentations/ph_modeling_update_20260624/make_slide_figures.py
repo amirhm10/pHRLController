@@ -230,23 +230,32 @@ def make_shift_context(shift: pd.DataFrame, raw: pd.DataFrame) -> None:
     raw_local = raw[(raw["sample_index"] >= 160) & (raw["sample_index"] <= 210)].copy()
 
     fig, axes = plt.subplots(
-        3,
+        4,
         1,
-        figsize=(11.4, 7.2),
+        figsize=(13.0, 7.5),
         sharex=True,
-        gridspec_kw={"hspace": 0.18},
+        gridspec_kw={"height_ratios": [1.0, 1.1, 0.78, 0.98], "hspace": 0.18},
     )
     x = local["sample_index"]
 
     axes[0].axhline(0, color="#222222", lw=1.0)
     axes[0].plot(x, local["ph_minus_ph_predicted"], color=RED, lw=1.8)
     axes[0].set_ylabel("pH - HH")
-    axes[0].set_title("The residual shift begins at the overnight/session boundary", loc="left")
+    axes[0].set_title("Residual shift lines up with the session/reservoir reset", loc="left")
 
     axes[1].plot(x, local["ph_measured"], color=PURPLE, lw=1.8, label="PH_2 / pH-sensor")
     axes[1].plot(x, local["ph_predicted_hh"], color=ORANGE, lw=1.55, label="HH prediction")
     axes[1].set_ylabel("pH")
     axes[1].legend(frameon=False, ncol=2, loc="upper right")
+
+    axes[2].plot(
+        raw_local["sample_index"],
+        raw_local["observation.biosmb-sensors.PH_1"],
+        color=GRAY,
+        lw=1.65,
+    )
+    axes[2].set_ylabel("PH_1")
+    axes[2].set_title("PH_1 observation (context only, not used for metrics)", loc="left", pad=1)
 
     mass_cols = [
         ("observation.mfcs-mass.acid-mass-grams", "acid mass", MAROON),
@@ -254,16 +263,16 @@ def make_shift_context(shift: pd.DataFrame, raw: pd.DataFrame) -> None:
         ("observation.mfcs-mass.water-mass-grams", "water mass", BLUE),
     ]
     for col, label, color in mass_cols:
-        axes[2].plot(
+        axes[3].plot(
             raw_local["sample_index"],
             raw_local[col],
             lw=1.45,
             color=color,
             label=label,
         )
-    axes[2].set_ylabel("reservoir mass (g)")
-    axes[2].set_xlabel("Sequential sample index")
-    axes[2].legend(frameon=False, ncol=3, loc="upper right")
+    axes[3].set_ylabel("reservoir mass (g)")
+    axes[3].set_xlabel("Sequential sample index")
+    axes[3].legend(frameon=False, ncol=3, loc="upper right")
 
     for ax in axes:
         ax.axvline(SHIFT_SAMPLE, color=RED, lw=1.4, ls="--")
