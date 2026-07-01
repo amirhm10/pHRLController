@@ -49,6 +49,27 @@ def build_setpoint_schedule(
     return schedule, cycle_indices
 
 
+def resolve_set_points_len(
+    total_steps: int,
+    n_tests: int,
+    set_points_len: int | None,
+) -> int:
+    """Resolve steps per setpoint cycle from total rollout length."""
+    if n_tests <= 0:
+        raise ValueError("n_tests must be positive.")
+    if set_points_len is not None:
+        if set_points_len <= 0:
+            raise ValueError("set_points_len must be positive when provided.")
+        return int(set_points_len)
+    if total_steps <= 0:
+        raise ValueError("total_steps must be positive.")
+    if total_steps % n_tests != 0:
+        raise ValueError(
+            "total_steps must be divisible by n_tests when set_points_len is not provided."
+        )
+    return int(total_steps // n_tests)
+
+
 def create_agent(args: argparse.Namespace) -> TD3Agent:
     return TD3Agent(
         state_dim=7,
@@ -84,13 +105,18 @@ def ph_tracking_reward(ph: float, target_ph: float) -> float:
 def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
     set_global_seeds(args.seed)
     process_config = PHProcessConfig()
-    schedule, cycle_indices = build_setpoint_schedule(
-        process_config=process_config,
+    set_points_len = resolve_set_points_len(
+        total_steps=args.total_steps,
         n_tests=args.n_tests,
         set_points_len=args.set_points_len,
     )
+    schedule, cycle_indices = build_setpoint_schedule(
+        process_config=process_config,
+        n_tests=args.n_tests,
+        set_points_len=set_points_len,
+    )
     total_steps = int(schedule.size)
-    warm_start_steps = int(args.warm_start_cycles * args.set_points_len)
+    warm_start_steps = int(max(0, args.warm_start_cycles) * set_points_len)
     test_cycle = int(args.n_tests - 1)
 
     env = PHEnvironment(
@@ -108,7 +134,11 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         seed=args.seed,
         options={
             "target_ph": float(schedule[0]),
-            "initial_flows": env.target_to_nominal_flows(float(schedule[0])),
+            "initial_flows": (
+                env.target_to_nominal_flows(float(schedule[0]))
+                if warm_start_steps > 0
+                else env.default_flows
+            ),
         },
     )
     agent = create_agent(args)
@@ -184,13 +214,27 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
 
     trajectory = pd.DataFrame.from_records(records)
     episode_metrics = summarize_by_cycle(trajectory)
-    summary = summarize_run(trajectory, agent, args, total_steps, warm_start_steps)
+    summary = summarize_run(
+        trajectory=trajectory,
+        agent=agent,
+        args=args,
+        total_steps=total_steps,
+        set_points_len=set_points_len,
+        warm_start_steps=warm_start_steps,
+    )
 
     output_dir = make_output_dir(args.output_dir)
     trajectory.to_csv(output_dir / "tables" / "trajectory.csv", index=False)
     episode_metrics.to_csv(output_dir / "tables" / "episode_metrics.csv", index=False)
     summary.to_csv(output_dir / "tables" / "training_summary.csv", index=False)
-    config_snapshot = write_config_snapshot(output_dir, args, process_config)
+    config_snapshot = write_config_snapshot(
+        output_dir=output_dir,
+        args=args,
+        process_config=process_config,
+        total_steps=total_steps,
+        set_points_len=set_points_len,
+        warm_start_steps=warm_start_steps,
+    )
     artifacts = save_offline_ph_td3_result_artifacts(
         output_dir=output_dir,
         trajectory=trajectory,
@@ -235,6 +279,7 @@ def summarize_run(
     agent: TD3Agent,
     args: argparse.Namespace,
     total_steps: int,
+    set_points_len: int,
     warm_start_steps: int,
 ) -> pd.DataFrame:
     test_rows = trajectory[trajectory["is_test"]]
@@ -243,6 +288,8 @@ def summarize_run(
         [
             {
                 "total_steps": int(total_steps),
+                "setpoint_cycles": int(args.n_tests),
+                "steps_per_cycle": int(set_points_len),
                 "warm_start_steps": int(warm_start_steps),
                 "td3_train_steps": int(agent.train_steps),
                 "batch_size": int(args.batch_size),
@@ -263,12 +310,25 @@ def write_config_snapshot(
     output_dir: Path,
     args: argparse.Namespace,
     process_config: PHProcessConfig,
+    total_steps: int,
+    set_points_len: int,
+    warm_start_steps: int,
 ) -> dict:
     snapshot = {
         "runner": "run_offline_ph_td3_training.py",
         "simulation_only": True,
         "uses_biosmb_or_emulator": False,
         "process_config": process_config.__dict__,
+        "resolved_rollout": {
+            "total_steps": int(total_steps),
+            "setpoint_cycles": int(args.n_tests),
+            "steps_per_cycle": int(set_points_len),
+            "warm_start_steps": int(warm_start_steps),
+            "evaluation_cycle": int(args.n_tests - 1),
+            "offline_training_protocol": "direct_td3_no_warm_start"
+            if warm_start_steps == 0
+            else "legacy_hh_warm_start_then_td3",
+        },
         "arguments": {
             key: str(value) if isinstance(value, Path) else value
             for key, value in vars(args).items()
@@ -284,9 +344,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run a repo-style offline TD3 simulation for the ideal-HH pH plant."
     )
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--n-tests", type=int, default=8)
-    parser.add_argument("--set-points-len", type=int, default=25)
-    parser.add_argument("--warm-start-cycles", type=int, default=1)
+    parser.add_argument("--total-steps", type=int, default=25_000)
+    parser.add_argument("--n-tests", type=int, default=10)
+    parser.add_argument("--set-points-len", type=int, default=None)
+    parser.add_argument("--warm-start-cycles", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--buffer-size", type=int, default=5000)
     parser.add_argument("--actor-hidden", type=parse_hidden_layers, default=[64, 64])

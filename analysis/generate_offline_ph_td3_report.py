@@ -116,12 +116,15 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
 def compute_summary_metrics(trajectory: pd.DataFrame) -> pd.DataFrame:
     warm = trajectory["is_warm_start"].astype(bool)
     test = trajectory["is_test"].astype(bool)
-    summary = [
-        metric_row("all_steps", trajectory),
-        metric_row("hh_warm_start", trajectory[warm]),
-        metric_row("td3_training_steps", trajectory[(~warm) & (~test)]),
-        metric_row("td3_eval_steps", trajectory[test]),
-    ]
+    summary = [metric_row("all_steps", trajectory)]
+    if bool(warm.any()):
+        summary.append(metric_row("hh_warm_start", trajectory[warm]))
+    summary.extend(
+        [
+            metric_row("td3_training_steps", trajectory[(~warm) & (~test)]),
+            metric_row("td3_eval_steps", trajectory[test]),
+        ]
+    )
     return pd.DataFrame(summary)
 
 
@@ -587,7 +590,7 @@ def build_report(
         )
         lines.append("")
         lines.append(
-            "This figure is the main tracking diagnostic. The gray span marks warm start and the gold span marks the final evaluation segment when those protocol flags exist."
+            "This figure is the main tracking diagnostic. The gray span marks an optional legacy HH warm-start segment if present, and the gold span marks the final evaluation segment."
         )
         lines.append("")
     if "fig_flow_commands_and_ratio" in figure_lookup:
@@ -660,14 +663,14 @@ def build_report(
     lines.append("## Recommended Next Experiment")
     lines.append("")
     lines.append(
-        "Run a longer offline simulation with at least 8 to 12 setpoint cycles, one warm-start cycle, and one final evaluation cycle. Use the same report script afterward and compare `td3_training_steps`, evaluation MAE, max absolute error, flow saturation fractions, and the action scatter plot."
+        "Run the default offline simulation with no HH warm-start segment and one final evaluation cycle. Use the same report script afterward and compare `td3_training_steps`, evaluation MAE, max absolute error, flow saturation fractions, and the action scatter plot."
     )
     lines.append("")
     lines.append("Example:")
     lines.append("")
     lines.append("```powershell")
     lines.append(
-        "& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' run_offline_ph_td3_training.py --n-tests 10 --set-points-len 40 --warm-start-cycles 1 --batch-size 64 --buffer-size 5000 --seed 21"
+        "& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' run_offline_ph_td3_training.py --total-steps 25000 --n-tests 10 --batch-size 64 --buffer-size 5000 --seed 21"
     )
     lines.append(
         "& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' analysis\\generate_offline_ph_td3_report.py"

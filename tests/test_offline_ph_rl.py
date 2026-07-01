@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from helpers.offline_ph_td3_results import save_offline_ph_td3_result_artifacts
+from run_offline_ph_td3_training import resolve_set_points_len
 from simulation.config import PHProcessConfig
 from simulation.ph_environment import PHEnvironment, PHEnvironmentConfig
 from TD3Agent.agent import TD3Agent
@@ -137,7 +138,7 @@ def test_result_artifact_helper_smoke() -> None:
             {
                 "step": step,
                 "cycle": 0,
-                "is_warm_start": step == 0,
+                "is_warm_start": False,
                 "is_test": step == 2,
                 "action_source": "smoke",
                 "target_ph": target_ph,
@@ -192,6 +193,19 @@ def test_result_artifact_helper_smoke() -> None:
     assert all(path.exists() for path in artifacts["figures"])
 
 
+def test_default_total_step_resolution() -> None:
+    assert resolve_set_points_len(
+        total_steps=25_000,
+        n_tests=10,
+        set_points_len=None,
+    ) == 2500
+    assert resolve_set_points_len(
+        total_steps=25_000,
+        n_tests=10,
+        set_points_len=6,
+    ) == 6
+
+
 def run_direct() -> None:
     test_environment_reset_and_step()
     test_action_bounds_and_ratio_direction()
@@ -199,6 +213,7 @@ def run_direct() -> None:
     test_public_flow_helpers_and_target_update()
     test_td3_import_and_train_step_smoke()
     test_result_artifact_helper_smoke()
+    test_default_total_step_resolution()
     print("offline pH RL smoke tests passed")
 
 

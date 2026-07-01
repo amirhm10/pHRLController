@@ -74,12 +74,15 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
 def compute_summary_metrics(trajectory: pd.DataFrame) -> pd.DataFrame:
     warm = trajectory["is_warm_start"].astype(bool)
     test = trajectory["is_test"].astype(bool)
-    summary = [
-        metric_row("all_steps", trajectory),
-        metric_row("hh_warm_start", trajectory[warm]),
-        metric_row("td3_training_steps", trajectory[(~warm) & (~test)]),
-        metric_row("td3_eval_steps", trajectory[test]),
-    ]
+    summary = [metric_row("all_steps", trajectory)]
+    if bool(warm.any()):
+        summary.append(metric_row("hh_warm_start", trajectory[warm]))
+    summary.extend(
+        [
+            metric_row("td3_training_steps", trajectory[(~warm) & (~test)]),
+            metric_row("td3_eval_steps", trajectory[test]),
+        ]
+    )
     return pd.DataFrame(summary)
 
 

@@ -117,13 +117,14 @@ It follows the same broad style as the RL-assisted repository:
 
 1. Generate piecewise-constant pH setpoints.
 2. Initialize the simulated plant.
-3. Use an HH nominal warm-start cycle.
-4. Let TD3 choose normalized flow actions.
-5. Convert actions to acid, acetate, and water flows.
-6. Step the pH environment.
-7. Push transitions into replay.
-8. Call `agent.train_step()` during training cycles.
-9. Save tables and figures under `results/offline_ph_td3_training_<timestamp>/`.
+3. Let TD3 choose normalized flow actions from the start of the offline rollout.
+4. Convert actions to acid, acetate, and water flows.
+5. Step the pH environment.
+6. Push transitions into replay.
+7. Call `agent.train_step()` once the replay buffer has enough samples.
+8. Save tables and figures under `results/offline_ph_td3_training_<timestamp>/`.
+
+The default rollout length is now `25,000` steps. By default there is no HH warm-start segment because the current task is offline TD3 training. A legacy HH warm-start can still be requested explicitly with `--warm-start-cycles`, but it is not part of the default protocol.
 
 The runner reward is intentionally simple:
 
@@ -138,33 +139,41 @@ This matches the requested setpoint-difference reward and removes the small move
 A smoke training run generated:
 
 ```text
-results/offline_ph_td3_training_20260701_172827/
+results/offline_ph_td3_training_20260701_191017/
 ```
 
 Tables:
 
 - `tables/trajectory.csv`
+- `tables/trajectory_diagnostics.csv`
 - `tables/episode_metrics.csv`
 - `tables/training_summary.csv`
 - `tables/config_snapshot.json`
+- `tables/summary_metrics.csv`
+- `tables/flow_diagnostics.csv`
+- `tables/hh_consistency.csv`
+- `tables/result_artifact_manifest.json`
 
 Figures:
 
-- `figures/ph_tracking.png`
-- `figures/flow_commands.png`
-- `figures/reward_trace.png`
+- `figures/fig_ph_tracking_error_reward.png`
+- `figures/fig_flow_commands_and_ratio.png`
+- `figures/fig_cycle_metrics.png`
+- `figures/fig_action_diagnostics.png`
+- `figures/fig_hh_ratio_consistency.png`
+- `figures/fig_training_losses.png`
 
 Smoke-run summary:
 
 ```text
 total_steps:      18
-warm_start_steps: 6
-td3_train_steps:  6
+warm_start_steps: 0
+td3_train_steps:  9
 batch_size:       4
-overall_MAE:      0.1441 pH
-overall_RMSE:     0.2925 pH
-eval_MAE:         0.0007 pH
-eval_RMSE:        0.0007 pH
+overall_MAE:      0.5057 pH
+overall_RMSE:     0.6786 pH
+eval_MAE:         0.0031 pH
+eval_RMSE:        0.0031 pH
 ```
 
 This is a small software smoke test, not a scientific performance claim.
@@ -175,7 +184,7 @@ The following commands passed:
 
 ```powershell
 $env:PYTHONPYCACHEPREFIX = Join-Path $env:TEMP 'pHRL_pycache'
-& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' -m py_compile simulation\ph_environment.py run_offline_ph_td3_training.py tests\test_offline_ph_rl.py
+& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' -m py_compile run_offline_ph_td3_training.py helpers\offline_ph_td3_results.py analysis\generate_offline_ph_td3_report.py tests\test_offline_ph_rl.py
 ```
 
 ```powershell
@@ -189,10 +198,10 @@ offline pH RL smoke tests passed
 ```
 
 ```powershell
-& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' run_offline_ph_td3_training.py --n-tests 3 --set-points-len 6 --warm-start-cycles 1 --batch-size 4 --buffer-size 128 --actor-hidden 16 --critic-hidden 16 --seed 11
+& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' run_offline_ph_td3_training.py --total-steps 18 --n-tests 3 --batch-size 4 --buffer-size 128 --actor-hidden 16 --critic-hidden 16 --seed 29
 ```
 
-Output confirmed `td3_train_steps = 6` and saved a local results bundle.
+Output confirmed `warm_start_steps = 0`, `td3_train_steps = 9`, and saved a local results bundle with figures and diagnostic tables.
 
 ## Current Limitations
 
