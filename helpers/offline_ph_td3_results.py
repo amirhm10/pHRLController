@@ -29,9 +29,9 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
     out["hh_ph_from_ratio"] = pka + out["log10_flow_ratio"]
     out["hh_ratio_residual"] = out["ph"] - out["hh_ph_from_ratio"]
     out["abs_ph_error"] = np.abs(out["ph_error"])
-    out["abs_action_acid"] = np.abs(out["action_acid"])
-    out["abs_action_acetate"] = np.abs(out["action_acetate"])
-    out["abs_action_water"] = np.abs(out["action_water"])
+    for column in ["action_acid", "action_acetate", "action_water"]:
+        if column in out:
+            out[f"abs_{column}"] = np.abs(out[column])
     return out
 
 
@@ -244,7 +244,7 @@ def plot_flow_commands(trajectory: pd.DataFrame, output_dir: Path, config: dict)
         axs[0].axhline(high, color="#777777", linestyle=":", linewidth=0.8)
     shade_protocol_regions(axs[0], trajectory)
     axs[0].set_ylabel("flow (mL/min)")
-    axs[0].set_title("TD3 Pump Commands")
+    axs[0].set_title("TD3 Pump Commands (Water Fixed)")
     axs[0].grid(alpha=0.28)
     axs[0].legend(loc="best")
 
@@ -300,10 +300,14 @@ def plot_cycle_metrics(episode_metrics: pd.DataFrame, output_dir: Path) -> Path:
 def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     fig, axs = plt.subplots(2, 1, figsize=(10.5, 7.2))
     steps = trajectory["step"]
-    actions = ["action_acid", "action_acetate", "action_water"]
-    colors = ["#CC6677", "#4477AA", "#228833"]
-    labels = ["acid action", "acetate action", "water action"]
-    for column, color, label in zip(actions, colors, labels):
+    action_specs = [
+        ("action_acid", "#CC6677", "acid action"),
+        ("action_acetate", "#4477AA", "acetate action"),
+        ("action_water", "#228833", "water action"),
+    ]
+    for column, color, label in action_specs:
+        if column not in trajectory:
+            continue
         axs[0].plot(steps, trajectory[column], color=color, linewidth=1.3, label=label)
     axs[0].axhline(1.0, color="#777777", linestyle=":", linewidth=0.8)
     axs[0].axhline(-1.0, color="#777777", linestyle=":", linewidth=0.8)
@@ -344,16 +348,30 @@ def plot_hh_ratio_consistency(
     y_line = pka + x_line
 
     fig, ax = plt.subplots(figsize=(8.4, 5.2))
-    scatter = ax.scatter(
-        trajectory["log10_flow_ratio"],
-        trajectory["ph"],
-        c=trajectory["water_flow"],
-        cmap="plasma",
-        s=42,
-        edgecolor="#222222",
-        linewidth=0.25,
-        label="simulated steps",
-    )
+    water_values = trajectory["water_flow"].to_numpy(float)
+    water_range = float(np.nanmax(water_values) - np.nanmin(water_values))
+    if water_range <= 1e-9:
+        scatter = None
+        ax.scatter(
+            trajectory["log10_flow_ratio"],
+            trajectory["ph"],
+            color="#AA4499",
+            s=42,
+            edgecolor="#222222",
+            linewidth=0.25,
+            label=f"simulated steps, water={water_values[0]:.2f} mL/min",
+        )
+    else:
+        scatter = ax.scatter(
+            trajectory["log10_flow_ratio"],
+            trajectory["ph"],
+            c=trajectory["water_flow"],
+            cmap="plasma",
+            s=42,
+            edgecolor="#222222",
+            linewidth=0.25,
+            label="simulated steps",
+        )
     ax.plot(
         x_line,
         y_line,
@@ -367,7 +385,8 @@ def plot_hh_ratio_consistency(
     ax.set_title("Ideal Henderson-Hasselbalch Ratio Check")
     ax.grid(alpha=0.28)
     ax.legend(loc="best")
-    fig.colorbar(scatter, ax=ax, label="water flow (mL/min)")
+    if scatter is not None:
+        fig.colorbar(scatter, ax=ax, label="water flow (mL/min)")
     fig.tight_layout()
     return save_figure(fig, output_dir, "fig_hh_ratio_consistency.png")
 

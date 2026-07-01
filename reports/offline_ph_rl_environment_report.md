@@ -4,17 +4,18 @@ Date: 2026-07-01
 
 ## Objective
 
-Create a simulation-only reinforcement-learning scaffold for the acetate buffer pH system while keeping the accepted ideal Henderson-Hasselbalch first-principles model unchanged. This work prepares offline TD3 experiments where the agent directly controls three pump flowrates:
+Create a simulation-only reinforcement-learning scaffold for the acetate buffer pH system while keeping the accepted ideal Henderson-Hasselbalch first-principles model unchanged. This work prepares offline TD3 experiments where the agent directly controls two pump flowrates:
 
 - acetic acid flow, mL/min
 - sodium acetate flow, mL/min
-- Arium water flow, mL/min
+
+Arium water is fixed at 5 mL/min in the current scaffold and is logged as a process condition, not controlled by the TD3 action.
 
 No BioSMB, OPC emulator, hardware runner, valve logic, MPC logic, or live controller code is part of this step.
 
 ## Why Gymnasium Was Used
 
-Gymnasium was used because the implementation plan explicitly requested a Gymnasium-style environment with `reset()` and `step()` and a `Box(-1, 1, shape=(3,))` action space. The benefit is a standard, compact API:
+Gymnasium was used because the implementation plan explicitly requested a Gymnasium-style environment with `reset()` and `step()`. The current action space has now been narrowed to `Box(-1, 1, shape=(2,))` after fixing water at 5 mL/min. The benefit is a standard, compact API:
 
 ```text
 observation, info = env.reset(...)
@@ -50,6 +51,8 @@ The TD3 source was copied as a standalone local package:
 
 Only the TD3 core and minimal dependencies were copied. The MPC runners, supervisor-gated TD3 logic, SAC, DQN, residual/weight/horizon logic, BioSMB code, and generated result folders from the source repository were not copied.
 
+In the algorithm name `TD3`, `TD` means Twin Delayed. It refers to the learning algorithm design, not to an extra action-space variable.
+
 ### pH Environment
 
 The pH environment is implemented in:
@@ -66,10 +69,10 @@ Main classes:
 The action is a normalized vector:
 
 ```text
-a = [a_acid, a_acetate, a_water], each in [-1, 1]
+a = [a_acid, a_acetate], each in [-1, 1]
 ```
 
-The environment maps this action to pump bounds from `PHProcessConfig`:
+The environment maps the two action coordinates to acid and acetate pump bounds from `PHProcessConfig`:
 
 ```text
 flow = flow_min + 0.5 * (action + 1) * (flow_max - flow_min)
@@ -80,13 +83,13 @@ Current default pump bounds are:
 ```text
 acid:    1-10 mL/min
 acetate: 1-10 mL/min
-water:   1-10 mL/min
+water:   fixed at 5 mL/min
 ```
 
 The observation vector is:
 
 ```text
-[current_pH, target_pH, pH_error, acid_action, acetate_action, water_action, step_fraction]
+[current_pH, target_pH, pH_error, acid_action, acetate_action, step_fraction]
 ```
 
 ### Accepted First-Principles Model
@@ -103,7 +106,7 @@ With the current equal 100 mM acid and acetate stocks:
 pH = pKa + log10(F_acetate / F_acid)
 ```
 
-Water is still an action and is logged as a controlled flowrate, but in the ideal static HH model it does not directly change the acid/acetate ratio when stock concentrations are equal.
+Water is still logged as a physical flowrate, but it is fixed at 5 mL/min in this offline RL scaffold. In the ideal static HH model it does not directly change the acid/acetate ratio when stock concentrations are equal.
 
 ### Repo-Style TD3 Simulation Runner
 
@@ -118,7 +121,7 @@ It follows the same broad style as the RL-assisted repository:
 1. Generate piecewise-constant pH setpoints.
 2. Initialize the simulated plant.
 3. Let TD3 choose normalized flow actions from the start of the offline rollout.
-4. Convert actions to acid, acetate, and water flows.
+4. Convert actions to acid and acetate flows while keeping water fixed at 5 mL/min.
 5. Step the pH environment.
 6. Push transitions into replay.
 7. Call `agent.train_step()` once the replay buffer has enough samples.
@@ -139,7 +142,7 @@ This matches the requested setpoint-difference reward and removes the small move
 A smoke training run generated:
 
 ```text
-results/offline_ph_td3_training_20260701_191017/
+results/offline_ph_td3_training_20260701_193823/
 ```
 
 Tables:
@@ -170,13 +173,14 @@ total_steps:      18
 warm_start_steps: 0
 td3_train_steps:  9
 batch_size:       4
-overall_MAE:      0.5057 pH
-overall_RMSE:     0.6786 pH
-eval_MAE:         0.0031 pH
-eval_RMSE:        0.0031 pH
+overall_MAE:      0.4560 pH
+overall_RMSE:     0.6686 pH
+eval_MAE:         0.0017 pH
+eval_RMSE:        0.0018 pH
 ```
 
 This is a small software smoke test, not a scientific performance claim.
+The saved trajectory has two action columns, `action_acid` and `action_acetate`, and all logged `water_flow` values are 5.0 mL/min.
 
 ## Verification
 
@@ -198,7 +202,7 @@ offline pH RL smoke tests passed
 ```
 
 ```powershell
-& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' run_offline_ph_td3_training.py --total-steps 18 --n-tests 3 --batch-size 4 --buffer-size 128 --actor-hidden 16 --critic-hidden 16 --seed 29
+& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' run_offline_ph_td3_training.py --total-steps 18 --n-tests 3 --batch-size 4 --buffer-size 128 --actor-hidden 16 --critic-hidden 16 --seed 31
 ```
 
 Output confirmed `warm_start_steps = 0`, `td3_train_steps = 9`, and saved a local results bundle with figures and diagnostic tables.
@@ -206,7 +210,7 @@ Output confirmed `warm_start_steps = 0`, `td3_train_steps = 9`, and saved a loca
 ## Current Limitations
 
 - This is still a static ideal-HH simulation, not a validated dynamic plant.
-- Water is controlled and logged but does not directly change ideal HH pH.
+- Water is fixed and logged but does not directly change ideal HH pH.
 - The TD3 result is only a software smoke test.
 - No lab-data validation, emulator connection, BioSMB integration, pump runner, MPC layer, or live controller has been added.
 - The useful next scientific step is to decide whether the RL environment should remain ideal-static for algorithm testing or should next wrap a dynamic pH model with delay, mixing, and sensor response.

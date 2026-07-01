@@ -72,8 +72,8 @@ def resolve_set_points_len(
 
 def create_agent(args: argparse.Namespace) -> TD3Agent:
     return TD3Agent(
-        state_dim=7,
-        action_dim=3,
+        state_dim=6,
+        action_dim=2,
         actor_hidden=args.actor_hidden,
         critic_hidden=args.critic_hidden,
         gamma=args.gamma,
@@ -200,7 +200,6 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
                 "flow_ratio_acetate_acid": float(info["flow_ratio_acetate_acid"]),
                 "action_acid": float(np.asarray(action).reshape(-1)[0]),
                 "action_acetate": float(np.asarray(action).reshape(-1)[1]),
-                "action_water": float(np.asarray(action).reshape(-1)[2]),
                 "train_updated": train_meta is not None,
                 "critic_loss": np.nan
                 if train_meta is None
@@ -328,6 +327,10 @@ def write_config_snapshot(
             "offline_training_protocol": "direct_td3_no_warm_start"
             if warm_start_steps == 0
             else "legacy_hh_warm_start_then_td3",
+            "rl_state_dimension": 6,
+            "rl_action_dimension": 2,
+            "rl_action_variables": ["acid_flow", "acetate_flow"],
+            "fixed_water_flow": float(process_config.default_water_flow),
         },
         "arguments": {
             key: str(value) if isinstance(value, Path) else value

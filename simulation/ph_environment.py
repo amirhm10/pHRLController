@@ -27,10 +27,9 @@ class PHEnvironmentConfig:
 class PHEnvironment(gym.Env):
     """Gymnasium-style offline pH environment using ideal Henderson-Hasselbalch.
 
-    The action is a normalized direct command for acid, acetate, and water
-    flows. The static pH calculation uses only the accepted ideal
-    Henderson-Hasselbalch acid/acetate ratio. Water is still included in the
-    action and observation because it is a real actuator for later dynamic work.
+    The action is a normalized direct command for acid and acetate flows.
+    Water is fixed at the configured default flow. The static pH calculation
+    uses only the accepted ideal Henderson-Hasselbalch acid/acetate ratio.
     """
 
     metadata = {"render_modes": []}
@@ -58,12 +57,21 @@ class PHEnvironment(gym.Env):
             ],
             dtype=np.float32,
         )
+        self.action_flow_low = self.flow_low[:2].copy()
+        self.action_flow_high = self.flow_high[:2].copy()
+        self.fixed_water_flow = float(
+            np.clip(
+                self.process_config.default_water_flow,
+                self.process_config.water_flow_min,
+                self.process_config.water_flow_max,
+            )
+        )
         self.default_flows = self._clip_flows(
             np.array(
                 [
                     0.5 * self.process_config.default_buffer_flow_sum,
                     0.5 * self.process_config.default_buffer_flow_sum,
-                    self.process_config.default_water_flow,
+                    self.fixed_water_flow,
                 ],
                 dtype=np.float32,
             )
@@ -72,7 +80,7 @@ class PHEnvironment(gym.Env):
         self.action_space = spaces.Box(
             low=-1.0,
             high=1.0,
-            shape=(3,),
+            shape=(2,),
             dtype=np.float32,
         )
         error_span = self.process_config.target_ph_max - self.process_config.target_ph_min
@@ -84,7 +92,6 @@ class PHEnvironment(gym.Env):
                     -error_span,
                     -1.0,
                     -1.0,
-                    -1.0,
                     0.0,
                 ],
                 dtype=np.float32,
@@ -94,7 +101,6 @@ class PHEnvironment(gym.Env):
                     self.process_config.target_ph_max,
                     self.process_config.target_ph_max,
                     error_span,
-                    1.0,
                     1.0,
                     1.0,
                     1.0,
@@ -175,11 +181,11 @@ class PHEnvironment(gym.Env):
         return self._make_observation(), self._make_info()
 
     def action_to_flows(self, action) -> np.ndarray:
-        """Map a normalized three-pump action to bounded physical flows."""
+        """Map a normalized acid/base action to bounded physical flows."""
         return self._action_to_flows(self._validate_action(action))
 
     def flows_to_action(self, flows) -> np.ndarray:
-        """Map physical acid, acetate, and water flows to normalized actions."""
+        """Map physical acid and acetate flows to normalized actions."""
         return self._normalize_flows(np.asarray(flows, dtype=np.float32))
 
     def target_to_nominal_flows(
@@ -200,11 +206,7 @@ class PHEnvironment(gym.Env):
             if buffer_flow_sum is None
             else float(buffer_flow_sum)
         )
-        water_flow = (
-            self.process_config.default_water_flow
-            if water_flow is None
-            else float(water_flow)
-        )
+        del water_flow
         flow_ratio = (
             self.process_config.acid_stock_mol_l
             / self.process_config.acetate_stock_mol_l
@@ -213,32 +215,46 @@ class PHEnvironment(gym.Env):
         acid_flow = buffer_flow_sum / (1.0 + flow_ratio)
         acetate_flow = buffer_flow_sum - acid_flow
         return self._clip_flows(
-            np.array([acid_flow, acetate_flow, water_flow], dtype=np.float32)
+            np.array([acid_flow, acetate_flow, self.fixed_water_flow], dtype=np.float32)
         )
 
     def _validate_action(self, action) -> np.ndarray:
         action_arr = np.asarray(action, dtype=np.float32).reshape(-1)
-        if action_arr.size != 3:
-            raise ValueError(f"action must have shape (3,), got {action_arr.shape}.")
+        if action_arr.size != 2:
+            raise ValueError(f"action must have shape (2,), got {action_arr.shape}.")
         if not np.all(np.isfinite(action_arr)):
             raise ValueError("action must contain only finite values.")
         return np.clip(action_arr, -1.0, 1.0).astype(np.float32)
 
     def _clip_flows(self, flows: np.ndarray) -> np.ndarray:
         flows = np.asarray(flows, dtype=np.float32).reshape(-1)
-        if flows.size != 3:
-            raise ValueError(f"flows must have shape (3,), got {flows.shape}.")
-        return np.clip(flows, self.flow_low, self.flow_high).astype(np.float32)
+        if flows.size not in {2, 3}:
+            raise ValueError(f"flows must have shape (2,) or (3,), got {flows.shape}.")
+        acid_acetate = np.clip(flows[:2], self.action_flow_low, self.action_flow_high)
+        return np.array(
+            [acid_acetate[0], acid_acetate[1], self.fixed_water_flow],
+            dtype=np.float32,
+        )
 
     def _action_to_flows(self, action: np.ndarray) -> np.ndarray:
         fraction = 0.5 * (action + 1.0)
-        return (self.flow_low + fraction * (self.flow_high - self.flow_low)).astype(
-            np.float32
+        acid_acetate = (
+            self.action_flow_low
+            + fraction * (self.action_flow_high - self.action_flow_low)
+        )
+        return np.array(
+            [acid_acetate[0], acid_acetate[1], self.fixed_water_flow],
+            dtype=np.float32,
         )
 
     def _normalize_flows(self, flows: np.ndarray) -> np.ndarray:
         flows = self._clip_flows(flows)
-        scaled = 2.0 * (flows - self.flow_low) / (self.flow_high - self.flow_low) - 1.0
+        scaled = (
+            2.0
+            * (flows[:2] - self.action_flow_low)
+            / (self.action_flow_high - self.action_flow_low)
+            - 1.0
+        )
         return np.clip(scaled, -1.0, 1.0).astype(np.float32)
 
     def _predict_ph_from_flows(self, flows: np.ndarray) -> float:

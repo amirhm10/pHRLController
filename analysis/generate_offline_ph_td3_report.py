@@ -174,9 +174,9 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
     out["hh_ph_from_ratio"] = pka + out["log10_flow_ratio"]
     out["hh_ratio_residual"] = out["ph"] - out["hh_ph_from_ratio"]
     out["abs_ph_error"] = np.abs(out["ph_error"])
-    out["abs_action_acid"] = np.abs(out["action_acid"])
-    out["abs_action_acetate"] = np.abs(out["action_acetate"])
-    out["abs_action_water"] = np.abs(out["action_water"])
+    for column in ["action_acid", "action_acetate", "action_water"]:
+        if column in out:
+            out[f"abs_{column}"] = np.abs(out[column])
     return out
 
 
@@ -291,7 +291,7 @@ def plot_flow_commands(trajectory: pd.DataFrame, output_dir: Path, config: dict)
         axs[0].axhline(high, color="#777777", linestyle=":", linewidth=0.8)
     shade_protocol_regions(axs[0], trajectory)
     axs[0].set_ylabel("flow (mL/min)")
-    axs[0].set_title("TD3 Pump Commands")
+    axs[0].set_title("TD3 Pump Commands (Water Fixed)")
     axs[0].grid(alpha=0.28)
     axs[0].legend(loc="best")
 
@@ -347,10 +347,14 @@ def plot_cycle_metrics(episode_metrics: pd.DataFrame, output_dir: Path) -> Path:
 def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     fig, axs = plt.subplots(2, 1, figsize=(10.5, 7.2))
     steps = trajectory["step"]
-    actions = ["action_acid", "action_acetate", "action_water"]
-    colors = ["#CC6677", "#4477AA", "#228833"]
-    labels = ["acid action", "acetate action", "water action"]
-    for column, color, label in zip(actions, colors, labels):
+    action_specs = [
+        ("action_acid", "#CC6677", "acid action"),
+        ("action_acetate", "#4477AA", "acetate action"),
+        ("action_water", "#228833", "water action"),
+    ]
+    for column, color, label in action_specs:
+        if column not in trajectory:
+            continue
         axs[0].plot(steps, trajectory[column], color=color, linewidth=1.3, label=label)
     axs[0].axhline(1.0, color="#777777", linestyle=":", linewidth=0.8)
     axs[0].axhline(-1.0, color="#777777", linestyle=":", linewidth=0.8)
@@ -387,23 +391,38 @@ def plot_hh_ratio_consistency(trajectory: pd.DataFrame, output_dir: Path, config
     y_line = pka + x_line
 
     fig, ax = plt.subplots(figsize=(8.4, 5.2))
-    scatter = ax.scatter(
-        trajectory["log10_flow_ratio"],
-        trajectory["ph"],
-        c=trajectory["water_flow"],
-        cmap="plasma",
-        s=42,
-        edgecolor="#222222",
-        linewidth=0.25,
-        label="simulated steps",
-    )
+    water_values = trajectory["water_flow"].to_numpy(float)
+    water_range = float(np.nanmax(water_values) - np.nanmin(water_values))
+    if water_range <= 1e-9:
+        scatter = None
+        ax.scatter(
+            trajectory["log10_flow_ratio"],
+            trajectory["ph"],
+            color="#AA4499",
+            s=42,
+            edgecolor="#222222",
+            linewidth=0.25,
+            label=f"simulated steps, water={water_values[0]:.2f} mL/min",
+        )
+    else:
+        scatter = ax.scatter(
+            trajectory["log10_flow_ratio"],
+            trajectory["ph"],
+            c=trajectory["water_flow"],
+            cmap="plasma",
+            s=42,
+            edgecolor="#222222",
+            linewidth=0.25,
+            label="simulated steps",
+        )
     ax.plot(x_line, y_line, color="#222222", linestyle="--", linewidth=1.4, label="ideal HH line")
     ax.set_xlabel("log10(F_acetate / F_acid)")
     ax.set_ylabel("pH")
     ax.set_title("Ideal Henderson-Hasselbalch Ratio Check")
     ax.grid(alpha=0.28)
     ax.legend(loc="best")
-    fig.colorbar(scatter, ax=ax, label="water flow (mL/min)")
+    if scatter is not None:
+        fig.colorbar(scatter, ax=ax, label="water flow (mL/min)")
     fig.tight_layout()
     return save_figure(fig, output_dir, "fig_hh_ratio_consistency.png")
 
@@ -526,24 +545,26 @@ def build_report(
     lines.append("## Method")
     lines.append("")
     lines.append(
-        "The environment state is the seven-element vector"
+        "The environment state is the six-element vector"
     )
     lines.append("")
     lines.append(
-        "$$ s_t = [\\mathrm{pH}_t,\\ \\mathrm{pH}^{\\mathrm{sp}}_t,\\ e_t,\\ a_{HAc,t},\\ a_{Ac,t},\\ a_{W,t},\\ \\tau_t], $$"
+        "$$ s_t = [\\mathrm{pH}_t,\\ \\mathrm{pH}^{\\mathrm{sp}}_t,\\ e_t,\\ a_{HAc,t},\\ a_{Ac,t},\\ \\tau_t], $$"
     )
     lines.append("")
     lines.append("where `e_t = pH_t - pH_sp,t`. The TD3 action is")
     lines.append("")
     lines.append(
-        "$$ a_t = [a_{HAc,t},\\ a_{Ac,t},\\ a_{W,t}],\\quad a_i \\in [-1,1]. $$"
+        "$$ a_t = [a_{HAc,t},\\ a_{Ac,t}],\\quad a_i \\in [-1,1]. $$"
     )
     lines.append("")
-    lines.append("Each action coordinate is mapped to a physical pump command by")
+    lines.append("Each action coordinate is mapped to an acid or acetate pump command by")
     lines.append("")
     lines.append(
         "$$ F_i = F_{i,\\min} + \\frac{a_i + 1}{2}(F_{i,\\max}-F_{i,\\min}). $$"
     )
+    lines.append("")
+    lines.append("The water flow is not part of the action. It is fixed and logged at 5 mL/min in the current offline simulation.")
     lines.append("")
     lines.append("The plant pH is the accepted ideal Henderson-Hasselbalch relation")
     lines.append("")
@@ -599,7 +620,7 @@ def build_report(
         )
         lines.append("")
         lines.append(
-            "This figure shows the actual flow commands and the acid/acetate log-ratio that drives the ideal HH pH."
+            "This figure shows the actual acid and acetate commands, the fixed water-flow log, and the acid/acetate log-ratio that drives the ideal HH pH."
         )
         lines.append("")
     if "fig_cycle_metrics" in figure_lookup:
@@ -618,7 +639,7 @@ def build_report(
         )
         lines.append("")
         lines.append(
-            f"The maximum absolute residual against the ideal HH ratio line is {hh_row['max_abs_residual']:.3e} pH. The water-flow color does not create an independent pH offset in this static ideal model."
+            f"The maximum absolute residual against the ideal HH ratio line is {hh_row['max_abs_residual']:.3e} pH. Water is fixed at 5 mL/min and does not create an independent pH offset in this static ideal model."
         )
         lines.append("")
     if "fig_training_losses" in figure_lookup:
@@ -656,7 +677,7 @@ def build_report(
     lines.append("## Bugs, Inconsistencies, Or Risks")
     lines.append("")
     lines.append("- The plant is static ideal HH, so it does not include delay, mixing, residence time, sensor lag, or lab mismatch.")
-    lines.append("- Water is a controlled actuator and is plotted, but it does not directly shift ideal HH pH with equal acid and acetate stocks.")
+    lines.append("- Water is fixed at 5 mL/min in this version and is plotted only as a logged process condition.")
     lines.append("- The final evaluation result is run-dependent and should not be treated as generalization evidence.")
     lines.append("- The report reads saved CSV files, so stale figures are possible if the report is not regenerated after a new run.")
     lines.append("")
