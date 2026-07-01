@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-07-01T18:38:04",
+  "source_result_dir": "results/offline_ph_td3_training_20260701_181330",
+  "report_path": "reports/offline_ph_td3_training_result_analysis.md",
+  "figures": [
+    "reports/figures/offline_ph_td3_training_20260701_181330_analysis/fig_ph_tracking_error_reward.png",
+    "reports/figures/offline_ph_td3_training_20260701_181330_analysis/fig_flow_commands_and_ratio.png",
+    "reports/figures/offline_ph_td3_training_20260701_181330_analysis/fig_cycle_metrics.png",
+    "reports/figures/offline_ph_td3_training_20260701_181330_analysis/fig_action_diagnostics.png",
+    "reports/figures/offline_ph_td3_training_20260701_181330_analysis/fig_hh_ratio_consistency.png",
+    "reports/figures/offline_ph_td3_training_20260701_181330_analysis/fig_training_losses.png"
+  ],
+  "tables": [
+    "reports/figures/offline_ph_td3_training_20260701_181330_analysis/summary_metrics.csv",
+    "reports/figures/offline_ph_td3_training_20260701_181330_analysis/flow_diagnostics.csv",
+    "reports/figures/offline_ph_td3_training_20260701_181330_analysis/cycle_metrics.csv",
+    "reports/figures/offline_ph_td3_training_20260701_181330_analysis/hh_consistency.csv",
+    "reports/figures/offline_ph_td3_training_20260701_181330_analysis/source_training_summary.csv"
+  ],
+  "source_files_inspected": [
+    "run_offline_ph_td3_training.py",
+    "simulation/ph_environment.py",
+    "simulation/henderson_hasselbalch_model.py",
+    "RL_assisted_MPC/Simulation/rl_sim.py",
+    "RL_assisted_MPC/report/scripts/analyze_distillation_all_runners_latest_20260609.py",
+    "RL_assisted_MPC/report/generate_rl_state_scaling_report.py"
+  ],
+  "simulation_only": true,
+  "uses_biosmb_or_emulator": false
+}

@@ -1,0 +1,2 @@
+total_steps,warm_start_steps,td3_train_steps,batch_size,overall_mae,overall_rmse,eval_mae,eval_rmse,reward_definition,plant_model
+200,25,112,64,0.3588028280952815,0.4882832049705385,0.1107100852322299,0.1107102135898153,-(pH - target_pH)^2,ideal Henderson-Hasselbalch
