@@ -169,6 +169,53 @@ class PHEnvironment(gym.Env):
         )
         return self._make_observation(), float(reward), terminated, truncated, info
 
+    def set_target_ph(self, target_ph: float) -> tuple[np.ndarray, dict]:
+        """Update the current setpoint without resetting the simulated process."""
+        self.target_ph = self.process_config.clip_target_ph(float(target_ph))
+        return self._make_observation(), self._make_info()
+
+    def action_to_flows(self, action) -> np.ndarray:
+        """Map a normalized three-pump action to bounded physical flows."""
+        return self._action_to_flows(self._validate_action(action))
+
+    def flows_to_action(self, flows) -> np.ndarray:
+        """Map physical acid, acetate, and water flows to normalized actions."""
+        return self._normalize_flows(np.asarray(flows, dtype=np.float32))
+
+    def target_to_nominal_flows(
+        self,
+        target_ph: float,
+        buffer_flow_sum: float | None = None,
+        water_flow: float | None = None,
+    ) -> np.ndarray:
+        """Return a clipped ideal-HH flow allocation for a target pH.
+
+        This is only a simulation helper for warm starts and diagnostics. It
+        uses the accepted Henderson-Hasselbalch ratio and does not modify the
+        chemistry model.
+        """
+        target_ph = self.process_config.clip_target_ph(float(target_ph))
+        buffer_flow_sum = (
+            self.process_config.default_buffer_flow_sum
+            if buffer_flow_sum is None
+            else float(buffer_flow_sum)
+        )
+        water_flow = (
+            self.process_config.default_water_flow
+            if water_flow is None
+            else float(water_flow)
+        )
+        flow_ratio = (
+            self.process_config.acid_stock_mol_l
+            / self.process_config.acetate_stock_mol_l
+            * 10.0 ** (target_ph - self.process_config.pKa)
+        )
+        acid_flow = buffer_flow_sum / (1.0 + flow_ratio)
+        acetate_flow = buffer_flow_sum - acid_flow
+        return self._clip_flows(
+            np.array([acid_flow, acetate_flow, water_flow], dtype=np.float32)
+        )
+
     def _validate_action(self, action) -> np.ndarray:
         action_arr = np.asarray(action, dtype=np.float32).reshape(-1)
         if action_arr.size != 3:
@@ -256,4 +303,3 @@ class PHEnvironment(gym.Env):
                 }
             )
         return info
-

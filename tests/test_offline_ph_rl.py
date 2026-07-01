@@ -66,6 +66,26 @@ def test_water_is_logged_but_not_direct_hh_ratio_input() -> None:
     )
 
 
+def test_public_flow_helpers_and_target_update() -> None:
+    env = PHEnvironment(PHEnvironmentConfig(target_ph=4.76))
+    observation, info = env.reset(options={"target_ph": 4.76})
+    assert np.isclose(info["target_ph"], 4.76)
+
+    flows = env.action_to_flows(np.array([-2.0, 0.0, 2.0], dtype=np.float32))
+    assert np.allclose(flows, np.array([1.0, 5.5, 10.0], dtype=np.float32))
+    action = env.flows_to_action(flows)
+    assert np.all(action >= -1.0)
+    assert np.all(action <= 1.0)
+
+    nominal_flows = env.target_to_nominal_flows(4.76)
+    assert np.allclose(nominal_flows[:2], np.array([5.0, 5.0], dtype=np.float32))
+
+    next_observation, next_info = env.set_target_ph(5.10)
+    assert observation.shape == next_observation.shape
+    assert np.isclose(next_info["target_ph"], 5.10)
+    assert np.isclose(next_info["ph"], info["ph"])
+
+
 def test_td3_import_and_train_step_smoke() -> None:
     env = PHEnvironment(PHEnvironmentConfig(target_ph=4.76, max_episode_steps=20))
     observation, _ = env.reset(seed=3)
@@ -99,10 +119,10 @@ def run_direct() -> None:
     test_environment_reset_and_step()
     test_action_bounds_and_ratio_direction()
     test_water_is_logged_but_not_direct_hh_ratio_input()
+    test_public_flow_helpers_and_target_update()
     test_td3_import_and_train_step_smoke()
     print("offline pH RL smoke tests passed")
 
 
 if __name__ == "__main__":
     run_direct()
-
