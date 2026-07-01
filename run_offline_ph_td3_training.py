@@ -5,12 +5,12 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 
 from TD3Agent.agent import TD3Agent, set_global_seeds
+from helpers.offline_ph_td3_results import save_offline_ph_td3_result_artifacts
 from simulation.config import PHProcessConfig
 from simulation.ph_environment import PHEnvironment, PHEnvironmentConfig
 
@@ -190,19 +190,27 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
     trajectory.to_csv(output_dir / "tables" / "trajectory.csv", index=False)
     episode_metrics.to_csv(output_dir / "tables" / "episode_metrics.csv", index=False)
     summary.to_csv(output_dir / "tables" / "training_summary.csv", index=False)
-    write_config_snapshot(output_dir, args, process_config)
-    plot_results(trajectory, episode_metrics, output_dir)
+    config_snapshot = write_config_snapshot(output_dir, args, process_config)
+    artifacts = save_offline_ph_td3_result_artifacts(
+        output_dir=output_dir,
+        trajectory=trajectory,
+        episode_metrics=episode_metrics,
+        training_summary=summary,
+        config=config_snapshot,
+    )
 
     if args.save_checkpoint:
         agent.save(str(output_dir / "checkpoints"), prefix="offline_ph_td3")
 
     print(f"Saved offline pH TD3 results to: {output_dir}")
+    print(f"Saved TD3 pH figures to: {artifacts['figures_dir']}")
     print(summary.to_string(index=False))
     return {
         "output_dir": output_dir,
         "trajectory": trajectory,
         "episode_metrics": episode_metrics,
         "summary": summary,
+        "artifacts": artifacts,
     }
 
 
@@ -255,7 +263,7 @@ def write_config_snapshot(
     output_dir: Path,
     args: argparse.Namespace,
     process_config: PHProcessConfig,
-) -> None:
+) -> dict:
     snapshot = {
         "runner": "run_offline_ph_td3_training.py",
         "simulation_only": True,
@@ -268,62 +276,7 @@ def write_config_snapshot(
     }
     with open(output_dir / "tables" / "config_snapshot.json", "w", encoding="utf-8") as f:
         json.dump(snapshot, f, indent=2)
-
-
-def plot_results(
-    trajectory: pd.DataFrame,
-    episode_metrics: pd.DataFrame,
-    output_dir: Path,
-) -> None:
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(trajectory["step"], trajectory["ph"], label="pH", linewidth=1.8)
-    ax.step(
-        trajectory["step"],
-        trajectory["target_ph"],
-        where="post",
-        label="target pH",
-        linewidth=1.5,
-        linestyle="--",
-    )
-    ax.set_xlabel("step")
-    ax.set_ylabel("pH")
-    ax.set_title("Offline TD3 pH Tracking")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(output_dir / "figures" / "ph_tracking.png", dpi=180)
-    plt.close(fig)
-
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(trajectory["step"], trajectory["acid_flow"], label="acid")
-    ax.plot(trajectory["step"], trajectory["acetate_flow"], label="acetate")
-    ax.plot(trajectory["step"], trajectory["water_flow"], label="water")
-    ax.set_xlabel("step")
-    ax.set_ylabel("flowrate (mL/min)")
-    ax.set_title("TD3 Pump Flow Commands")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(output_dir / "figures" / "flow_commands.png", dpi=180)
-    plt.close(fig)
-
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(trajectory["step"], trajectory["reward"], label="step reward")
-    ax.plot(
-        episode_metrics["cycle"] * max(1, int(trajectory["step"].max() + 1) // len(episode_metrics)),
-        episode_metrics["reward_sum"] / episode_metrics["steps"],
-        marker="o",
-        linestyle="",
-        label="cycle mean reward",
-    )
-    ax.set_xlabel("step")
-    ax.set_ylabel("reward")
-    ax.set_title("pH Tracking Reward")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(output_dir / "figures" / "reward_trace.png", dpi=180)
-    plt.close(fig)
+    return snapshot
 
 
 def build_parser() -> argparse.ArgumentParser:

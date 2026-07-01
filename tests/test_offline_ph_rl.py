@@ -4,12 +4,15 @@ import pathlib
 import sys
 
 import numpy as np
+import pandas as pd
 import torch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from helpers.offline_ph_td3_results import save_offline_ph_td3_result_artifacts
+from simulation.config import PHProcessConfig
 from simulation.ph_environment import PHEnvironment, PHEnvironmentConfig
 from TD3Agent.agent import TD3Agent
 
@@ -115,12 +118,87 @@ def test_td3_import_and_train_step_smoke() -> None:
     assert meta["critic_updated"] is True
 
 
+def test_result_artifact_helper_smoke() -> None:
+    env = PHEnvironment(PHEnvironmentConfig(target_ph=4.76, max_episode_steps=5))
+    observation, _ = env.reset(seed=19, options={"target_ph": 4.76})
+    del observation
+
+    records = []
+    for step, action in enumerate(
+        [
+            np.array([0.0, 0.0, -1.0], dtype=np.float32),
+            np.array([-0.2, 0.2, 0.0], dtype=np.float32),
+            np.array([0.1, -0.1, 1.0], dtype=np.float32),
+        ]
+    ):
+        _, _, _, _, info = env.step(action)
+        target_ph = float(info["target_ph"])
+        records.append(
+            {
+                "step": step,
+                "cycle": 0,
+                "is_warm_start": step == 0,
+                "is_test": step == 2,
+                "action_source": "smoke",
+                "target_ph": target_ph,
+                "ph": float(info["ph"]),
+                "ph_error": float(info["ph"] - target_ph),
+                "reward": -float((info["ph"] - target_ph) ** 2),
+                "acid_flow": float(info["acid_flow"]),
+                "acetate_flow": float(info["acetate_flow"]),
+                "water_flow": float(info["water_flow"]),
+                "flow_ratio_acetate_acid": float(info["flow_ratio_acetate_acid"]),
+                "action_acid": float(action[0]),
+                "action_acetate": float(action[1]),
+                "action_water": float(action[2]),
+                "train_updated": False,
+                "critic_loss": np.nan,
+                "actor_loss": np.nan,
+            }
+        )
+
+    trajectory = pd.DataFrame.from_records(records)
+    episode_metrics = pd.DataFrame(
+        [
+            {
+                "cycle": 0,
+                "target_ph": 4.76,
+                "is_test": True,
+                "steps": len(trajectory),
+                "mean_ph": float(trajectory["ph"].mean()),
+                "mean_abs_error": float(np.mean(np.abs(trajectory["ph_error"]))),
+                "rmse": float(np.sqrt(np.mean(np.square(trajectory["ph_error"])))),
+                "max_abs_error": float(np.max(np.abs(trajectory["ph_error"]))),
+                "reward_sum": float(trajectory["reward"].sum()),
+                "train_updates": 0,
+            }
+        ]
+    )
+    training_summary = pd.DataFrame([{"total_steps": len(trajectory)}])
+    config = {"process_config": PHProcessConfig().__dict__}
+
+    output_dir = ROOT / "results" / "_test_offline_ph_td3_artifacts"
+    artifacts = save_offline_ph_td3_result_artifacts(
+        output_dir=output_dir,
+        trajectory=trajectory,
+        episode_metrics=episode_metrics,
+        training_summary=training_summary,
+        config=config,
+    )
+    assert (output_dir / "tables" / "summary_metrics.csv").exists()
+    assert (output_dir / "tables" / "trajectory_diagnostics.csv").exists()
+    assert (output_dir / "tables" / "result_artifact_manifest.json").exists()
+    assert len(artifacts["figures"]) >= 5
+    assert all(path.exists() for path in artifacts["figures"])
+
+
 def run_direct() -> None:
     test_environment_reset_and_step()
     test_action_bounds_and_ratio_direction()
     test_water_is_logged_but_not_direct_hh_ratio_input()
     test_public_flow_helpers_and_target_update()
     test_td3_import_and_train_step_smoke()
+    test_result_artifact_helper_smoke()
     print("offline pH RL smoke tests passed")
 
 
