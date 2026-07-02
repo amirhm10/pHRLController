@@ -172,6 +172,115 @@ def reward_definition_text() -> str:
     )
 
 
+def validate_trajectory_flow_constraints(
+    trajectory: pd.DataFrame,
+    process_config: PHProcessConfig,
+    fixed_buffer_flow_sum: float,
+    fixed_water_flow: float,
+    tolerance: float = 1e-6,
+) -> pd.DataFrame:
+    """Raise if any logged flow violates configured physical constraints."""
+    rows: list[dict] = []
+    violations: list[str] = []
+    specs = [
+        (
+            "acid",
+            "acid_flow",
+            process_config.acid_flow_min,
+            process_config.acid_flow_max,
+        ),
+        (
+            "acetate",
+            "acetate_flow",
+            process_config.acetate_flow_min,
+            process_config.acetate_flow_max,
+        ),
+        (
+            "water",
+            "water_flow",
+            process_config.water_flow_min,
+            process_config.water_flow_max,
+        ),
+    ]
+    for label, column, lower, upper in specs:
+        values = trajectory[column].to_numpy(float)
+        finite = np.isfinite(values)
+        below_count = int(np.sum(values < float(lower) - tolerance))
+        above_count = int(np.sum(values > float(upper) + tolerance))
+        nonfinite_count = int(np.sum(~finite))
+        rows.append(
+            {
+                "constraint": f"{label}_bounds",
+                "lower_bound": float(lower),
+                "upper_bound": float(upper),
+                "observed_min": float(np.nanmin(values)),
+                "observed_max": float(np.nanmax(values)),
+                "below_bound_count": below_count,
+                "above_bound_count": above_count,
+                "nonfinite_count": nonfinite_count,
+                "max_abs_deviation": np.nan,
+            }
+        )
+        if below_count or above_count or nonfinite_count:
+            violations.append(
+                f"{column} outside [{float(lower)}, {float(upper)}] "
+                f"with min={float(np.nanmin(values))}, max={float(np.nanmax(values))}"
+            )
+
+    buffer_sum = (
+        trajectory["buffer_flow_sum"].to_numpy(float)
+        if "buffer_flow_sum" in trajectory
+        else trajectory["acid_flow"].to_numpy(float)
+        + trajectory["acetate_flow"].to_numpy(float)
+    )
+    buffer_deviation = np.abs(buffer_sum - float(fixed_buffer_flow_sum))
+    buffer_violation_count = int(np.sum(buffer_deviation > tolerance))
+    rows.append(
+        {
+            "constraint": "fixed_buffer_flow_sum",
+            "lower_bound": float(fixed_buffer_flow_sum),
+            "upper_bound": float(fixed_buffer_flow_sum),
+            "observed_min": float(np.nanmin(buffer_sum)),
+            "observed_max": float(np.nanmax(buffer_sum)),
+            "below_bound_count": 0,
+            "above_bound_count": 0,
+            "nonfinite_count": int(np.sum(~np.isfinite(buffer_sum))),
+            "max_abs_deviation": float(np.nanmax(buffer_deviation)),
+        }
+    )
+    if buffer_violation_count:
+        violations.append(
+            f"acid+acetate sum deviates from {float(fixed_buffer_flow_sum)} "
+            f"by up to {float(np.nanmax(buffer_deviation))}"
+        )
+
+    water_values = trajectory["water_flow"].to_numpy(float)
+    water_deviation = np.abs(water_values - float(fixed_water_flow))
+    fixed_water_violation_count = int(np.sum(water_deviation > tolerance))
+    rows.append(
+        {
+            "constraint": "fixed_water_flow",
+            "lower_bound": float(fixed_water_flow),
+            "upper_bound": float(fixed_water_flow),
+            "observed_min": float(np.nanmin(water_values)),
+            "observed_max": float(np.nanmax(water_values)),
+            "below_bound_count": 0,
+            "above_bound_count": 0,
+            "nonfinite_count": int(np.sum(~np.isfinite(water_values))),
+            "max_abs_deviation": float(np.nanmax(water_deviation)),
+        }
+    )
+    if fixed_water_violation_count:
+        violations.append(
+            f"water flow deviates from {float(fixed_water_flow)} "
+            f"by up to {float(np.nanmax(water_deviation))}"
+        )
+
+    if violations:
+        raise ValueError("Flow constraint validation failed: " + "; ".join(violations))
+    return pd.DataFrame(rows)
+
+
 def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
     set_global_seeds(args.seed)
     process_config = PHProcessConfig()
@@ -323,6 +432,12 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         state = next_state
 
     trajectory = pd.DataFrame.from_records(records)
+    flow_constraint_check = validate_trajectory_flow_constraints(
+        trajectory=trajectory,
+        process_config=process_config,
+        fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
+        fixed_water_flow=env.fixed_water_flow,
+    )
     episode_metrics = summarize_by_cycle(trajectory)
     summary = summarize_run(
         trajectory=trajectory,
@@ -346,6 +461,10 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
     episode_metrics.to_csv(output_dir / "tables" / "episode_metrics.csv", index=False)
     setpoint_schedule.to_csv(
         output_dir / "tables" / "setpoint_schedule.csv",
+        index=False,
+    )
+    flow_constraint_check.to_csv(
+        output_dir / "tables" / "flow_constraint_check.csv",
         index=False,
     )
     summary.to_csv(output_dir / "tables" / "training_summary.csv", index=False)
@@ -377,6 +496,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         "trajectory": trajectory,
         "episode_metrics": episode_metrics,
         "summary": summary,
+        "flow_constraint_check": flow_constraint_check,
         "artifacts": artifacts,
     }
 

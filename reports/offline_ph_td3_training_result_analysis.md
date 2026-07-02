@@ -1,6 +1,6 @@
 # Offline TD3 pH Tracking Result Analysis
 
-Generated on 2026-07-01 22:32:04 from saved result files only.
+Generated on 2026-07-02 00:32:58 from saved result files only.
 
 ## Scope
 
@@ -132,6 +132,10 @@ The maximum absolute residual against the ideal HH ratio line is 1.776e-15 pH. W
 | acetate | 7.478 | 5 | 10 | 0 | 0.00012 | 0.2187 |
 | water | 5 | 5 | 5 | 0 | 0 | 0 |
 | buffer_sum | 15 | 15 | 15 | nan | nan | 2.928e-07 |
+
+Flow-limit check: no logged acid, acetate, or water flow exceeded its configured pump bounds. The maximum logged physical flow was 10 mL/min.
+
+The logged acid-plus-acetate sum stayed between 15 and 15 mL/min.
 
 ## Interpretation
 

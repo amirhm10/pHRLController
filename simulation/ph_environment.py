@@ -285,12 +285,72 @@ class PHEnvironment(gym.Env):
         flows = np.asarray(flows, dtype=np.float32).reshape(-1)
         if flows.size not in {2, 3}:
             raise ValueError(f"flows must have shape (2,) or (3,), got {flows.shape}.")
-        acid_flow = float(np.clip(flows[0], self.acid_flow_low_for_sum, self.acid_flow_high_for_sum))
-        acetate_flow = self.fixed_buffer_flow_sum - acid_flow
-        return np.array(
-            [acid_flow, acetate_flow, self.fixed_water_flow],
-            dtype=np.float32,
+        acid_flow = float(
+            np.clip(
+                flows[0],
+                self.acid_flow_low_for_sum,
+                self.acid_flow_high_for_sum,
+            )
         )
+        acetate_flow = self.fixed_buffer_flow_sum - acid_flow
+        return self._assert_flow_constraints(
+            np.array(
+                [acid_flow, acetate_flow, self.fixed_water_flow],
+                dtype=np.float32,
+            ),
+            context="clipped flows",
+        )
+
+    def _assert_flow_constraints(
+        self,
+        flows: np.ndarray,
+        context: str,
+        tolerance: float = 1e-6,
+    ) -> np.ndarray:
+        flows = np.asarray(flows, dtype=np.float32).reshape(-1)
+        if flows.size != 3:
+            raise ValueError(f"{context} must have shape (3,), got {flows.shape}.")
+        if not np.all(np.isfinite(flows)):
+            raise ValueError(f"{context} must contain only finite flow values.")
+
+        below = flows < self.flow_low - tolerance
+        above = flows > self.flow_high + tolerance
+        if bool(np.any(below) or np.any(above)):
+            raise ValueError(
+                f"{context} outside pump bounds. "
+                f"flows={flows.tolist()}, lower={self.flow_low.tolist()}, "
+                f"upper={self.flow_high.tolist()}"
+            )
+
+        buffer_sum = float(flows[0] + flows[1])
+        if abs(buffer_sum - self.fixed_buffer_flow_sum) > tolerance:
+            raise ValueError(
+                f"{context} violates fixed buffer-flow sum: "
+                f"{buffer_sum} != {self.fixed_buffer_flow_sum}."
+            )
+        if abs(float(flows[2]) - self.fixed_water_flow) > tolerance:
+            raise ValueError(
+                f"{context} violates fixed water flow: "
+                f"{float(flows[2])} != {self.fixed_water_flow}."
+            )
+        return flows.astype(np.float32)
+
+    def assert_current_flow_constraints(self) -> None:
+        """Raise if the current physical flows violate configured constraints."""
+        self._assert_flow_constraints(self.current_flows, context="current flows")
+
+    def flow_constraint_summary(self) -> dict[str, float]:
+        """Return active physical flow constraints for diagnostics."""
+        return {
+            "acid_flow_min": float(self.flow_low[0]),
+            "acid_flow_max": float(self.flow_high[0]),
+            "acetate_flow_min": float(self.flow_low[1]),
+            "acetate_flow_max": float(self.flow_high[1]),
+            "water_flow_min": float(self.flow_low[2]),
+            "water_flow_max": float(self.flow_high[2]),
+            "fixed_buffer_flow_sum": float(self.fixed_buffer_flow_sum),
+            "fixed_water_flow": float(self.fixed_water_flow),
+        }
 
     def _action_to_flows(self, action: np.ndarray) -> np.ndarray:
         fraction = float(0.5 * (action[0] + 1.0))
@@ -300,15 +360,20 @@ class PHEnvironment(gym.Env):
         flow_ratio = 10.0 ** log_ratio
         acid_flow = self.fixed_buffer_flow_sum / (1.0 + flow_ratio)
         acetate_flow = self.fixed_buffer_flow_sum - acid_flow
-        return np.array(
-            [acid_flow, acetate_flow, self.fixed_water_flow],
-            dtype=np.float32,
+        return self._assert_flow_constraints(
+            np.array(
+                [acid_flow, acetate_flow, self.fixed_water_flow],
+                dtype=np.float32,
+            ),
+            context="action-mapped flows",
         )
 
     def _normalize_flows(self, flows: np.ndarray) -> np.ndarray:
         flows = self._clip_flows(flows)
         ratio = float(flows[1] / flows[0])
-        log_ratio = float(np.log10(np.clip(ratio, self.flow_ratio_low, self.flow_ratio_high)))
+        log_ratio = float(
+            np.log10(np.clip(ratio, self.flow_ratio_low, self.flow_ratio_high))
+        )
         scaled = 2.0 * (log_ratio - self.log_ratio_low) / (
             self.log_ratio_high - self.log_ratio_low
         ) - 1.0

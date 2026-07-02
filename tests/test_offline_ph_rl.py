@@ -16,6 +16,7 @@ from run_offline_ph_td3_training import (
     build_setpoint_schedule,
     resolve_n_tests,
     resolve_set_points_len,
+    validate_trajectory_flow_constraints,
 )
 from simulation.config import PHProcessConfig
 from simulation.ph_environment import (
@@ -90,6 +91,50 @@ def test_action_bounds_and_ratio_direction() -> None:
     assert high_info["buffer_flow_sum"] == 15.0
     assert low_info["buffer_flow_sum"] == 15.0
     assert high_info["ph"] > low_info["ph"]
+
+    for raw_action in np.linspace(-5.0, 5.0, num=41):
+        flows = env.action_to_flows(np.array([raw_action], dtype=np.float32))
+        assert np.all(flows >= env.flow_low - 1e-6)
+        assert np.all(flows <= env.flow_high + 1e-6)
+        assert np.isclose(flows[0] + flows[1], 15.0)
+        assert np.isclose(flows[2], 5.0)
+        env.step(np.array([raw_action], dtype=np.float32))
+        env.assert_current_flow_constraints()
+
+
+def test_runner_flow_constraint_validation() -> None:
+    process_config = PHProcessConfig()
+    valid = pd.DataFrame(
+        {
+            "acid_flow": [5.0, 7.5, 10.0],
+            "acetate_flow": [10.0, 7.5, 5.0],
+            "water_flow": [5.0, 5.0, 5.0],
+            "buffer_flow_sum": [15.0, 15.0, 15.0],
+        }
+    )
+    check = validate_trajectory_flow_constraints(
+        trajectory=valid,
+        process_config=process_config,
+        fixed_buffer_flow_sum=15.0,
+        fixed_water_flow=5.0,
+    )
+    assert int(check["above_bound_count"].sum()) == 0
+    assert int(check["below_bound_count"].sum()) == 0
+
+    invalid = valid.copy()
+    invalid.loc[1, "acetate_flow"] = 10.1
+    invalid.loc[1, "buffer_flow_sum"] = 17.6
+    try:
+        validate_trajectory_flow_constraints(
+            trajectory=invalid,
+            process_config=process_config,
+            fixed_buffer_flow_sum=15.0,
+            fixed_water_flow=5.0,
+        )
+    except ValueError as exc:
+        assert "acetate_flow outside" in str(exc)
+    else:
+        raise AssertionError("expected flow constraint validation to fail")
 
 
 def test_water_is_fixed_and_not_direct_hh_ratio_input() -> None:
@@ -290,6 +335,7 @@ def run_direct() -> None:
     test_environment_reset_and_step()
     test_environment_reward_components()
     test_action_bounds_and_ratio_direction()
+    test_runner_flow_constraint_validation()
     test_water_is_fixed_and_not_direct_hh_ratio_input()
     test_public_flow_helpers_and_target_update()
     test_td3_import_and_train_step_smoke()

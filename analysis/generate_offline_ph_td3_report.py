@@ -1110,6 +1110,33 @@ def build_report(
         )
     )
     lines.append("")
+    physical_flows = flow_diagnostics[
+        flow_diagnostics["flow"].isin(["acid", "acetate", "water"])
+    ]
+    if not physical_flows.empty:
+        max_logged_flow = float(physical_flows["max"].max())
+        upper_violations = physical_flows[
+            physical_flows["max"] > physical_flows["upper_bound"] + 1e-6
+        ]
+        lower_violations = physical_flows[
+            physical_flows["min"] < physical_flows["lower_bound"] - 1e-6
+        ]
+        if upper_violations.empty and lower_violations.empty:
+            lines.append(
+                f"Flow-limit check: no logged acid, acetate, or water flow exceeded its configured pump bounds. The maximum logged physical flow was {max_logged_flow:.4g} mL/min."
+            )
+        else:
+            lines.append(
+                "Flow-limit check: at least one logged flow exceeded its configured pump bounds. Inspect `flow_diagnostics.csv` before using this result."
+            )
+        lines.append("")
+    buffer_rows = flow_diagnostics[flow_diagnostics["flow"] == "buffer_sum"]
+    if not buffer_rows.empty:
+        buffer_row = buffer_rows.iloc[0]
+        lines.append(
+            f"The logged acid-plus-acetate sum stayed between {buffer_row['min']:.4g} and {buffer_row['max']:.4g} mL/min."
+        )
+        lines.append("")
     lines.append("## Interpretation")
     lines.append("")
     lines.append(
