@@ -12,7 +12,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from helpers.offline_ph_td3_results import save_offline_ph_td3_result_artifacts
-from run_offline_ph_td3_training import resolve_set_points_len
+from run_offline_ph_td3_training import (
+    build_setpoint_schedule,
+    resolve_n_tests,
+    resolve_set_points_len,
+)
 from simulation.config import PHProcessConfig
 from simulation.ph_environment import PHEnvironment, PHEnvironmentConfig
 from TD3Agent.agent import TD3Agent
@@ -230,6 +234,16 @@ def test_result_artifact_helper_smoke() -> None:
 def test_default_total_step_resolution() -> None:
     assert resolve_set_points_len(
         total_steps=25_000,
+        n_tests=None,
+        set_points_len=None,
+    ) == 200
+    assert resolve_n_tests(
+        total_steps=25_000,
+        n_tests=None,
+        set_points_len=200,
+    ) == 125
+    assert resolve_set_points_len(
+        total_steps=25_000,
         n_tests=10,
         set_points_len=None,
     ) == 2500
@@ -238,6 +252,26 @@ def test_default_total_step_resolution() -> None:
         n_tests=10,
         set_points_len=6,
     ) == 6
+
+
+def test_admissible_random_setpoint_schedule() -> None:
+    process_config = PHProcessConfig()
+    schedule, cycle_indices, setpoints = build_setpoint_schedule(
+        process_config=process_config,
+        n_tests=8,
+        set_points_len=200,
+        seed=101,
+        strategy="admissible_random",
+    )
+
+    assert schedule.shape == (1600,)
+    assert cycle_indices.shape == (1600,)
+    assert setpoints.shape == (8,)
+    assert np.all(setpoints >= process_config.target_ph_min)
+    assert np.all(setpoints <= process_config.target_ph_max)
+    assert len(np.unique(np.round(setpoints, decimals=6))) == len(setpoints)
+    assert np.all(schedule[:200] == setpoints[0])
+    assert np.all(schedule[200:400] == setpoints[1])
 
 
 def run_direct() -> None:
@@ -249,6 +283,7 @@ def run_direct() -> None:
     test_td3_import_and_train_step_smoke()
     test_result_artifact_helper_smoke()
     test_default_total_step_resolution()
+    test_admissible_random_setpoint_schedule()
     print("offline pH RL smoke tests passed")
 
 

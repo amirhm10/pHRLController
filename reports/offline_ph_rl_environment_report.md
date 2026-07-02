@@ -127,7 +127,13 @@ It follows the same broad style as the RL-assisted repository:
 7. Call `agent.train_step()` once the replay buffer has enough samples.
 8. Save tables and figures under `results/offline_ph_td3_training_<timestamp>/`.
 
-The default rollout length is now `25,000` steps. By default there is no HH warm-start segment because the current task is offline TD3 training. A legacy HH warm-start can still be requested explicitly with `--warm-start-cycles`, but it is not part of the default protocol.
+The default rollout length is now `25,000` steps. Setpoints change every `200` steps by default, so a default run has `125` setpoint segments. The default setpoint strategy is `admissible_random`: the runner draws seeded, stratified, non-repeating targets from the configured admissible pH range `[3.76, 5.76]`. The exact schedule is saved to:
+
+```text
+tables/setpoint_schedule.csv
+```
+
+By default there is no HH warm-start segment because the current task is offline TD3 training. A legacy HH warm-start can still be requested explicitly with `--warm-start-cycles`, but it is not part of the default protocol.
 
 The runner reward now has three terms:
 
@@ -152,12 +158,18 @@ The move term is computed on the normalized two-action vector `[acid_action, ace
 - `reward_move_cost`
 - `reward_total_cost`
 
+Exploration is Gaussian action noise on the normalized actor output during training cycles only. The default runner uses linear decay from `std_start = 0.35` to `std_end = 0.03` over `5,000` exploratory action calls. Evaluation cycles use `agent.act_eval(...)` with no exploration noise. The saved trajectory logs:
+
+- `exploration_sigma`
+- `exploration_magnitude`
+- `action_saturation_fraction`
+
 ## Generated Artifacts
 
 A smoke training run generated:
 
 ```text
-results/offline_ph_td3_training_20260701_210401/
+results/offline_ph_td3_training_20260701_211724/
 ```
 
 Tables:
@@ -165,6 +177,7 @@ Tables:
 - `tables/trajectory.csv`
 - `tables/trajectory_diagnostics.csv`
 - `tables/episode_metrics.csv`
+- `tables/setpoint_schedule.csv`
 - `tables/training_summary.csv`
 - `tables/config_snapshot.json`
 - `tables/summary_metrics.csv`
@@ -184,17 +197,22 @@ Figures:
 Smoke-run summary:
 
 ```text
-total_steps:      18
-warm_start_steps: 0
-td3_train_steps:  9
-batch_size:       4
-overall_MAE:      0.4771 pH
-overall_RMSE:     0.6144 pH
-eval_MAE:         0.000031 pH
-eval_RMSE:        0.000033 pH
-sq_error_cost:    6.7954
-abs_error_cost:   8.5869
-move_cost:        1.9773
+total_steps:        600
+setpoint_cycles:    3
+steps_per_cycle:    200
+setpoint_strategy:  admissible_random
+warm_start_steps:   0
+td3_train_steps:    397
+batch_size:         4
+overall_MAE:        0.3350 pH
+overall_RMSE:       0.3793 pH
+eval_MAE:           0.4353 pH
+eval_RMSE:          0.4353 pH
+sq_error_cost:      86.3174
+abs_error_cost:     201.0169
+move_cost:          79.7331
+mean_exp_sigma:     0.2248
+mean_exp_magnitude: 0.1660
 ```
 
 This is a small software smoke test, not a scientific performance claim.
@@ -220,10 +238,10 @@ offline pH RL smoke tests passed
 ```
 
 ```powershell
-& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' run_offline_ph_td3_training.py --total-steps 18 --n-tests 3 --batch-size 4 --buffer-size 128 --actor-hidden 16 --critic-hidden 16 --seed 37
+& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' run_offline_ph_td3_training.py --total-steps 600 --batch-size 4 --buffer-size 512 --actor-hidden 16 --critic-hidden 16 --seed 41
 ```
 
-Output confirmed `warm_start_steps = 0`, `td3_train_steps = 9`, and saved a local results bundle with figures and diagnostic tables.
+Output confirmed `steps_per_cycle = 200`, `setpoint_cycles = 3`, `warm_start_steps = 0`, `td3_train_steps = 397`, and saved a local results bundle with figures, diagnostic tables, and `setpoint_schedule.csv`.
 
 ## Current Limitations
 
@@ -237,7 +255,7 @@ Output confirmed `warm_start_steps = 0`, `td3_train_steps = 9`, and saved a loca
 
 Use `run_offline_ph_td3_training.py` as the starting loop and tune the simulation protocol:
 
-- longer setpoint cycles,
+- setpoint-count and setpoint-range sweeps around the 200-step default,
 - training/test split similar to the RL-assisted repository,
 - fixed seed batches for comparison,
 - reward-weight sweeps for the squared, absolute, and move-penalty terms,

@@ -403,7 +403,17 @@ def plot_cycle_metrics(episode_metrics: pd.DataFrame, output_dir: Path) -> Path:
 
 
 def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
-    fig, axs = plt.subplots(2, 1, figsize=(10.5, 7.2))
+    has_exploration = (
+        "exploration_sigma" in trajectory
+        or "exploration_magnitude" in trajectory
+        or "action_saturation_fraction" in trajectory
+    )
+    row_count = 3 if has_exploration else 2
+    fig, axs = plt.subplots(
+        row_count,
+        1,
+        figsize=(10.5, 9.4 if has_exploration else 7.2),
+    )
     steps = trajectory["step"]
     action_specs = [
         ("action_acid", "#CC6677", "acid action"),
@@ -437,6 +447,36 @@ def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     axs[1].set_ylim(-1.05, 1.05)
     axs[1].grid(alpha=0.28)
     fig.colorbar(scatter, ax=axs[1], label="absolute pH error")
+    if has_exploration:
+        if "exploration_sigma" in trajectory:
+            axs[2].plot(
+                steps,
+                trajectory["exploration_sigma"],
+                color="#0072B2",
+                linewidth=1.3,
+                label="noise sigma",
+            )
+        if "exploration_magnitude" in trajectory:
+            axs[2].plot(
+                steps,
+                trajectory["exploration_magnitude"],
+                color="#D55E00",
+                linewidth=1.3,
+                label="mean |noise|",
+            )
+        if "action_saturation_fraction" in trajectory:
+            axs[2].plot(
+                steps,
+                trajectory["action_saturation_fraction"],
+                color="#009E73",
+                linewidth=1.1,
+                label="saturation fraction",
+            )
+        shade_protocol_regions(axs[2], trajectory)
+        axs[2].set_xlabel("step")
+        axs[2].set_ylabel("exploration")
+        axs[2].grid(alpha=0.28)
+        axs[2].legend(loc="best")
     fig.tight_layout()
     return save_figure(fig, output_dir, "fig_action_diagnostics.png")
 
@@ -569,6 +609,7 @@ def build_report(
     report_path: Path,
     result_dir: Path,
     output_dir: Path,
+    config: dict,
     summary_metrics: pd.DataFrame,
     flow_diagnostics: pd.DataFrame,
     episode_metrics: pd.DataFrame,
@@ -582,6 +623,10 @@ def build_report(
     eval_mae = eval_rows.iloc[0]["mae"] if not eval_rows.empty else np.nan
     eval_rmse = eval_rows.iloc[0]["rmse"] if not eval_rows.empty else np.nan
     hh_row = hh_consistency.iloc[0]
+    rollout = config.get("resolved_rollout", {})
+    setpoint_cycles = rollout.get("setpoint_cycles", "unknown")
+    steps_per_cycle = rollout.get("steps_per_cycle", "unknown")
+    setpoint_strategy = rollout.get("setpoint_strategy", "unknown")
 
     lines: list[str] = []
     lines.append("# Offline TD3 pH Tracking Result Analysis")
@@ -623,6 +668,10 @@ def build_report(
     )
     lines.append("")
     lines.append("The water flow is not part of the action. It is fixed and logged at 5 mL/min in the current offline simulation.")
+    lines.append("")
+    lines.append(
+        f"The setpoint schedule uses `{setpoint_strategy}` targets. Each setpoint is held for `{steps_per_cycle}` steps, and this saved run contains `{setpoint_cycles}` setpoint segments."
+    )
     lines.append("")
     lines.append("The plant pH is the accepted ideal Henderson-Hasselbalch relation")
     lines.append("")
@@ -700,6 +749,10 @@ def build_report(
             f"![action diagnostics]({report_rel(figure_lookup['fig_action_diagnostics'], report_path)})"
         )
         lines.append("")
+        lines.append(
+            "The action diagnostic figure includes the normalized acid/base action trajectory, the action scatter, and exploration traces when those columns are available."
+        )
+        lines.append("")
     if "fig_hh_ratio_consistency" in figure_lookup:
         lines.append(
             f"![HH ratio consistency]({report_rel(figure_lookup['fig_hh_ratio_consistency'], report_path)})"
@@ -738,7 +791,7 @@ def build_report(
     )
     lines.append("")
     lines.append(
-        "The result is not enough to claim controller quality. For a short smoke run, a low final evaluation error can occur because the ideal HH mapping is simple and the final setpoint may be easy. A longer multi-seed run is needed before comparing learning behavior."
+        "The result is not enough to claim controller quality. A short smoke run mainly verifies that the schedule, exploration, reward, TD3 update, and plotting pipeline execute together. A longer multi-seed run is needed before comparing learning behavior."
     )
     lines.append("")
     lines.append("## Bugs, Inconsistencies, Or Risks")
@@ -751,14 +804,14 @@ def build_report(
     lines.append("## Recommended Next Experiment")
     lines.append("")
     lines.append(
-        "Run the default offline simulation with no HH warm-start segment and one final evaluation cycle. Use the same report script afterward and compare `td3_training_steps`, evaluation MAE, max absolute error, flow saturation fractions, and the action scatter plot."
+        "Run the default offline simulation with no HH warm-start segment, 200-step setpoint holds, and one final evaluation cycle. Use the same report script afterward and compare `td3_training_steps`, evaluation MAE, max absolute error, flow saturation fractions, exploration traces, and the action scatter plot."
     )
     lines.append("")
     lines.append("Example:")
     lines.append("")
     lines.append("```powershell")
     lines.append(
-        "& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' run_offline_ph_td3_training.py --total-steps 25000 --n-tests 10 --batch-size 64 --buffer-size 5000 --seed 21"
+        "& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' run_offline_ph_td3_training.py --total-steps 25000 --set-points-len 200 --batch-size 64 --buffer-size 5000 --seed 21"
     )
     lines.append(
         "& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' analysis\\generate_offline_ph_td3_report.py"
@@ -860,6 +913,7 @@ def run_report(result_dir: Path, output_dir: Path, report_path: Path) -> dict[st
         flow_diagnostics=flow_diagnostics,
         episode_metrics=episode_metrics,
         hh_consistency=hh_consistency,
+        config=config,
         figures=figures,
         generated_tables=generated_tables,
     )
