@@ -853,10 +853,12 @@ def build_report(
     eval_rmse = eval_rows.iloc[0]["rmse"] if not eval_rows.empty else np.nan
     hh_row = hh_consistency.iloc[0]
     rollout = config.get("resolved_rollout", {})
+    arguments = config.get("arguments", {})
     setpoint_cycles = rollout.get("setpoint_cycles", "unknown")
     steps_per_cycle = rollout.get("steps_per_cycle", "unknown")
     setpoint_strategy = rollout.get("setpoint_strategy", "unknown")
     fixed_buffer_flow_sum = rollout.get("fixed_buffer_flow_sum", "unknown")
+    total_steps = rollout.get("total_steps", arguments.get("total_steps", "unknown"))
     early_phase = learning_phase_metrics[
         learning_phase_metrics["phase"].astype(str).str.startswith("first_")
         & learning_phase_metrics["phase"].astype(str).str.endswith("_steps")
@@ -1024,7 +1026,7 @@ def build_report(
     )
     lines.append("")
     lines.append(
-        "The settling table is computed within each 200-step setpoint hold. A cycle is counted as settled only after the error stays inside the tolerance band for the listed hold duration."
+        f"The settling table is computed within each {steps_per_cycle}-step setpoint hold. A cycle is counted as settled only after the error stays inside the tolerance band for the listed hold duration."
     )
     lines.append("")
     lines.append("## Best And Worst Setpoint Cycles")
@@ -1163,7 +1165,7 @@ def build_report(
     )
     lines.append("")
     lines.append(
-        "After that, run a small seed batch, for example seeds 7, 21, 47, 73, and 101, using the same 25,000-step protocol. Compare the mean and worst-case evaluation MAE rather than relying on one run."
+        f"After that, run a small seed batch, for example seeds 7, 21, 47, 73, and 101, using the same {total_steps}-step protocol. Compare the mean and worst-case evaluation MAE rather than relying on one run."
     )
     lines.append("")
     lines.append(
@@ -1173,8 +1175,19 @@ def build_report(
     lines.append("Current reproducibility command:")
     lines.append("")
     lines.append("```powershell")
+    seed = arguments.get("seed", 7)
+    batch_size = arguments.get("batch_size", 64)
+    buffer_size = arguments.get("buffer_size", 5000)
+    std_decay_steps = arguments.get("std_decay_steps", 5000)
     lines.append(
-        "& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' run_offline_ph_td3_training.py --total-steps 25000 --set-points-len 200 --batch-size 64 --buffer-size 5000 --seed 7"
+        "& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' "
+        "run_offline_ph_td3_training.py "
+        f"--total-steps {total_steps} "
+        f"--set-points-len {steps_per_cycle} "
+        f"--std-decay-steps {std_decay_steps} "
+        f"--batch-size {batch_size} "
+        f"--buffer-size {buffer_size} "
+        f"--seed {seed}"
     )
     lines.append(
         f"& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' analysis\\generate_offline_ph_td3_report.py --result-dir {repo_rel(result_dir)}"

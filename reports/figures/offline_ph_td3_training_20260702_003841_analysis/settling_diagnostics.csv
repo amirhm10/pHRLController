@@ -1,0 +1,3 @@
+tolerance,hold_steps,settled_cycles,failed_cycles,median_settling_steps,p90_settling_steps,max_settling_steps
+0.05,20,107,18,0.0,13.200000000000017,334.0
+0.02,20,83,42,26.0,148.8,354.0
