@@ -1,6 +1,6 @@
 # Offline TD3 pH Tracking Result Analysis
 
-Generated on 2026-07-02 00:40:05 from saved result files only.
+Generated on 2026-07-02 00:40:05 from saved result files only. Rewritten on 2026-07-02 after inspecting the latest requested 50,000-step run and the neighboring result folders.
 
 ## Scope
 
@@ -8,7 +8,17 @@ This report analyzes the current offline pH TD3 simulation output. It does not l
 
 `results/offline_ph_td3_training_20260702_003841`
 
-The purpose is to create editable figures and a first write-up around the ratio-action TD3 scaffold. The result should be treated as an offline software diagnostic, not as a validated pH controller.
+This is the latest requested 50,000-step run with 400-step setpoint holds and 10,000-step exploration decay. A newer folder, `results/offline_ph_td3_training_20260702_004325`, exists on disk, but it is a default 25,000-step/200-step-hold run and is not the requested 50,000-step experiment.
+
+The purpose is to interpret the ratio-action TD3 scaffold scientifically and decide the next simulation step. The result should be treated as an offline software diagnostic, not as a validated pH controller.
+
+## Executive Summary
+
+The 50,000-step run improves the training-phase behavior of the ratio-action TD3 policy. Overall MAE decreases to `0.02347` pH, and after exploration reaches its floor the MAE is `0.01291` pH. The last 5,000 training steps are even better at `0.01057` pH MAE.
+
+The final deterministic evaluation cycle is weaker than the late-training behavior. The evaluation target is `4.97763` pH, but the actor settles near `5.02067` pH, giving an offset of about `0.043` pH. The ideal HH model itself is not the cause, because the saved HH residual is about numerical zero. The failure is a policy/action-selection offset at this setpoint.
+
+The main decision is therefore not to run another single final-cycle experiment. The next step should be a deterministic frozen-policy evaluation sweep across the reachable setpoint range, saved as a table and figure, so we can see whether the `4.98` pH offset is local or systematic.
 
 ## Method
 
@@ -52,6 +62,8 @@ where `e_t = pH_sp,t - pH_t`, `a_t` is the normalized ratio action, and `n_u = 1
 
 Overall MAE is 0.02347 pH and overall RMSE is 0.04466 pH. The evaluation-window MAE is 0.04282 pH and evaluation-window RMSE is 0.04283 pH. These values depend on the saved run length and random seed.
 
+Compared with the previous 25,000-step/200-step-hold run, the 50,000-step run improves overall MAE from `0.02842` to `0.02347` pH and improves late-training MAE from about `0.01618` to `0.01057` pH. However, the final evaluation MAE worsens from `0.01586` to `0.04282` pH. This means the longer run is not simply "better" or "worse". It learns the training distribution more cleanly, but the single final deterministic evaluation target exposes a larger policy offset.
+
 ## Learning-Phase Diagnostics
 
 | Phase | Steps | MAE | RMSE | Max \|e\| | Mean \|ratio error\| | Mean sigma | Mean \|noise\| |
@@ -67,7 +79,7 @@ Overall MAE is 0.02347 pH and overall RMSE is 0.04466 pH. The evaluation-window 
 
 The main learning signature is the drop from 0.06569 pH MAE during `first_10000_steps` to 0.01291 pH MAE after exploration reaches its floor. This indicates that the one-dimensional ratio action is learnable in the ideal HH simulator.
 
-The final deterministic evaluation cycle gives 0.04282 pH MAE and 0.04304 pH maximum absolute error. This is encouraging, but it is still only one held-out setpoint cycle from the same reachable fixed-sum range.
+The final deterministic evaluation cycle gives 0.04282 pH MAE and 0.04304 pH maximum absolute error. This is not a robust failure claim because it is only one held-out setpoint cycle, but it is a useful warning that final-cycle evaluation is too narrow.
 
 ## Cycle-Group And Settling Diagnostics
 
@@ -101,6 +113,30 @@ The settling table is computed within each 400-step setpoint hold. A cycle is co
 | best | 106 | 5.023 | False | 0.008022 | 0.01013 | 0.03301 | 0.9219 |
 | best | 99 | 5.029 | False | 0.008024 | 0.01001 | 0.03118 | 1.997 |
 | best | 66 | 4.568 | False | 0.008037 | 0.01013 | 0.03152 | 2.732 |
+
+## Evaluation Offset Diagnosis
+
+The evaluation cycle is not noisy. Exploration is off, the actor output is nearly constant, and the pH offset is nearly constant over the 400-step hold.
+
+For the final evaluation cycle:
+
+| Quantity | Value |
+| --- | --- |
+| target pH | 4.97763 |
+| mean pH | 5.02045 |
+| final pH | 5.02067 |
+| mean normalized ratio action | 0.86519 |
+| final normalized ratio action | 0.86592 |
+| ideal target normalized ratio action | 0.72294 |
+| final action bias | 0.14298 |
+
+Because the ideal HH plant is static,
+
+$$
+\mathrm{pH} = pK_a + \log_{10}(F_{Ac}/F_{HAc}),
+$$
+
+the evaluation error is directly interpretable as a ratio-action error. The policy selects too high an acetate/acid ratio for the final target, so the pH is too high by about `0.043` pH. This is a policy-selection issue, not a chemistry-model residual issue.
 
 ## Figures
 
@@ -139,26 +175,59 @@ The logged acid-plus-acetate sum stayed between 15 and 15 mL/min.
 
 ## Interpretation
 
-The current scaffold is behaving consistently with the intended static first-principles pH model. The action-to-flow mapping is bounded, the reward sign penalizes tracking error and action movement, and the logged pH follows the acid/acetate ratio.
+The current scaffold is behaving consistently with the intended static first-principles pH model. The action-to-flow mapping is bounded, the reward sign penalizes tracking error and action movement, the logged pH follows the acid/acetate ratio, and the physical flow limits are respected.
 
-For this saved run, the TD3 policy appears to learn the static ratio-tracking task after the initial exploration-heavy period. The early cycles contain the dominant tracking failures, while later cycles operate near the ideal HH inverse mapping. This is useful algorithm evidence for the offline simulator, not validation of the laboratory plant.
+For this saved run, the TD3 policy learns much of the static ratio-tracking task after the initial exploration-heavy period. Cycles 25-123 mostly operate near the ideal HH inverse mapping, with mean cycle MAE around `0.011-0.014` pH. The weaker final evaluation cycle shows that the learned policy is not uniformly accurate across the reachable setpoint range.
+
+The most important conclusion is that a single final held-out setpoint is not an adequate evaluation protocol. It can make a run look better or worse depending on the last target. The next report should judge the frozen actor on a deterministic setpoint grid.
 
 ## Bugs, Inconsistencies, Or Risks
 
 - The plant is static ideal HH, so it does not include delay, mixing, residence time, sensor lag, or lab mismatch.
 - Water is fixed at 5 mL/min in this version and is plotted only as a logged process condition.
 - The final evaluation result is only one setpoint cycle, so it should not be treated as robust generalization evidence.
+- The final evaluation offset is caused by actor ratio-action bias, not by an HH-model residual.
+- The current run did not save a checkpoint, so a post-hoc frozen-policy sweep cannot be reconstructed from this result folder alone.
 - The current fixed 15 mL/min buffer-flow sum restricts the reachable setpoint range to about 4.459-5.061 pH under the current pump bounds.
 - The move penalty is small compared with the absolute-error term, so the learned action can still show occasional sharp moves during training.
 - The report reads saved CSV files, so stale figures are possible if the report is not regenerated after a new run.
 
 ## Recommended Next Experiments
 
-The next step should be a deterministic evaluation sweep, not another single final-cycle check. After training, evaluate the frozen actor without exploration on a grid of reachable setpoints across 4.459-5.061 pH. The key metrics should be MAE, maximum absolute error, settling count within 0.02 and 0.05 pH, and flow saturation fraction.
+### 1. Add Frozen-Policy Setpoint Sweep
+
+Purpose: replace the single final-cycle evaluation with a deterministic evaluation over the whole reachable pH range.
+
+Implementation target: `run_offline_ph_td3_training.py`.
+
+What to add:
+
+- after training, freeze the actor,
+- disable exploration and replay updates,
+- evaluate a grid of setpoints across `4.459-5.061` pH,
+- hold each test setpoint for 400 steps,
+- save `tables/evaluation_sweep.csv`,
+- save a figure showing target pH, final pH, MAE, and actor action bias versus setpoint.
+
+Success criterion: the evaluation-grid MAE should stay below about `0.02` pH for most setpoints, and the worst setpoint should explain any systematic bias.
+
+Failure mode to watch: a monotonic action bias where high targets are overpredicted or low targets are underpredicted.
+
+### 2. Save Checkpoints For Serious Runs
+
+Purpose: make trained policies reusable for later deterministic evaluation, seed comparison, and report regeneration.
+
+Implementation target: keep using the existing `--save-checkpoint` path or make checkpoint saving default for long runs.
+
+Success criterion: each result folder contains an actor/critic checkpoint and can be re-evaluated without retraining.
+
+### 3. Run A Seed Batch Only After The Evaluation Sweep Exists
 
 After that, run a small seed batch, for example seeds 7, 21, 47, 73, and 101, using the same 50000-step protocol. Compare the mean and worst-case evaluation MAE rather than relying on one run.
 
-A third useful experiment is a fixed-sum sweep. Try buffer-flow sums such as 12, 15, and 18 mL/min, and record the reachable pH range, saturation frequency, and tracking quality. This will tell us whether 15 mL/min is a good control design choice or just a convenient first setting.
+### 4. Sweep Fixed Buffer-Flow Sum
+
+Try buffer-flow sums such as 12, 15, and 18 mL/min, and record the reachable pH range, saturation frequency, and grid-evaluation tracking quality. This will tell us whether 15 mL/min is a good control design choice or just a convenient first setting.
 
 Current reproducibility command:
 
@@ -180,6 +249,9 @@ Files inspected or consumed:
 - `results/offline_ph_td3_training_20260702_003841/tables/episode_metrics.csv`
 - `results/offline_ph_td3_training_20260702_003841/tables/training_summary.csv`
 - `results/offline_ph_td3_training_20260702_003841/tables/config_snapshot.json`
+- `results/offline_ph_td3_training_20260702_003841/tables/flow_constraint_check.csv`
+- `results/offline_ph_td3_training_20260701_221816/tables/training_summary.csv`
+- `results/offline_ph_td3_training_20260702_004325/tables/training_summary.csv`
 
 Generated outputs:
 
