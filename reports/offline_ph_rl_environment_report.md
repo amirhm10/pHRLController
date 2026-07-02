@@ -129,20 +129,35 @@ It follows the same broad style as the RL-assisted repository:
 
 The default rollout length is now `25,000` steps. By default there is no HH warm-start segment because the current task is offline TD3 training. A legacy HH warm-start can still be requested explicitly with `--warm-start-cycles`, but it is not part of the default protocol.
 
-The runner reward is intentionally simple:
+The runner reward now has three terms:
 
 ```text
-reward = -(pH - target_pH)^2
+reward = -(q2 * (target_pH - pH)^2
+           + q1 * abs(target_pH - pH)
+           + r_move * mean((action_t - action_t_minus_1)^2))
 ```
 
-This matches the requested setpoint-difference reward and removes the small movement/default-flow penalties used by the more general environment configuration.
+The default runner weights are:
+
+```text
+q2 = 1.0
+q1 = 1.0
+r_move = 0.01
+```
+
+The move term is computed on the normalized two-action vector `[acid_action, acetate_action]`, so it behaves like an MPC move penalty on `u_t - u_{t-1}` while staying independent of the physical mL/min scaling. The saved trajectory logs the scalar reward plus the raw component costs:
+
+- `reward_squared_error_cost`
+- `reward_absolute_error_cost`
+- `reward_move_cost`
+- `reward_total_cost`
 
 ## Generated Artifacts
 
 A smoke training run generated:
 
 ```text
-results/offline_ph_td3_training_20260701_193823/
+results/offline_ph_td3_training_20260701_210401/
 ```
 
 Tables:
@@ -173,10 +188,13 @@ total_steps:      18
 warm_start_steps: 0
 td3_train_steps:  9
 batch_size:       4
-overall_MAE:      0.4560 pH
-overall_RMSE:     0.6686 pH
-eval_MAE:         0.0017 pH
-eval_RMSE:        0.0018 pH
+overall_MAE:      0.4771 pH
+overall_RMSE:     0.6144 pH
+eval_MAE:         0.000031 pH
+eval_RMSE:        0.000033 pH
+sq_error_cost:    6.7954
+abs_error_cost:   8.5869
+move_cost:        1.9773
 ```
 
 This is a small software smoke test, not a scientific performance claim.
@@ -202,7 +220,7 @@ offline pH RL smoke tests passed
 ```
 
 ```powershell
-& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' run_offline_ph_td3_training.py --total-steps 18 --n-tests 3 --batch-size 4 --buffer-size 128 --actor-hidden 16 --critic-hidden 16 --seed 31
+& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' run_offline_ph_td3_training.py --total-steps 18 --n-tests 3 --batch-size 4 --buffer-size 128 --actor-hidden 16 --critic-hidden 16 --seed 37
 ```
 
 Output confirmed `warm_start_steps = 0`, `td3_train_steps = 9`, and saved a local results bundle with figures and diagnostic tables.
@@ -222,7 +240,7 @@ Use `run_offline_ph_td3_training.py` as the starting loop and tune the simulatio
 - longer setpoint cycles,
 - training/test split similar to the RL-assisted repository,
 - fixed seed batches for comparison,
-- reward variants such as `-abs(pH - target_pH)` versus `-(pH - target_pH)^2`,
+- reward-weight sweeps for the squared, absolute, and move-penalty terms,
 - later replacement of the static HH plant by an identified dynamic pH environment.
 
 The next implementation step should still remain offline simulation-only unless hardware integration is explicitly requested.

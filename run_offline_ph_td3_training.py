@@ -98,8 +98,12 @@ def make_output_dir(root: Path | None) -> Path:
     return output_dir
 
 
-def ph_tracking_reward(ph: float, target_ph: float) -> float:
-    return -float((float(ph) - float(target_ph)) ** 2)
+def reward_definition_text() -> str:
+    return (
+        "-(q2*(target_pH - pH)^2 + "
+        "q1*abs(target_pH - pH) + "
+        "r_move*mean((action_t - action_t_minus_1)^2))"
+    )
 
 
 def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
@@ -124,8 +128,9 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
             process_config=process_config,
             target_ph=float(schedule[0]),
             max_episode_steps=total_steps + 1,
-            tracking_weight=1.0,
-            move_penalty_weight=0.0,
+            tracking_weight=args.reward_squared_weight,
+            absolute_error_weight=args.reward_absolute_weight,
+            move_penalty_weight=args.move_penalty_weight,
             default_flow_penalty_weight=0.0,
             random_seed=args.seed,
         )
@@ -167,8 +172,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
             action = agent.take_action(state, explore=True).astype(np.float32)
             action_source = "td3_explore"
 
-        next_state, _, terminated, truncated, info = env.step(action)
-        reward = ph_tracking_reward(info["ph"], target_ph)
+        next_state, reward, terminated, truncated, info = env.step(action)
         done = bool(terminated or truncated or step_idx == total_steps - 1)
 
         agent.push(
@@ -193,7 +197,14 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
                 "target_ph": target_ph,
                 "ph": float(info["ph"]),
                 "ph_error": float(info["ph"] - target_ph),
-                "reward": reward,
+                "reward": float(reward),
+                "reward_setpoint_error": float(info["reward_setpoint_error"]),
+                "reward_squared_error_cost": float(info["reward_squared_error_cost"]),
+                "reward_absolute_error_cost": float(
+                    info["reward_absolute_error_cost"]
+                ),
+                "reward_move_cost": float(info["reward_move_cost"]),
+                "reward_total_cost": float(info["reward_total_cost"]),
                 "acid_flow": float(info["acid_flow"]),
                 "acetate_flow": float(info["acetate_flow"]),
                 "water_flow": float(info["water_flow"]),
@@ -268,6 +279,10 @@ def summarize_by_cycle(trajectory: pd.DataFrame) -> pd.DataFrame:
         rmse=("ph_error", lambda x: float(np.sqrt(np.mean(np.square(x))))),
         max_abs_error=("ph_error", lambda x: float(np.max(np.abs(x)))),
         reward_sum=("reward", "sum"),
+        squared_error_cost_sum=("reward_squared_error_cost", "sum"),
+        absolute_error_cost_sum=("reward_absolute_error_cost", "sum"),
+        move_cost_sum=("reward_move_cost", "sum"),
+        total_cost_sum=("reward_total_cost", "sum"),
         train_updates=("train_updated", "sum"),
     )
     return metrics
@@ -298,7 +313,17 @@ def summarize_run(
                 ),
                 "eval_mae": float(np.mean(np.abs(eval_rows["ph_error"]))),
                 "eval_rmse": float(np.sqrt(np.mean(np.square(eval_rows["ph_error"])))),
-                "reward_definition": "-(pH - target_pH)^2",
+                "overall_squared_error_cost": float(
+                    trajectory["reward_squared_error_cost"].sum()
+                ),
+                "overall_absolute_error_cost": float(
+                    trajectory["reward_absolute_error_cost"].sum()
+                ),
+                "overall_move_cost": float(trajectory["reward_move_cost"].sum()),
+                "reward_squared_weight": float(args.reward_squared_weight),
+                "reward_absolute_weight": float(args.reward_absolute_weight),
+                "move_penalty_weight": float(args.move_penalty_weight),
+                "reward_definition": reward_definition_text(),
                 "plant_model": "ideal Henderson-Hasselbalch",
             }
         ]
@@ -331,6 +356,10 @@ def write_config_snapshot(
             "rl_action_dimension": 2,
             "rl_action_variables": ["acid_flow", "acetate_flow"],
             "fixed_water_flow": float(process_config.default_water_flow),
+            "reward_definition": reward_definition_text(),
+            "reward_squared_weight": float(args.reward_squared_weight),
+            "reward_absolute_weight": float(args.reward_absolute_weight),
+            "move_penalty_weight": float(args.move_penalty_weight),
         },
         "arguments": {
             key: str(value) if isinstance(value, Path) else value
@@ -361,6 +390,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--std-start", type=float, default=0.35)
     parser.add_argument("--std-end", type=float, default=0.03)
     parser.add_argument("--std-decay-steps", type=int, default=5000)
+    parser.add_argument("--reward-squared-weight", type=float, default=1.0)
+    parser.add_argument("--reward-absolute-weight", type=float, default=1.0)
+    parser.add_argument("--move-penalty-weight", type=float, default=0.01)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--save-checkpoint", action="store_true")

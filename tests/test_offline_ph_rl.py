@@ -35,6 +35,36 @@ def test_environment_reset_and_step() -> None:
     assert terminated is False
     assert truncated is False
     assert "reward_tracking_cost" in step_info
+    assert "reward_absolute_error_cost" in step_info
+    assert "reward_move_cost" in step_info
+
+
+def test_environment_reward_components() -> None:
+    env = PHEnvironment(
+        PHEnvironmentConfig(
+            target_ph=4.76,
+            tracking_weight=1.0,
+            absolute_error_weight=2.0,
+            move_penalty_weight=0.1,
+            default_flow_penalty_weight=0.0,
+        )
+    )
+    env.reset(options={"target_ph": 4.76})
+    action = np.array([-1.0, 1.0], dtype=np.float32)
+    previous_action = env.flows_to_action(env.current_flows)
+    _, reward, _, _, info = env.step(action)
+
+    setpoint_error = float(info["target_ph"] - info["ph"])
+    squared_cost = setpoint_error**2
+    absolute_cost = abs(setpoint_error)
+    move_cost = float(np.mean(np.square(action - previous_action)))
+    expected_total = squared_cost + 2.0 * absolute_cost + 0.1 * move_cost
+
+    assert np.isclose(info["reward_squared_error_cost"], squared_cost)
+    assert np.isclose(info["reward_absolute_error_cost"], absolute_cost)
+    assert np.isclose(info["reward_move_cost"], move_cost)
+    assert np.isclose(info["reward_total_cost"], expected_total)
+    assert np.isclose(reward, -expected_total)
 
 
 def test_action_bounds_and_ratio_direction() -> None:
@@ -130,7 +160,7 @@ def test_result_artifact_helper_smoke() -> None:
             np.array([0.1, -0.1], dtype=np.float32),
         ]
     ):
-        _, _, _, _, info = env.step(action)
+        _, reward, _, _, info = env.step(action)
         target_ph = float(info["target_ph"])
         records.append(
             {
@@ -142,7 +172,14 @@ def test_result_artifact_helper_smoke() -> None:
                 "target_ph": target_ph,
                 "ph": float(info["ph"]),
                 "ph_error": float(info["ph"] - target_ph),
-                "reward": -float((info["ph"] - target_ph) ** 2),
+                "reward": float(reward),
+                "reward_setpoint_error": float(info["reward_setpoint_error"]),
+                "reward_squared_error_cost": float(info["reward_squared_error_cost"]),
+                "reward_absolute_error_cost": float(
+                    info["reward_absolute_error_cost"]
+                ),
+                "reward_move_cost": float(info["reward_move_cost"]),
+                "reward_total_cost": float(info["reward_total_cost"]),
                 "acid_flow": float(info["acid_flow"]),
                 "acetate_flow": float(info["acetate_flow"]),
                 "water_flow": float(info["water_flow"]),
@@ -205,6 +242,7 @@ def test_default_total_step_resolution() -> None:
 
 def run_direct() -> None:
     test_environment_reset_and_step()
+    test_environment_reward_components()
     test_action_bounds_and_ratio_direction()
     test_water_is_fixed_and_not_direct_hh_ratio_input()
     test_public_flow_helpers_and_target_update()

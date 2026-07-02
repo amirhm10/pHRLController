@@ -1,12 +1,12 @@
 # Offline TD3 pH Tracking Result Analysis
 
-Generated on 2026-07-01 19:38:41 from saved result files only.
+Generated on 2026-07-01 21:04:16 from saved result files only.
 
 ## Scope
 
 This report analyzes the current offline pH TD3 simulation output. It does not launch BioSMB, an OPC emulator, hardware, MPC, valves, or pumps. The source result folder is:
 
-`results/offline_ph_td3_training_20260701_193823`
+`results/offline_ph_td3_training_20260701_210401`
 
 The purpose is to create editable figures and a first write-up around the new direct-flow TD3 scaffold. The result should be treated as an offline software diagnostic, not as a validated pH controller.
 
@@ -36,49 +36,51 @@ $$ \mathrm{pH} = pK_a + \log_{10}\left(\frac{F_{Ac}}{F_{HAc}}\right). $$
 
 The saved runner reward is
 
-$$ r_t = -(\mathrm{pH}_t - \mathrm{pH}^{\mathrm{sp}}_t)^2. $$
+$$ r_t = -\left(q_2 e_t^2 + q_1 |e_t| + r_{\Delta u}\|a_t-a_{t-1}\|_2^2/n_u\right), $$
+
+where `e_t = pH_sp,t - pH_t`, `a_t` is the normalized acid/acetate action, and `n_u = 2`.
 
 ## Quantitative Summary
 
-| Scope | Steps | MAE | RMSE | Max \|e\| | Reward sum | Train updates |
-| --- | --- | --- | --- | --- | --- | --- |
-| all_steps | 18 | 0.456 | 0.6686 | 1.674 | -8.046 | 9 |
-| td3_training_steps | 12 | 0.6831 | 0.8188 | 1.674 | -8.045 | 9 |
-| td3_eval_steps | 6 | 0.001748 | 0.001761 | 0.001889 | -1.861e-05 | 0 |
+| Scope | Steps | MAE | RMSE | Max \|e\| | Reward sum | Sq cost | Abs cost | Move cost | Train updates |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| all_steps | 18 | 0.4771 | 0.6144 | 1.159 | -15.4 | 6.795 | 8.587 | 1.977 | 9 |
+| td3_training_steps | 12 | 0.7156 | 0.7525 | 1.159 | -15.4 | 6.795 | 8.587 | 1.901 | 9 |
+| td3_eval_steps | 6 | 3.089e-05 | 3.315e-05 | 4.583e-05 | -0.000945 | 6.594e-09 | 0.0001854 | 0.07596 | 0 |
 
-Overall MAE is 0.456 pH and overall RMSE is 0.6686 pH. The evaluation-window MAE is 0.001748 pH and evaluation-window RMSE is 0.001761 pH. These values depend on the saved run length and random seed.
+Overall MAE is 0.4771 pH and overall RMSE is 0.6144 pH. The evaluation-window MAE is 3.089e-05 pH and evaluation-window RMSE is 3.315e-05 pH. These values depend on the saved run length and random seed.
 
 ## Figures
 
-![pH tracking, error, and reward](figures/offline_ph_td3_training_20260701_193823_analysis/fig_ph_tracking_error_reward.png)
+![pH tracking, error, and reward](figures/offline_ph_td3_training_20260701_210401_analysis/fig_ph_tracking_error_reward.png)
 
-This figure is the main tracking diagnostic. The gray span marks an optional legacy HH warm-start segment if present, and the gold span marks the final evaluation segment.
+This figure is the main tracking diagnostic. The fourth panel separates the raw squared-error, absolute-error, and move-penalty costs before reward weighting.
 
-![flow commands and ratio](figures/offline_ph_td3_training_20260701_193823_analysis/fig_flow_commands_and_ratio.png)
+![flow commands and ratio](figures/offline_ph_td3_training_20260701_210401_analysis/fig_flow_commands_and_ratio.png)
 
 This figure shows the actual acid and acetate commands, the fixed water-flow log, and the acid/acetate log-ratio that drives the ideal HH pH.
 
-![cycle metrics](figures/offline_ph_td3_training_20260701_193823_analysis/fig_cycle_metrics.png)
+![cycle metrics](figures/offline_ph_td3_training_20260701_210401_analysis/fig_cycle_metrics.png)
 
-![action diagnostics](figures/offline_ph_td3_training_20260701_193823_analysis/fig_action_diagnostics.png)
+![action diagnostics](figures/offline_ph_td3_training_20260701_210401_analysis/fig_action_diagnostics.png)
 
-![HH ratio consistency](figures/offline_ph_td3_training_20260701_193823_analysis/fig_hh_ratio_consistency.png)
+![HH ratio consistency](figures/offline_ph_td3_training_20260701_210401_analysis/fig_hh_ratio_consistency.png)
 
 The maximum absolute residual against the ideal HH ratio line is 8.882e-16 pH. Water is fixed at 5 mL/min and does not create an independent pH offset in this static ideal model.
 
-![training losses](figures/offline_ph_td3_training_20260701_193823_analysis/fig_training_losses.png)
+![training losses](figures/offline_ph_td3_training_20260701_210401_analysis/fig_training_losses.png)
 
 ## Flow Diagnostics
 
 | Flow | Mean | Min | Max | Low sat frac | High sat frac | Mean \|dF\| |
 | --- | --- | --- | --- | --- | --- | --- |
-| acid | 5.116 | 1.238 | 8.085 | 0 | 0 | 1.546 |
-| acetate | 5.358 | 3.125 | 8.261 | 0 | 0 | 0.8675 |
+| acid | 5.135 | 2.986 | 7.806 | 0 | 0 | 0.6775 |
+| acetate | 5.963 | 3.473 | 8.228 | 0 | 0 | 1.374 |
 | water | 5 | 5 | 5 | 0 | 0 | 0 |
 
 ## Interpretation
 
-The current scaffold is behaving consistently with the intended static first-principles pH model. The action-to-flow mapping is bounded, the reward sign is correct for setpoint tracking, and the logged pH follows the acid/acetate ratio.
+The current scaffold is behaving consistently with the intended static first-principles pH model. The action-to-flow mapping is bounded, the reward sign penalizes tracking error and action movement, and the logged pH follows the acid/acetate ratio.
 
 The result is not enough to claim controller quality. For a short smoke run, a low final evaluation error can occur because the ideal HH mapping is simple and the final setpoint may be easy. A longer multi-seed run is needed before comparing learning behavior.
 
@@ -111,23 +113,23 @@ Files inspected or consumed:
 - `external: RL_assisted_MPC/report/scripts/analyze_distillation_all_runners_latest_20260609.py`
 - `external: RL_assisted_MPC/report/generate_rl_state_scaling_report.py`
 - `external: RL_assisted_MPC/utils/plotting_core.py`
-- `results/offline_ph_td3_training_20260701_193823/tables/trajectory.csv`
-- `results/offline_ph_td3_training_20260701_193823/tables/episode_metrics.csv`
-- `results/offline_ph_td3_training_20260701_193823/tables/training_summary.csv`
-- `results/offline_ph_td3_training_20260701_193823/tables/config_snapshot.json`
+- `results/offline_ph_td3_training_20260701_210401/tables/trajectory.csv`
+- `results/offline_ph_td3_training_20260701_210401/tables/episode_metrics.csv`
+- `results/offline_ph_td3_training_20260701_210401/tables/training_summary.csv`
+- `results/offline_ph_td3_training_20260701_210401/tables/config_snapshot.json`
 
 Generated outputs:
 
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/summary_metrics.csv`
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/flow_diagnostics.csv`
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/cycle_metrics.csv`
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/hh_consistency.csv`
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/source_training_summary.csv`
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/manifest.json`
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/fig_ph_tracking_error_reward.png`
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/fig_flow_commands_and_ratio.png`
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/fig_cycle_metrics.png`
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/fig_action_diagnostics.png`
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/fig_hh_ratio_consistency.png`
-- `reports/figures/offline_ph_td3_training_20260701_193823_analysis/fig_training_losses.png`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/summary_metrics.csv`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/flow_diagnostics.csv`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/cycle_metrics.csv`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/hh_consistency.csv`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/source_training_summary.csv`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/manifest.json`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/fig_ph_tracking_error_reward.png`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/fig_flow_commands_and_ratio.png`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/fig_cycle_metrics.png`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/fig_action_diagnostics.png`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/fig_hh_ratio_consistency.png`
+- `reports/figures/offline_ph_td3_training_20260701_210401_analysis/fig_training_losses.png`
 - `reports/offline_ph_td3_training_result_analysis.md`

@@ -29,10 +29,34 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
     out["hh_ph_from_ratio"] = pka + out["log10_flow_ratio"]
     out["hh_ratio_residual"] = out["ph"] - out["hh_ph_from_ratio"]
     out["abs_ph_error"] = np.abs(out["ph_error"])
+    if "reward_squared_error_cost" not in out:
+        out["reward_squared_error_cost"] = np.square(out["ph_error"].to_numpy(float))
+    if "reward_absolute_error_cost" not in out:
+        out["reward_absolute_error_cost"] = out["abs_ph_error"]
+    if "reward_move_cost" not in out:
+        action_columns = [
+            column
+            for column in ["action_acid", "action_acetate", "action_water"]
+            if column in out
+        ]
+        if action_columns:
+            actions = out[action_columns].to_numpy(float)
+            deltas = np.diff(actions, axis=0, prepend=actions[:1])
+            out["reward_move_cost"] = np.mean(np.square(deltas), axis=1)
+        else:
+            out["reward_move_cost"] = 0.0
+    if "reward_total_cost" not in out:
+        out["reward_total_cost"] = -out["reward"].to_numpy(float)
     for column in ["action_acid", "action_acetate", "action_water"]:
         if column in out:
             out[f"abs_{column}"] = np.abs(out[column])
     return out
+
+
+def sum_optional(frame: pd.DataFrame, column: str) -> float:
+    if column not in frame:
+        return np.nan
+    return float(frame[column].sum())
 
 
 def metric_row(label: str, frame: pd.DataFrame) -> dict:
@@ -47,6 +71,10 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
             "ise": np.nan,
             "mean_reward": np.nan,
             "total_reward": np.nan,
+            "squared_error_cost_sum": np.nan,
+            "absolute_error_cost_sum": np.nan,
+            "move_cost_sum": np.nan,
+            "total_cost_sum": np.nan,
             "mean_ph": np.nan,
             "mean_target_ph": np.nan,
             "train_updates": 0,
@@ -63,6 +91,10 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
         "ise": float(np.sum(error**2)),
         "mean_reward": float(np.mean(reward)),
         "total_reward": float(np.sum(reward)),
+        "squared_error_cost_sum": sum_optional(frame, "reward_squared_error_cost"),
+        "absolute_error_cost_sum": sum_optional(frame, "reward_absolute_error_cost"),
+        "move_cost_sum": sum_optional(frame, "reward_move_cost"),
+        "total_cost_sum": sum_optional(frame, "reward_total_cost"),
         "mean_ph": float(np.mean(frame["ph"])),
         "mean_target_ph": float(np.mean(frame["target_ph"])),
         "train_updates": int(frame["train_updated"].sum())
@@ -176,7 +208,7 @@ def shade_protocol_regions(ax: plt.Axes, trajectory: pd.DataFrame) -> None:
 
 
 def plot_tracking_reward(trajectory: pd.DataFrame, output_dir: Path) -> Path:
-    fig, axs = plt.subplots(3, 1, figsize=(10.5, 8.0), sharex=True)
+    fig, axs = plt.subplots(4, 1, figsize=(10.5, 10.2), sharex=True)
     steps = trajectory["step"]
 
     axs[0].plot(steps, trajectory["ph"], color="#1F77B4", linewidth=1.8, label="pH")
@@ -205,9 +237,35 @@ def plot_tracking_reward(trajectory: pd.DataFrame, output_dir: Path) -> Path:
 
     axs[2].plot(steps, trajectory["reward"], color="#009E73", linewidth=1.3)
     shade_protocol_regions(axs[2], trajectory)
-    axs[2].set_xlabel("step")
     axs[2].set_ylabel("reward")
     axs[2].grid(alpha=0.28)
+
+    axs[3].plot(
+        steps,
+        trajectory["reward_squared_error_cost"],
+        color="#CC6677",
+        linewidth=1.15,
+        label="squared error",
+    )
+    axs[3].plot(
+        steps,
+        trajectory["reward_absolute_error_cost"],
+        color="#4477AA",
+        linewidth=1.15,
+        label="absolute error",
+    )
+    axs[3].plot(
+        steps,
+        trajectory["reward_move_cost"],
+        color="#AA4499",
+        linewidth=1.15,
+        label="move cost",
+    )
+    shade_protocol_regions(axs[3], trajectory)
+    axs[3].set_xlabel("step")
+    axs[3].set_ylabel("raw costs")
+    axs[3].grid(alpha=0.28)
+    axs[3].legend(loc="best")
     fig.tight_layout()
     return save_figure(fig, output_dir, "fig_ph_tracking_error_reward.png")
 

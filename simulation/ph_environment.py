@@ -19,8 +19,9 @@ class PHEnvironmentConfig:
     max_episode_steps: int = 100
     target_tolerance: float = 0.02
     tracking_weight: float = 1.0
+    absolute_error_weight: float = 1.0
     move_penalty_weight: float = 0.01
-    default_flow_penalty_weight: float = 0.001
+    default_flow_penalty_weight: float = 0.0
     random_seed: int | None = 7
 
 
@@ -153,25 +154,39 @@ class PHEnvironment(gym.Env):
         self.current_ph = self._predict_ph_from_flows(self.current_flows)
         self.step_count += 1
 
-        error = self.current_ph - self.target_ph
-        tracking_cost = float(error**2)
+        setpoint_error = self.target_ph - self.current_ph
+        tracking_cost = float(setpoint_error**2)
+        absolute_error_cost = float(abs(setpoint_error))
         move_cost = float(np.mean((action_arr - previous_normalized_flows) ** 2))
         default_cost = float(
             np.mean((action_arr - self._normalize_flows(self.default_flows)) ** 2)
         )
-        reward = -(
-            self.env_config.tracking_weight * tracking_cost
-            + self.env_config.move_penalty_weight * move_cost
-            + self.env_config.default_flow_penalty_weight * default_cost
+        tracking_term = self.env_config.tracking_weight * tracking_cost
+        absolute_error_term = self.env_config.absolute_error_weight * absolute_error_cost
+        move_term = self.env_config.move_penalty_weight * move_cost
+        default_flow_term = self.env_config.default_flow_penalty_weight * default_cost
+        total_cost = (
+            tracking_term
+            + absolute_error_term
+            + move_term
+            + default_flow_term
         )
+        reward = -total_cost
 
         terminated = False
         truncated = self.step_count >= int(self.env_config.max_episode_steps)
         info = self._make_info(
             reward=float(reward),
+            setpoint_error=setpoint_error,
             tracking_cost=tracking_cost,
+            absolute_error_cost=absolute_error_cost,
             move_cost=move_cost,
             default_flow_cost=default_cost,
+            tracking_term=tracking_term,
+            absolute_error_term=absolute_error_term,
+            move_term=move_term,
+            default_flow_term=default_flow_term,
+            total_cost=total_cost,
         )
         return self._make_observation(), float(reward), terminated, truncated, info
 
@@ -285,9 +300,16 @@ class PHEnvironment(gym.Env):
     def _make_info(
         self,
         reward: float | None = None,
+        setpoint_error: float | None = None,
         tracking_cost: float | None = None,
+        absolute_error_cost: float | None = None,
         move_cost: float | None = None,
         default_flow_cost: float | None = None,
+        tracking_term: float | None = None,
+        absolute_error_term: float | None = None,
+        move_term: float | None = None,
+        default_flow_term: float | None = None,
+        total_cost: float | None = None,
     ) -> dict:
         acid_flow, acetate_flow, water_flow = map(float, self.current_flows)
         error = float(self.current_ph - self.target_ph)
@@ -313,9 +335,17 @@ class PHEnvironment(gym.Env):
             info.update(
                 {
                     "reward": float(reward),
+                    "reward_setpoint_error": float(setpoint_error),
                     "reward_tracking_cost": float(tracking_cost),
+                    "reward_squared_error_cost": float(tracking_cost),
+                    "reward_absolute_error_cost": float(absolute_error_cost),
                     "reward_move_cost": float(move_cost),
                     "reward_default_flow_cost": float(default_flow_cost),
+                    "reward_squared_error_term": float(tracking_term),
+                    "reward_absolute_error_term": float(absolute_error_term),
+                    "reward_move_penalty_term": float(move_term),
+                    "reward_default_flow_term": float(default_flow_term),
+                    "reward_total_cost": float(total_cost),
                 }
             )
         return info
