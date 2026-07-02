@@ -22,15 +22,56 @@ class PHEnvironmentConfig:
     absolute_error_weight: float = 1.0
     move_penalty_weight: float = 0.01
     default_flow_penalty_weight: float = 0.0
+    fixed_buffer_flow_sum: float = 15.0
     random_seed: int | None = 7
+
+
+def fixed_buffer_acid_bounds(
+    process_config: PHProcessConfig,
+    fixed_buffer_flow_sum: float,
+) -> tuple[float, float]:
+    """Return feasible acid-flow bounds for a fixed acid+acetate sum."""
+    total = float(fixed_buffer_flow_sum)
+    acid_low = max(process_config.acid_flow_min, total - process_config.acetate_flow_max)
+    acid_high = min(process_config.acid_flow_max, total - process_config.acetate_flow_min)
+    if acid_low > acid_high:
+        raise ValueError(
+            "fixed_buffer_flow_sum is infeasible for configured acid/acetate bounds."
+        )
+    return float(acid_low), float(acid_high)
+
+
+def fixed_buffer_target_ph_bounds(
+    process_config: PHProcessConfig,
+    fixed_buffer_flow_sum: float,
+) -> tuple[float, float]:
+    """Return reachable ideal-HH pH bounds under a fixed acid+acetate sum."""
+    acid_low, acid_high = fixed_buffer_acid_bounds(
+        process_config=process_config,
+        fixed_buffer_flow_sum=fixed_buffer_flow_sum,
+    )
+    total = float(fixed_buffer_flow_sum)
+    ratio_low = (total - acid_high) / acid_high
+    ratio_high = (total - acid_low) / acid_low
+    stock_ratio = process_config.acetate_stock_mol_l / process_config.acid_stock_mol_l
+    ph_low = process_config.pKa + np.log10(stock_ratio * ratio_low)
+    ph_high = process_config.pKa + np.log10(stock_ratio * ratio_high)
+    target_low = float(max(process_config.target_ph_min, ph_low))
+    target_high = float(min(process_config.target_ph_max, ph_high))
+    if target_low >= target_high:
+        raise ValueError(
+            "fixed_buffer_flow_sum gives no reachable pH range inside configured target bounds."
+        )
+    return target_low, target_high
 
 
 class PHEnvironment(gym.Env):
     """Gymnasium-style offline pH environment using ideal Henderson-Hasselbalch.
 
-    The action is a normalized direct command for acid and acetate flows.
-    Water is fixed at the configured default flow. The static pH calculation
-    uses only the accepted ideal Henderson-Hasselbalch acid/acetate ratio.
+    The action is a normalized acid/acetate ratio command. Acid plus acetate
+    flow is fixed, and water is fixed at the configured default flow. The
+    static pH calculation uses only the accepted ideal Henderson-Hasselbalch
+    acid/acetate ratio.
     """
 
     metadata = {"render_modes": []}
@@ -58,8 +99,19 @@ class PHEnvironment(gym.Env):
             ],
             dtype=np.float32,
         )
-        self.action_flow_low = self.flow_low[:2].copy()
-        self.action_flow_high = self.flow_high[:2].copy()
+        self.fixed_buffer_flow_sum = float(self.env_config.fixed_buffer_flow_sum)
+        self.acid_flow_low_for_sum, self.acid_flow_high_for_sum = fixed_buffer_acid_bounds(
+            process_config=self.process_config,
+            fixed_buffer_flow_sum=self.fixed_buffer_flow_sum,
+        )
+        self.flow_ratio_low = (
+            self.fixed_buffer_flow_sum - self.acid_flow_high_for_sum
+        ) / self.acid_flow_high_for_sum
+        self.flow_ratio_high = (
+            self.fixed_buffer_flow_sum - self.acid_flow_low_for_sum
+        ) / self.acid_flow_low_for_sum
+        self.log_ratio_low = float(np.log10(self.flow_ratio_low))
+        self.log_ratio_high = float(np.log10(self.flow_ratio_high))
         self.fixed_water_flow = float(
             np.clip(
                 self.process_config.default_water_flow,
@@ -67,21 +119,14 @@ class PHEnvironment(gym.Env):
                 self.process_config.water_flow_max,
             )
         )
-        self.default_flows = self._clip_flows(
-            np.array(
-                [
-                    0.5 * self.process_config.default_buffer_flow_sum,
-                    0.5 * self.process_config.default_buffer_flow_sum,
-                    self.fixed_water_flow,
-                ],
-                dtype=np.float32,
-            )
+        self.default_flows = self.target_to_nominal_flows(
+            target_ph=self.process_config.pKa
         )
 
         self.action_space = spaces.Box(
             low=-1.0,
             high=1.0,
-            shape=(2,),
+            shape=(1,),
             dtype=np.float32,
         )
         error_span = self.process_config.target_ph_max - self.process_config.target_ph_min
@@ -92,7 +137,6 @@ class PHEnvironment(gym.Env):
                     self.process_config.target_ph_min,
                     -error_span,
                     -1.0,
-                    -1.0,
                     0.0,
                 ],
                 dtype=np.float32,
@@ -102,7 +146,6 @@ class PHEnvironment(gym.Env):
                     self.process_config.target_ph_max,
                     self.process_config.target_ph_max,
                     error_span,
-                    1.0,
                     1.0,
                     1.0,
                 ],
@@ -196,11 +239,11 @@ class PHEnvironment(gym.Env):
         return self._make_observation(), self._make_info()
 
     def action_to_flows(self, action) -> np.ndarray:
-        """Map a normalized acid/base action to bounded physical flows."""
+        """Map a normalized ratio action to bounded physical flows."""
         return self._action_to_flows(self._validate_action(action))
 
     def flows_to_action(self, flows) -> np.ndarray:
-        """Map physical acid and acetate flows to normalized actions."""
+        """Map physical acid and acetate flows to a normalized ratio action."""
         return self._normalize_flows(np.asarray(flows, dtype=np.float32))
 
     def target_to_nominal_flows(
@@ -216,27 +259,24 @@ class PHEnvironment(gym.Env):
         chemistry model.
         """
         target_ph = self.process_config.clip_target_ph(float(target_ph))
-        buffer_flow_sum = (
-            self.process_config.default_buffer_flow_sum
-            if buffer_flow_sum is None
-            else float(buffer_flow_sum)
-        )
+        del buffer_flow_sum
         del water_flow
         flow_ratio = (
             self.process_config.acid_stock_mol_l
             / self.process_config.acetate_stock_mol_l
             * 10.0 ** (target_ph - self.process_config.pKa)
         )
-        acid_flow = buffer_flow_sum / (1.0 + flow_ratio)
-        acetate_flow = buffer_flow_sum - acid_flow
+        flow_ratio = float(np.clip(flow_ratio, self.flow_ratio_low, self.flow_ratio_high))
+        acid_flow = self.fixed_buffer_flow_sum / (1.0 + flow_ratio)
+        acetate_flow = self.fixed_buffer_flow_sum - acid_flow
         return self._clip_flows(
             np.array([acid_flow, acetate_flow, self.fixed_water_flow], dtype=np.float32)
         )
 
     def _validate_action(self, action) -> np.ndarray:
         action_arr = np.asarray(action, dtype=np.float32).reshape(-1)
-        if action_arr.size != 2:
-            raise ValueError(f"action must have shape (2,), got {action_arr.shape}.")
+        if action_arr.size != 1:
+            raise ValueError(f"action must have shape (1,), got {action_arr.shape}.")
         if not np.all(np.isfinite(action_arr)):
             raise ValueError("action must contain only finite values.")
         return np.clip(action_arr, -1.0, 1.0).astype(np.float32)
@@ -245,32 +285,34 @@ class PHEnvironment(gym.Env):
         flows = np.asarray(flows, dtype=np.float32).reshape(-1)
         if flows.size not in {2, 3}:
             raise ValueError(f"flows must have shape (2,) or (3,), got {flows.shape}.")
-        acid_acetate = np.clip(flows[:2], self.action_flow_low, self.action_flow_high)
+        acid_flow = float(np.clip(flows[0], self.acid_flow_low_for_sum, self.acid_flow_high_for_sum))
+        acetate_flow = self.fixed_buffer_flow_sum - acid_flow
         return np.array(
-            [acid_acetate[0], acid_acetate[1], self.fixed_water_flow],
+            [acid_flow, acetate_flow, self.fixed_water_flow],
             dtype=np.float32,
         )
 
     def _action_to_flows(self, action: np.ndarray) -> np.ndarray:
-        fraction = 0.5 * (action + 1.0)
-        acid_acetate = (
-            self.action_flow_low
-            + fraction * (self.action_flow_high - self.action_flow_low)
+        fraction = float(0.5 * (action[0] + 1.0))
+        log_ratio = self.log_ratio_low + fraction * (
+            self.log_ratio_high - self.log_ratio_low
         )
+        flow_ratio = 10.0 ** log_ratio
+        acid_flow = self.fixed_buffer_flow_sum / (1.0 + flow_ratio)
+        acetate_flow = self.fixed_buffer_flow_sum - acid_flow
         return np.array(
-            [acid_acetate[0], acid_acetate[1], self.fixed_water_flow],
+            [acid_flow, acetate_flow, self.fixed_water_flow],
             dtype=np.float32,
         )
 
     def _normalize_flows(self, flows: np.ndarray) -> np.ndarray:
         flows = self._clip_flows(flows)
-        scaled = (
-            2.0
-            * (flows[:2] - self.action_flow_low)
-            / (self.action_flow_high - self.action_flow_low)
-            - 1.0
-        )
-        return np.clip(scaled, -1.0, 1.0).astype(np.float32)
+        ratio = float(flows[1] / flows[0])
+        log_ratio = float(np.log10(np.clip(ratio, self.flow_ratio_low, self.flow_ratio_high)))
+        scaled = 2.0 * (log_ratio - self.log_ratio_low) / (
+            self.log_ratio_high - self.log_ratio_low
+        ) - 1.0
+        return np.array([np.clip(scaled, -1.0, 1.0)], dtype=np.float32)
 
     def _predict_ph_from_flows(self, flows: np.ndarray) -> float:
         return self.model.predict_ph(
@@ -290,7 +332,7 @@ class PHEnvironment(gym.Env):
                 self.current_ph,
                 self.target_ph,
                 error,
-                *self._normalize_flows(self.current_flows),
+                self._normalize_flows(self.current_flows)[0],
                 step_fraction,
             ],
             dtype=np.float32,
@@ -320,7 +362,10 @@ class PHEnvironment(gym.Env):
             "acid_flow": acid_flow,
             "acetate_flow": acetate_flow,
             "water_flow": water_flow,
+            "buffer_flow_sum": float(acid_flow + acetate_flow),
             "flow_ratio_acetate_acid": float(acetate_flow / acid_flow),
+            "log10_flow_ratio_acetate_acid": float(np.log10(acetate_flow / acid_flow)),
+            "ratio_action": float(self._normalize_flows(self.current_flows)[0]),
             "molar_base_acid_ratio": float(
                 self.model.molar_base_acid_ratio(
                     acid_flow=acid_flow,

@@ -176,6 +176,32 @@ def compute_flow_diagnostics(trajectory: pd.DataFrame, config: dict) -> pd.DataF
                 else 0.0,
             }
         )
+    if "buffer_flow_sum" in trajectory:
+        values = trajectory["buffer_flow_sum"].to_numpy(float)
+        target = float_or_nan(
+            config.get("resolved_rollout", {}).get("fixed_buffer_flow_sum", np.nan)
+        )
+        deltas = np.diff(values)
+        rows.append(
+            {
+                "flow": "buffer_sum",
+                "mean": float(np.mean(values)),
+                "min": float(np.min(values)),
+                "max": float(np.max(values)),
+                "p05": float(np.percentile(values, 5)),
+                "p95": float(np.percentile(values, 95)),
+                "lower_bound": target,
+                "upper_bound": target,
+                "lower_saturation_fraction": np.nan,
+                "upper_saturation_fraction": np.nan,
+                "mean_abs_step_change": float(np.mean(np.abs(deltas)))
+                if deltas.size
+                else 0.0,
+                "max_abs_step_change": float(np.max(np.abs(deltas)))
+                if deltas.size
+                else 0.0,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -195,7 +221,7 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
     if "reward_move_cost" not in out:
         action_columns = [
             column
-            for column in ["action_acid", "action_acetate", "action_water"]
+            for column in ["action_ratio", "action_acid", "action_acetate", "action_water"]
             if column in out
         ]
         if action_columns:
@@ -206,7 +232,7 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
             out["reward_move_cost"] = 0.0
     if "reward_total_cost" not in out:
         out["reward_total_cost"] = -out["reward"].to_numpy(float)
-    for column in ["action_acid", "action_acetate", "action_water"]:
+    for column in ["action_ratio", "action_acid", "action_acetate", "action_water"]:
         if column in out:
             out[f"abs_{column}"] = np.abs(out[column])
     return out
@@ -416,6 +442,7 @@ def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     )
     steps = trajectory["step"]
     action_specs = [
+        ("action_ratio", "#AA4499", "ratio action"),
         ("action_acid", "#CC6677", "acid action"),
         ("action_acetate", "#4477AA", "acetate action"),
         ("action_water", "#228833", "water action"),
@@ -432,19 +459,33 @@ def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     axs[0].grid(alpha=0.28)
     axs[0].legend(loc="best")
 
-    scatter = axs[1].scatter(
-        trajectory["action_acid"],
-        trajectory["action_acetate"],
-        c=trajectory["abs_ph_error"],
-        cmap="viridis",
-        s=34,
-        edgecolor="#222222",
-        linewidth=0.25,
-    )
-    axs[1].set_xlabel("acid action")
-    axs[1].set_ylabel("acetate action")
-    axs[1].set_xlim(-1.05, 1.05)
-    axs[1].set_ylim(-1.05, 1.05)
+    if "action_ratio" in trajectory:
+        scatter = axs[1].scatter(
+            trajectory["action_ratio"],
+            trajectory["log10_flow_ratio"],
+            c=trajectory["abs_ph_error"],
+            cmap="viridis",
+            s=34,
+            edgecolor="#222222",
+            linewidth=0.25,
+        )
+        axs[1].set_xlabel("ratio action")
+        axs[1].set_ylabel("log10(acetate/acid)")
+        axs[1].set_xlim(-1.05, 1.05)
+    else:
+        scatter = axs[1].scatter(
+            trajectory["action_acid"],
+            trajectory["action_acetate"],
+            c=trajectory["abs_ph_error"],
+            cmap="viridis",
+            s=34,
+            edgecolor="#222222",
+            linewidth=0.25,
+        )
+        axs[1].set_xlabel("acid action")
+        axs[1].set_ylabel("acetate action")
+        axs[1].set_xlim(-1.05, 1.05)
+        axs[1].set_ylim(-1.05, 1.05)
     axs[1].grid(alpha=0.28)
     fig.colorbar(scatter, ax=axs[1], label="absolute pH error")
     if has_exploration:
@@ -627,6 +668,7 @@ def build_report(
     setpoint_cycles = rollout.get("setpoint_cycles", "unknown")
     steps_per_cycle = rollout.get("steps_per_cycle", "unknown")
     setpoint_strategy = rollout.get("setpoint_strategy", "unknown")
+    fixed_buffer_flow_sum = rollout.get("fixed_buffer_flow_sum", "unknown")
 
     lines: list[str] = []
     lines.append("# Offline TD3 pH Tracking Result Analysis")
@@ -648,26 +690,28 @@ def build_report(
     lines.append("## Method")
     lines.append("")
     lines.append(
-        "The environment state is the six-element vector"
+        "The environment state is the five-element vector"
     )
     lines.append("")
     lines.append(
-        "$$ s_t = [\\mathrm{pH}_t,\\ \\mathrm{pH}^{\\mathrm{sp}}_t,\\ e_t,\\ a_{HAc,t},\\ a_{Ac,t},\\ \\tau_t], $$"
+        "$$ s_t = [\\mathrm{pH}_t,\\ \\mathrm{pH}^{\\mathrm{sp}}_t,\\ e_t,\\ a_{r,t},\\ \\tau_t], $$"
     )
     lines.append("")
     lines.append("where `e_t = pH_t - pH_sp,t`. The TD3 action is")
     lines.append("")
     lines.append(
-        "$$ a_t = [a_{HAc,t},\\ a_{Ac,t}],\\quad a_i \\in [-1,1]. $$"
+        "$$ a_t = [a_{r,t}],\\quad a_{r,t} \\in [-1,1]. $$"
     )
     lines.append("")
-    lines.append("Each action coordinate is mapped to an acid or acetate pump command by")
+    lines.append("The action is mapped to a bounded acetate/acid flow ratio in log space:")
     lines.append("")
     lines.append(
-        "$$ F_i = F_{i,\\min} + \\frac{a_i + 1}{2}(F_{i,\\max}-F_{i,\\min}). $$"
+        "$$ \\log_{10}(F_{Ac}/F_{HAc}) = \\ell_{\\min} + \\frac{a_{r,t}+1}{2}(\\ell_{\\max}-\\ell_{\\min}). $$"
     )
     lines.append("")
-    lines.append("The water flow is not part of the action. It is fixed and logged at 5 mL/min in the current offline simulation.")
+    lines.append(
+        f"The buffer-flow sum is fixed at `{fixed_buffer_flow_sum}` mL/min, so `F_HAc + F_Ac` is constant and the ratio action determines the two buffer flows. Water is fixed and logged at 5 mL/min."
+    )
     lines.append("")
     lines.append(
         f"The setpoint schedule uses `{setpoint_strategy}` targets. Each setpoint is held for `{steps_per_cycle}` steps, and this saved run contains `{setpoint_cycles}` setpoint segments."
@@ -692,7 +736,7 @@ def build_report(
     )
     lines.append("")
     lines.append(
-        "where `e_t = pH_sp,t - pH_t`, `a_t` is the normalized acid/acetate action, and `n_u = 2`."
+        "where `e_t = pH_sp,t - pH_t`, `a_t` is the normalized ratio action, and `n_u = 1`."
     )
     lines.append("")
     lines.append("## Quantitative Summary")
@@ -736,7 +780,7 @@ def build_report(
         )
         lines.append("")
         lines.append(
-            "This figure shows the actual acid and acetate commands, the fixed water-flow log, and the acid/acetate log-ratio that drives the ideal HH pH."
+            "This figure shows the actual acid and acetate commands under the fixed buffer-flow sum, the fixed water-flow log, and the acid/acetate log-ratio that drives the ideal HH pH."
         )
         lines.append("")
     if "fig_cycle_metrics" in figure_lookup:
@@ -750,7 +794,7 @@ def build_report(
         )
         lines.append("")
         lines.append(
-            "The action diagnostic figure includes the normalized acid/base action trajectory, the action scatter, and exploration traces when those columns are available."
+            "The action diagnostic figure includes the normalized ratio-action trajectory, the ratio/log-ratio scatter, and exploration traces when those columns are available."
         )
         lines.append("")
     if "fig_hh_ratio_consistency" in figure_lookup:

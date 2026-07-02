@@ -4,18 +4,19 @@ Date: 2026-07-01
 
 ## Objective
 
-Create a simulation-only reinforcement-learning scaffold for the acetate buffer pH system while keeping the accepted ideal Henderson-Hasselbalch first-principles model unchanged. This work prepares offline TD3 experiments where the agent directly controls two pump flowrates:
+Create a simulation-only reinforcement-learning scaffold for the acetate buffer pH system while keeping the accepted ideal Henderson-Hasselbalch first-principles model unchanged. This work prepares offline TD3 experiments with the control structure from the latest discussion:
 
-- acetic acid flow, mL/min
-- sodium acetate flow, mL/min
-
-Arium water is fixed at 5 mL/min in the current scaffold and is logged as a process condition, not controlled by the TD3 action.
+- one normalized TD3 action controls the acetate/acid flow ratio,
+- the acid plus acetate flow sum is fixed at 15 mL/min,
+- Arium water is fixed at 5 mL/min.
 
 No BioSMB, OPC emulator, hardware runner, valve logic, MPC logic, or live controller code is part of this step.
 
+This means the agent is no longer choosing independent acid and base pump commands. It chooses the ratio, and the environment converts that ratio into bounded acid and acetate flowrates.
+
 ## Why Gymnasium Was Used
 
-Gymnasium was used because the implementation plan explicitly requested a Gymnasium-style environment with `reset()` and `step()`. The current action space has now been narrowed to `Box(-1, 1, shape=(2,))` after fixing water at 5 mL/min. The benefit is a standard, compact API:
+Gymnasium was used because the implementation plan explicitly requested a Gymnasium-style environment with `reset()` and `step()`. The current action space has now been narrowed to `Box(-1, 1, shape=(1,))` because the agent controls only the acid/acetate ratio. The benefit is a standard, compact API:
 
 ```text
 observation, info = env.reset(...)
@@ -51,7 +52,7 @@ The TD3 source was copied as a standalone local package:
 
 Only the TD3 core and minimal dependencies were copied. The MPC runners, supervisor-gated TD3 logic, SAC, DQN, residual/weight/horizon logic, BioSMB code, and generated result folders from the source repository were not copied.
 
-In the algorithm name `TD3`, `TD` means Twin Delayed. It refers to the learning algorithm design, not to an extra action-space variable.
+In the algorithm name `TD3`, `TD` refers to the twin-delayed TD3 algorithm design. It is not an extra action variable.
 
 ### pH Environment
 
@@ -65,31 +66,50 @@ Main classes:
 
 - `PHEnvironmentConfig`
 - `PHEnvironment`
+- `fixed_buffer_acid_bounds(...)`
+- `fixed_buffer_target_ph_bounds(...)`
 
 The action is a normalized vector:
 
 ```text
-a = [a_acid, a_acetate], each in [-1, 1]
+a = [a_ratio], where a_ratio is in [-1, 1]
 ```
 
-The environment maps the two action coordinates to acid and acetate pump bounds from `PHProcessConfig`:
+The environment maps the ratio action in log-ratio space:
 
 ```text
-flow = flow_min + 0.5 * (action + 1) * (flow_max - flow_min)
+log10(F_acetate / F_acid)
+    = log_ratio_low
+      + 0.5 * (a_ratio + 1) * (log_ratio_high - log_ratio_low)
+```
+
+Then the physical flows are recovered from the fixed buffer-flow sum:
+
+```text
+F_acid = F_total / (1 + ratio)
+F_acetate = F_total - F_acid
+F_water = 5
 ```
 
 Current default pump bounds are:
 
 ```text
-acid:    1-10 mL/min
-acetate: 1-10 mL/min
-water:   fixed at 5 mL/min
+F_total = F_acid + F_acetate = 15 mL/min
+acid bounds = 1-10 mL/min
+acetate bounds = 1-10 mL/min
+water = fixed at 5 mL/min
+```
+
+The fixed-sum constraint makes the feasible acid and acetate range effectively 5-10 mL/min for this case. Therefore the reachable ideal-HH pH range is approximately:
+
+```text
+4.45897 <= pH <= 5.06103
 ```
 
 The observation vector is:
 
 ```text
-[current_pH, target_pH, pH_error, acid_action, acetate_action, step_fraction]
+[current_pH, target_pH, pH_error, ratio_action, step_fraction]
 ```
 
 ### Accepted First-Principles Model
@@ -120,14 +140,15 @@ It follows the same broad style as the RL-assisted repository:
 
 1. Generate piecewise-constant pH setpoints.
 2. Initialize the simulated plant.
-3. Let TD3 choose normalized flow actions from the start of the offline rollout.
-4. Convert actions to acid and acetate flows while keeping water fixed at 5 mL/min.
-5. Step the pH environment.
-6. Push transitions into replay.
-7. Call `agent.train_step()` once the replay buffer has enough samples.
-8. Save tables and figures under `results/offline_ph_td3_training_<timestamp>/`.
+3. Let TD3 choose the normalized ratio action from the start of the offline rollout.
+4. Convert the ratio action into acid and acetate flows with fixed total buffer flow.
+5. Keep water fixed at 5 mL/min.
+6. Step the pH environment.
+7. Push transitions into replay.
+8. Call `agent.train_step()` once the replay buffer has enough samples.
+9. Save tables and figures under `results/offline_ph_td3_training_<timestamp>/`.
 
-The default rollout length is now `25,000` steps. Setpoints change every `200` steps by default, so a default run has `125` setpoint segments. The default setpoint strategy is `admissible_random`: the runner draws seeded, stratified, non-repeating targets from the configured admissible pH range `[3.76, 5.76]`. The exact schedule is saved to:
+The default rollout length is now `25,000` steps. Setpoints change every `200` steps by default, so a default run has `125` setpoint segments. The default setpoint strategy is `admissible_random`: the runner draws seeded, stratified, non-repeating targets from the reachable fixed-sum pH range, not from the full nominal 3.76-5.76 buffer range. The exact schedule is saved to:
 
 ```text
 tables/setpoint_schedule.csv
@@ -151,7 +172,7 @@ q1 = 1.0
 r_move = 0.01
 ```
 
-The move term is computed on the normalized two-action vector `[acid_action, acetate_action]`, so it behaves like an MPC move penalty on `u_t - u_{t-1}` while staying independent of the physical mL/min scaling. The saved trajectory logs the scalar reward plus the raw component costs:
+The move term is computed on the normalized one-action vector `[ratio_action]`, so it behaves like an MPC move penalty on `u_t - u_{t-1}` while staying independent of the physical mL/min scaling. The saved trajectory logs the scalar reward plus the raw component costs:
 
 - `reward_squared_error_cost`
 - `reward_absolute_error_cost`
@@ -169,7 +190,7 @@ Exploration is Gaussian action noise on the normalized actor output during train
 A smoke training run generated:
 
 ```text
-results/offline_ph_td3_training_20260701_211724/
+results/offline_ph_td3_training_20260701_212825/
 ```
 
 Tables:
@@ -194,41 +215,47 @@ Figures:
 - `figures/fig_hh_ratio_consistency.png`
 - `figures/fig_training_losses.png`
 
+The report generator also wrote:
+
+```text
+reports/offline_ph_td3_training_result_analysis.md
+reports/figures/offline_ph_td3_training_20260701_212825_analysis/
+```
+
 Smoke-run summary:
 
 ```text
-total_steps:        600
-setpoint_cycles:    3
-steps_per_cycle:    200
-setpoint_strategy:  admissible_random
-warm_start_steps:   0
-td3_train_steps:    397
-batch_size:         4
-overall_MAE:        0.3350 pH
-overall_RMSE:       0.3793 pH
-eval_MAE:           0.4353 pH
-eval_RMSE:          0.4353 pH
-sq_error_cost:      86.3174
-abs_error_cost:     201.0169
-move_cost:          79.7331
-mean_exp_sigma:     0.2248
-mean_exp_magnitude: 0.1660
+total_steps:              600
+setpoint_cycles:          3
+steps_per_cycle:          200
+setpoint_strategy:        admissible_random
+setpoint_min:             4.458970
+setpoint_max:             5.061030
+warm_start_steps:         0
+td3_train_steps:          397
+batch_size:               4
+overall_MAE:              0.1543 pH
+overall_RMSE:             0.1780 pH
+eval_MAE:                 0.2444 pH
+eval_RMSE:                0.2444 pH
+fixed_buffer_flow_sum:    15.0 mL/min
+fixed_water_flow:         5.0 mL/min
 ```
 
 This is a small software smoke test, not a scientific performance claim.
-The saved trajectory has two action columns, `action_acid` and `action_acetate`, and all logged `water_flow` values are 5.0 mL/min.
+
+The saved trajectory has one action column, `action_ratio`. It also logs `buffer_flow_sum`, `acid_flow`, `acetate_flow`, and `water_flow`. In the smoke run, all logged `water_flow` values are 5.0 mL/min and the acid plus acetate flow sum stays at 15 mL/min.
 
 ## Verification
 
 The following commands passed:
 
 ```powershell
-$env:PYTHONPYCACHEPREFIX = Join-Path $env:TEMP 'pHRL_pycache'
-& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' -m py_compile run_offline_ph_td3_training.py helpers\offline_ph_td3_results.py analysis\generate_offline_ph_td3_report.py tests\test_offline_ph_rl.py
+& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' -X pycache_prefix="$env:TEMP\pHRL_pycache" -m py_compile simulation\ph_environment.py run_offline_ph_td3_training.py helpers\offline_ph_td3_results.py analysis\generate_offline_ph_td3_report.py tests\test_offline_ph_rl.py
 ```
 
 ```powershell
-& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' tests\test_offline_ph_rl.py
+& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' -X pycache_prefix="$env:TEMP\pHRL_pycache" tests\test_offline_ph_rl.py
 ```
 
 Output:
@@ -238,14 +265,15 @@ offline pH RL smoke tests passed
 ```
 
 ```powershell
-& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' run_offline_ph_td3_training.py --total-steps 600 --batch-size 4 --buffer-size 512 --actor-hidden 16 --critic-hidden 16 --seed 41
+& 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' -X pycache_prefix="$env:TEMP\pHRL_pycache" run_offline_ph_td3_training.py --total-steps 600 --batch-size 4 --buffer-size 512 --actor-hidden 16 --critic-hidden 16 --seed 47
 ```
 
-Output confirmed `steps_per_cycle = 200`, `setpoint_cycles = 3`, `warm_start_steps = 0`, `td3_train_steps = 397`, and saved a local results bundle with figures, diagnostic tables, and `setpoint_schedule.csv`.
+Output confirmed `steps_per_cycle = 200`, `setpoint_cycles = 3`, `warm_start_steps = 0`, `td3_train_steps = 397`, fixed water at 5 mL/min, fixed buffer sum at 15 mL/min, and saved a local results bundle with figures, diagnostic tables, and `setpoint_schedule.csv`.
 
 ## Current Limitations
 
 - This is still a static ideal-HH simulation, not a validated dynamic plant.
+- The fixed 15 mL/min acid-plus-acetate sum narrows the reachable ideal-HH pH range to about 4.459-5.061 under the current 1-10 mL/min pump bounds.
 - Water is fixed and logged but does not directly change ideal HH pH.
 - The TD3 result is only a software smoke test.
 - No lab-data validation, emulator connection, BioSMB integration, pump runner, MPC layer, or live controller has been added.
@@ -256,6 +284,7 @@ Output confirmed `steps_per_cycle = 200`, `setpoint_cycles = 3`, `warm_start_ste
 Use `run_offline_ph_td3_training.py` as the starting loop and tune the simulation protocol:
 
 - setpoint-count and setpoint-range sweeps around the 200-step default,
+- fixed-sum values such as 12, 15, and 18 mL/min if the pump bounds allow useful pH coverage,
 - training/test split similar to the RL-assisted repository,
 - fixed seed batches for comparison,
 - reward-weight sweeps for the squared, absolute, and move-penalty terms,

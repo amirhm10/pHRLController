@@ -12,7 +12,11 @@ import torch
 from TD3Agent.agent import TD3Agent, set_global_seeds
 from helpers.offline_ph_td3_results import save_offline_ph_td3_result_artifacts
 from simulation.config import PHProcessConfig
-from simulation.ph_environment import PHEnvironment, PHEnvironmentConfig
+from simulation.ph_environment import (
+    PHEnvironment,
+    PHEnvironmentConfig,
+    fixed_buffer_target_ph_bounds,
+)
 
 
 DEFAULT_SET_POINTS_LEN = 200
@@ -31,31 +35,42 @@ def build_setpoint_schedule(
     set_points_len: int,
     seed: int,
     strategy: str = "admissible_random",
+    target_ph_min: float | None = None,
+    target_ph_max: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Create piecewise-constant pH targets and cycle indices."""
     if n_tests <= 0:
         raise ValueError("n_tests must be positive.")
     if set_points_len <= 0:
         raise ValueError("set_points_len must be positive.")
+    target_low = (
+        process_config.target_ph_min if target_ph_min is None else float(target_ph_min)
+    )
+    target_high = (
+        process_config.target_ph_max if target_ph_max is None else float(target_ph_max)
+    )
+    if target_low >= target_high:
+        raise ValueError("target_ph_min must be lower than target_ph_max.")
 
     strategy = str(strategy).lower()
     if strategy == "legacy_fixed":
         base_targets = np.array(
             [
-                process_config.target_ph_min + 0.10,
+                target_low + 0.10 * (target_high - target_low),
                 process_config.pKa - 0.35,
                 process_config.pKa,
                 process_config.pKa + 0.35,
-                process_config.target_ph_max - 0.10,
+                target_high - 0.10 * (target_high - target_low),
             ],
             dtype=np.float32,
         )
+        base_targets = np.clip(base_targets, target_low, target_high)
         targets = np.resize(base_targets, n_tests)
     elif strategy == "admissible_random":
         rng = np.random.default_rng(seed)
         edges = np.linspace(
-            process_config.target_ph_min,
-            process_config.target_ph_max,
+            target_low,
+            target_high,
             n_tests + 1,
             dtype=np.float64,
         )
@@ -121,8 +136,8 @@ def resolve_n_tests(
 
 def create_agent(args: argparse.Namespace) -> TD3Agent:
     return TD3Agent(
-        state_dim=6,
-        action_dim=2,
+        state_dim=5,
+        action_dim=1,
         actor_hidden=args.actor_hidden,
         critic_hidden=args.critic_hidden,
         gamma=args.gamma,
@@ -160,6 +175,10 @@ def reward_definition_text() -> str:
 def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
     set_global_seeds(args.seed)
     process_config = PHProcessConfig()
+    target_ph_min, target_ph_max = fixed_buffer_target_ph_bounds(
+        process_config=process_config,
+        fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
+    )
     set_points_len = resolve_set_points_len(
         total_steps=args.total_steps,
         n_tests=args.n_tests,
@@ -176,6 +195,8 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         set_points_len=set_points_len,
         seed=args.seed,
         strategy=args.setpoint_strategy,
+        target_ph_min=target_ph_min,
+        target_ph_max=target_ph_max,
     )
     total_steps = int(schedule.size)
     warm_start_steps = int(max(0, args.warm_start_cycles) * set_points_len)
@@ -190,6 +211,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
             absolute_error_weight=args.reward_absolute_weight,
             move_penalty_weight=args.move_penalty_weight,
             default_flow_penalty_weight=0.0,
+            fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
             random_seed=args.seed,
         )
     )
@@ -284,8 +306,8 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
                 "acetate_flow": float(info["acetate_flow"]),
                 "water_flow": float(info["water_flow"]),
                 "flow_ratio_acetate_acid": float(info["flow_ratio_acetate_acid"]),
-                "action_acid": float(np.asarray(action).reshape(-1)[0]),
-                "action_acetate": float(np.asarray(action).reshape(-1)[1]),
+                "buffer_flow_sum": float(info["buffer_flow_sum"]),
+                "action_ratio": float(np.asarray(action).reshape(-1)[0]),
                 "exploration_sigma": exploration_sigma,
                 "exploration_magnitude": exploration_magnitude,
                 "action_saturation_fraction": action_saturation_fraction,
@@ -310,6 +332,8 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         n_setpoints=n_setpoints,
         set_points_len=set_points_len,
         warm_start_steps=warm_start_steps,
+        target_ph_min=target_ph_min,
+        target_ph_max=target_ph_max,
     )
     setpoint_schedule = summarize_setpoint_schedule(
         setpoint_values=setpoint_values,
@@ -404,6 +428,8 @@ def summarize_run(
     n_setpoints: int,
     set_points_len: int,
     warm_start_steps: int,
+    target_ph_min: float,
+    target_ph_max: float,
 ) -> pd.DataFrame:
     test_rows = trajectory[trajectory["is_test"]]
     eval_rows = test_rows if not test_rows.empty else trajectory
@@ -414,6 +440,8 @@ def summarize_run(
                 "setpoint_cycles": int(n_setpoints),
                 "steps_per_cycle": int(set_points_len),
                 "setpoint_strategy": str(args.setpoint_strategy),
+                "setpoint_min": float(target_ph_min),
+                "setpoint_max": float(target_ph_max),
                 "warm_start_steps": int(warm_start_steps),
                 "td3_train_steps": int(agent.train_steps),
                 "batch_size": int(args.batch_size),
@@ -439,6 +467,8 @@ def summarize_run(
                 "mean_action_saturation_fraction": float(
                     trajectory["action_saturation_fraction"].mean()
                 ),
+                "fixed_buffer_flow_sum": float(args.fixed_buffer_flow_sum),
+                "fixed_water_flow": float(PHProcessConfig().default_water_flow),
                 "reward_squared_weight": float(args.reward_squared_weight),
                 "reward_absolute_weight": float(args.reward_absolute_weight),
                 "move_penalty_weight": float(args.move_penalty_weight),
@@ -468,17 +498,28 @@ def write_config_snapshot(
             "setpoint_cycles": int(n_setpoints),
             "steps_per_cycle": int(set_points_len),
             "setpoint_strategy": str(args.setpoint_strategy),
-            "setpoint_source": "seeded_admissible_range",
-            "setpoint_min": float(process_config.target_ph_min),
-            "setpoint_max": float(process_config.target_ph_max),
+            "setpoint_source": "seeded_fixed_sum_reachable_range",
+            "setpoint_min": float(
+                fixed_buffer_target_ph_bounds(
+                    process_config=process_config,
+                    fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
+                )[0]
+            ),
+            "setpoint_max": float(
+                fixed_buffer_target_ph_bounds(
+                    process_config=process_config,
+                    fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
+                )[1]
+            ),
             "warm_start_steps": int(warm_start_steps),
             "evaluation_cycle": int(n_setpoints - 1),
             "offline_training_protocol": "direct_td3_no_warm_start"
             if warm_start_steps == 0
             else "legacy_hh_warm_start_then_td3",
-            "rl_state_dimension": 6,
-            "rl_action_dimension": 2,
-            "rl_action_variables": ["acid_flow", "acetate_flow"],
+            "rl_state_dimension": 5,
+            "rl_action_dimension": 1,
+            "rl_action_variables": ["acetate_acid_ratio"],
+            "fixed_buffer_flow_sum": float(args.fixed_buffer_flow_sum),
             "fixed_water_flow": float(process_config.default_water_flow),
             "reward_definition": reward_definition_text(),
             "reward_squared_weight": float(args.reward_squared_weight),
@@ -515,7 +556,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="admissible_random",
         help=(
             "How to choose setpoints. admissible_random draws seeded stratified "
-            "targets from the configured admissible pH range."
+            "targets from the reachable fixed-sum pH range."
         ),
     )
     parser.add_argument("--warm-start-cycles", type=int, default=0)
@@ -538,6 +579,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reward-squared-weight", type=float, default=1.0)
     parser.add_argument("--reward-absolute-weight", type=float, default=1.0)
     parser.add_argument("--move-penalty-weight", type=float, default=0.01)
+    parser.add_argument("--fixed-buffer-flow-sum", type=float, default=15.0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--save-checkpoint", action="store_true")

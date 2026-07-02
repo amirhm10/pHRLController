@@ -18,22 +18,26 @@ from run_offline_ph_td3_training import (
     resolve_set_points_len,
 )
 from simulation.config import PHProcessConfig
-from simulation.ph_environment import PHEnvironment, PHEnvironmentConfig
+from simulation.ph_environment import (
+    PHEnvironment,
+    PHEnvironmentConfig,
+    fixed_buffer_target_ph_bounds,
+)
 from TD3Agent.agent import TD3Agent
 
 
 def test_environment_reset_and_step() -> None:
     env = PHEnvironment(PHEnvironmentConfig(target_ph=4.76, max_episode_steps=3))
     observation, info = env.reset(seed=11)
-    assert observation.shape == (6,)
-    assert env.action_space.shape == (2,)
+    assert observation.shape == (5,)
+    assert env.action_space.shape == (1,)
     assert np.all(np.isfinite(observation))
     assert info["target_ph"] == 4.76
 
     next_observation, reward, terminated, truncated, step_info = env.step(
-        np.array([0.0, 0.0], dtype=np.float32)
+        np.array([0.0], dtype=np.float32)
     )
-    assert next_observation.shape == (6,)
+    assert next_observation.shape == (5,)
     assert np.all(np.isfinite(next_observation))
     assert np.isfinite(reward)
     assert terminated is False
@@ -54,7 +58,7 @@ def test_environment_reward_components() -> None:
         )
     )
     env.reset(options={"target_ph": 4.76})
-    action = np.array([-1.0, 1.0], dtype=np.float32)
+    action = np.array([1.0], dtype=np.float32)
     previous_action = env.flows_to_action(env.current_flows)
     _, reward, _, _, info = env.step(action)
 
@@ -74,23 +78,25 @@ def test_environment_reward_components() -> None:
 def test_action_bounds_and_ratio_direction() -> None:
     env = PHEnvironment(PHEnvironmentConfig(target_ph=4.76))
     env.reset(options={"target_ph": 4.76})
-    _, _, _, _, high_info = env.step(np.array([-1.0, 1.0], dtype=np.float32))
-    _, _, _, _, low_info = env.step(np.array([1.0, -1.0], dtype=np.float32))
+    _, _, _, _, high_info = env.step(np.array([1.0], dtype=np.float32))
+    _, _, _, _, low_info = env.step(np.array([-1.0], dtype=np.float32))
 
-    assert high_info["acid_flow"] == 1.0
+    assert high_info["acid_flow"] == 5.0
     assert high_info["acetate_flow"] == 10.0
     assert high_info["water_flow"] == 5.0
     assert low_info["acid_flow"] == 10.0
-    assert low_info["acetate_flow"] == 1.0
+    assert low_info["acetate_flow"] == 5.0
     assert low_info["water_flow"] == 5.0
+    assert high_info["buffer_flow_sum"] == 15.0
+    assert low_info["buffer_flow_sum"] == 15.0
     assert high_info["ph"] > low_info["ph"]
 
 
 def test_water_is_fixed_and_not_direct_hh_ratio_input() -> None:
     env = PHEnvironment(PHEnvironmentConfig(target_ph=4.76))
     env.reset(options={"target_ph": 4.76})
-    _, _, _, _, first_info = env.step(np.array([0.0, 0.0], dtype=np.float32))
-    _, _, _, _, second_info = env.step(np.array([0.0, 0.0], dtype=np.float32))
+    _, _, _, _, first_info = env.step(np.array([0.0], dtype=np.float32))
+    _, _, _, _, second_info = env.step(np.array([0.0], dtype=np.float32))
 
     assert first_info["water_flow"] == 5.0
     assert second_info["water_flow"] == 5.0
@@ -106,15 +112,15 @@ def test_public_flow_helpers_and_target_update() -> None:
     observation, info = env.reset(options={"target_ph": 4.76})
     assert np.isclose(info["target_ph"], 4.76)
 
-    flows = env.action_to_flows(np.array([-2.0, 0.0], dtype=np.float32))
-    assert np.allclose(flows, np.array([1.0, 5.5, 5.0], dtype=np.float32))
+    flows = env.action_to_flows(np.array([-2.0], dtype=np.float32))
+    assert np.allclose(flows, np.array([10.0, 5.0, 5.0], dtype=np.float32))
     action = env.flows_to_action(flows)
-    assert action.shape == (2,)
+    assert action.shape == (1,)
     assert np.all(action >= -1.0)
     assert np.all(action <= 1.0)
 
     nominal_flows = env.target_to_nominal_flows(4.76)
-    assert np.allclose(nominal_flows, np.array([5.0, 5.0, 5.0], dtype=np.float32))
+    assert np.allclose(nominal_flows, np.array([7.5, 7.5, 5.0], dtype=np.float32))
 
     next_observation, next_info = env.set_target_ph(5.10)
     assert observation.shape == next_observation.shape
@@ -126,8 +132,8 @@ def test_td3_import_and_train_step_smoke() -> None:
     env = PHEnvironment(PHEnvironmentConfig(target_ph=4.76, max_episode_steps=20))
     observation, _ = env.reset(seed=3)
     agent = TD3Agent(
-        state_dim=6,
-        action_dim=2,
+        state_dim=5,
+        action_dim=1,
         actor_hidden=[16],
         critic_hidden=[16],
         batch_size=4,
@@ -138,7 +144,7 @@ def test_td3_import_and_train_step_smoke() -> None:
     rng = np.random.default_rng(13)
     meta = None
     for _ in range(8):
-        action = rng.uniform(-1.0, 1.0, size=2).astype(np.float32)
+        action = rng.uniform(-1.0, 1.0, size=1).astype(np.float32)
         next_observation, reward, terminated, truncated, _ = env.step(action)
         done = terminated or truncated
         agent.push(observation, action, reward, next_observation, done)
@@ -159,9 +165,9 @@ def test_result_artifact_helper_smoke() -> None:
     records = []
     for step, action in enumerate(
         [
-            np.array([0.0, 0.0], dtype=np.float32),
-            np.array([-0.2, 0.2], dtype=np.float32),
-            np.array([0.1, -0.1], dtype=np.float32),
+            np.array([0.0], dtype=np.float32),
+            np.array([0.2], dtype=np.float32),
+            np.array([-0.1], dtype=np.float32),
         ]
     ):
         _, reward, _, _, info = env.step(action)
@@ -187,9 +193,9 @@ def test_result_artifact_helper_smoke() -> None:
                 "acid_flow": float(info["acid_flow"]),
                 "acetate_flow": float(info["acetate_flow"]),
                 "water_flow": float(info["water_flow"]),
+                "buffer_flow_sum": float(info["buffer_flow_sum"]),
                 "flow_ratio_acetate_acid": float(info["flow_ratio_acetate_acid"]),
-                "action_acid": float(action[0]),
-                "action_acetate": float(action[1]),
+                "action_ratio": float(action[0]),
                 "train_updated": False,
                 "critic_loss": np.nan,
                 "actor_loss": np.nan,
@@ -256,19 +262,25 @@ def test_default_total_step_resolution() -> None:
 
 def test_admissible_random_setpoint_schedule() -> None:
     process_config = PHProcessConfig()
+    target_min, target_max = fixed_buffer_target_ph_bounds(
+        process_config=process_config,
+        fixed_buffer_flow_sum=15.0,
+    )
     schedule, cycle_indices, setpoints = build_setpoint_schedule(
         process_config=process_config,
         n_tests=8,
         set_points_len=200,
         seed=101,
         strategy="admissible_random",
+        target_ph_min=target_min,
+        target_ph_max=target_max,
     )
 
     assert schedule.shape == (1600,)
     assert cycle_indices.shape == (1600,)
     assert setpoints.shape == (8,)
-    assert np.all(setpoints >= process_config.target_ph_min)
-    assert np.all(setpoints <= process_config.target_ph_max)
+    assert np.all(setpoints >= target_min)
+    assert np.all(setpoints <= target_max)
     assert len(np.unique(np.round(setpoints, decimals=6))) == len(setpoints)
     assert np.all(schedule[:200] == setpoints[0])
     assert np.all(schedule[200:400] == setpoints[1])

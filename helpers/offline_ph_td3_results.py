@@ -36,7 +36,7 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
     if "reward_move_cost" not in out:
         action_columns = [
             column
-            for column in ["action_acid", "action_acetate", "action_water"]
+            for column in ["action_ratio", "action_acid", "action_acetate", "action_water"]
             if column in out
         ]
         if action_columns:
@@ -47,7 +47,7 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
             out["reward_move_cost"] = 0.0
     if "reward_total_cost" not in out:
         out["reward_total_cost"] = -out["reward"].to_numpy(float)
-    for column in ["action_acid", "action_acetate", "action_water"]:
+    for column in ["action_ratio", "action_acid", "action_acetate", "action_water"]:
         if column in out:
             out[f"abs_{column}"] = np.abs(out[column])
     return out
@@ -144,6 +144,32 @@ def compute_flow_diagnostics(trajectory: pd.DataFrame, config: dict) -> pd.DataF
                 "upper_bound": high,
                 "lower_saturation_fraction": float(np.mean(values <= low + tol)),
                 "upper_saturation_fraction": float(np.mean(values >= high - tol)),
+                "mean_abs_step_change": float(np.mean(np.abs(deltas)))
+                if deltas.size
+                else 0.0,
+                "max_abs_step_change": float(np.max(np.abs(deltas)))
+                if deltas.size
+                else 0.0,
+            }
+        )
+    if "buffer_flow_sum" in trajectory:
+        values = trajectory["buffer_flow_sum"].to_numpy(float)
+        target = float_or_nan(
+            config.get("resolved_rollout", {}).get("fixed_buffer_flow_sum", np.nan)
+        )
+        deltas = np.diff(values)
+        rows.append(
+            {
+                "flow": "buffer_sum",
+                "mean": float(np.mean(values)),
+                "min": float(np.min(values)),
+                "max": float(np.max(values)),
+                "p05": float(np.percentile(values, 5)),
+                "p95": float(np.percentile(values, 95)),
+                "lower_bound": target,
+                "upper_bound": target,
+                "lower_saturation_fraction": np.nan,
+                "upper_saturation_fraction": np.nan,
                 "mean_abs_step_change": float(np.mean(np.abs(deltas)))
                 if deltas.size
                 else 0.0,
@@ -365,6 +391,7 @@ def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     fig, axs = plt.subplots(row_count, 1, figsize=(10.5, 9.4 if has_exploration else 7.2))
     steps = trajectory["step"]
     action_specs = [
+        ("action_ratio", "#AA4499", "ratio action"),
         ("action_acid", "#CC6677", "acid action"),
         ("action_acetate", "#4477AA", "acetate action"),
         ("action_water", "#228833", "water action"),
@@ -381,19 +408,33 @@ def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     axs[0].grid(alpha=0.28)
     axs[0].legend(loc="best")
 
-    scatter = axs[1].scatter(
-        trajectory["action_acid"],
-        trajectory["action_acetate"],
-        c=trajectory["abs_ph_error"],
-        cmap="viridis",
-        s=34,
-        edgecolor="#222222",
-        linewidth=0.25,
-    )
-    axs[1].set_xlabel("acid action")
-    axs[1].set_ylabel("acetate action")
-    axs[1].set_xlim(-1.05, 1.05)
-    axs[1].set_ylim(-1.05, 1.05)
+    if "action_ratio" in trajectory:
+        scatter = axs[1].scatter(
+            trajectory["action_ratio"],
+            trajectory["log10_flow_ratio"],
+            c=trajectory["abs_ph_error"],
+            cmap="viridis",
+            s=34,
+            edgecolor="#222222",
+            linewidth=0.25,
+        )
+        axs[1].set_xlabel("ratio action")
+        axs[1].set_ylabel("log10(acetate/acid)")
+        axs[1].set_xlim(-1.05, 1.05)
+    else:
+        scatter = axs[1].scatter(
+            trajectory["action_acid"],
+            trajectory["action_acetate"],
+            c=trajectory["abs_ph_error"],
+            cmap="viridis",
+            s=34,
+            edgecolor="#222222",
+            linewidth=0.25,
+        )
+        axs[1].set_xlabel("acid action")
+        axs[1].set_ylabel("acetate action")
+        axs[1].set_xlim(-1.05, 1.05)
+        axs[1].set_ylim(-1.05, 1.05)
     axs[1].grid(alpha=0.28)
     fig.colorbar(scatter, ax=axs[1], label="absolute pH error")
     if has_exploration:
