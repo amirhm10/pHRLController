@@ -1,0 +1,2 @@
+check,max_abs_residual,rmse_residual,mean_abs_residual,interpretation
+ideal_hh_ratio_consistency,1.7763568394002505e-15,2.4049798662526175e-16,6.348699344016495e-17,pH follows pKa + log10(F_acetate/F_acid) in the saved static environment

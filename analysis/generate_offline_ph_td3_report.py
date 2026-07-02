@@ -214,6 +214,12 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
     out["hh_ph_from_ratio"] = pka + out["log10_flow_ratio"]
     out["hh_ratio_residual"] = out["ph"] - out["hh_ph_from_ratio"]
     out["abs_ph_error"] = np.abs(out["ph_error"])
+    if "target_ph" in out:
+        out["target_log_ratio"] = out["target_ph"].to_numpy(float) - pka
+        out["ratio_tracking_error"] = (
+            out["log10_flow_ratio"].to_numpy(float)
+            - out["target_log_ratio"].to_numpy(float)
+        )
     if "reward_squared_error_cost" not in out:
         out["reward_squared_error_cost"] = np.square(out["ph_error"].to_numpy(float))
     if "reward_absolute_error_cost" not in out:
@@ -253,6 +259,184 @@ def compute_hh_consistency(trajectory: pd.DataFrame) -> pd.DataFrame:
             }
         ]
     )
+
+
+def phase_metric_row(label: str, frame: pd.DataFrame) -> dict[str, float | int | str]:
+    if frame.empty:
+        return {
+            "phase": label,
+            "steps": 0,
+            "mae": np.nan,
+            "rmse": np.nan,
+            "max_abs_error": np.nan,
+            "mean_abs_ratio_error": np.nan,
+            "mean_reward": np.nan,
+            "mean_exploration_sigma": np.nan,
+            "mean_exploration_magnitude": np.nan,
+        }
+    errors = frame["ph_error"].to_numpy(float)
+    abs_errors = np.abs(errors)
+    ratio_errors = (
+        np.abs(frame["ratio_tracking_error"].to_numpy(float))
+        if "ratio_tracking_error" in frame
+        else np.full(len(frame), np.nan)
+    )
+    return {
+        "phase": label,
+        "steps": int(len(frame)),
+        "mae": float(np.mean(abs_errors)),
+        "rmse": float(np.sqrt(np.mean(errors**2))),
+        "max_abs_error": float(np.max(abs_errors)),
+        "mean_abs_ratio_error": float(np.nanmean(ratio_errors)),
+        "mean_reward": float(frame["reward"].mean()) if "reward" in frame else np.nan,
+        "mean_exploration_sigma": float(frame["exploration_sigma"].mean())
+        if "exploration_sigma" in frame
+        else np.nan,
+        "mean_exploration_magnitude": float(frame["exploration_magnitude"].mean())
+        if "exploration_magnitude" in frame
+        else np.nan,
+    }
+
+
+def compute_learning_phase_metrics(
+    trajectory: pd.DataFrame,
+    config: dict,
+) -> pd.DataFrame:
+    """Summarize tracking quality by rollout phase and within-cycle window."""
+    frame = trajectory.copy()
+    if "step_in_cycle" not in frame:
+        frame["step_in_cycle"] = frame.groupby("cycle").cumcount()
+    decay_step = int(
+        config.get("resolved_rollout", {}).get("exploration_std_decay_steps", 5000)
+    )
+    training = frame[~frame["is_test"].astype(bool)]
+    rows = [
+        phase_metric_row("all_steps", frame),
+        phase_metric_row(f"first_{decay_step}_steps", frame[frame["step"] < decay_step]),
+        phase_metric_row(
+            "after_exploration_decay",
+            frame[frame["step"] >= decay_step],
+        ),
+        phase_metric_row(
+            "last_5000_training_steps",
+            training[training["step"] >= max(0, int(training["step"].max()) - 4999)]
+            if not training.empty
+            else training,
+        ),
+        phase_metric_row("evaluation_cycle", frame[frame["is_test"].astype(bool)]),
+        phase_metric_row("first_20_each_cycle", frame[frame["step_in_cycle"] < 20]),
+        phase_metric_row("first_50_each_cycle", frame[frame["step_in_cycle"] < 50]),
+        phase_metric_row("last_50_each_cycle", frame[frame["step_in_cycle"] >= 150]),
+    ]
+    return pd.DataFrame(rows)
+
+
+def compute_cycle_group_metrics(
+    episode_metrics: pd.DataFrame,
+    group_size: int = 25,
+) -> pd.DataFrame:
+    if episode_metrics.empty:
+        return pd.DataFrame()
+    rows = []
+    training = episode_metrics[~episode_metrics["is_test"].astype(bool)]
+    max_cycle = int(training["cycle"].max()) if not training.empty else -1
+    for start in range(0, max_cycle + 1, group_size):
+        end = min(start + group_size - 1, max_cycle)
+        group = training[(training["cycle"] >= start) & (training["cycle"] <= end)]
+        if group.empty:
+            continue
+        rows.append(
+            {
+                "cycle_group": f"cycles_{start}_{end}",
+                "cycles": int(len(group)),
+                "mean_cycle_mae": float(group["mean_abs_error"].mean()),
+                "mean_cycle_rmse": float(group["rmse"].mean()),
+                "max_cycle_abs_error": float(group["max_abs_error"].max()),
+                "mean_move_cost_sum": float(group["move_cost_sum"].mean()),
+            }
+        )
+    eval_group = episode_metrics[episode_metrics["is_test"].astype(bool)]
+    if not eval_group.empty:
+        rows.append(
+            {
+                "cycle_group": "evaluation_cycles",
+                "cycles": int(len(eval_group)),
+                "mean_cycle_mae": float(eval_group["mean_abs_error"].mean()),
+                "mean_cycle_rmse": float(eval_group["rmse"].mean()),
+                "max_cycle_abs_error": float(eval_group["max_abs_error"].max()),
+                "mean_move_cost_sum": float(eval_group["move_cost_sum"].mean()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def compute_settling_diagnostics(
+    trajectory: pd.DataFrame,
+    tolerances: tuple[float, ...] = (0.05, 0.02),
+    hold_steps: int = 20,
+) -> pd.DataFrame:
+    """Find first step in each setpoint cycle that stays within tolerance."""
+    rows = []
+    for tolerance in tolerances:
+        settling_times = []
+        failed_cycles = 0
+        for _, cycle_frame in trajectory.groupby("cycle"):
+            abs_error = np.abs(cycle_frame["ph_error"].to_numpy(float))
+            found = None
+            last_start = max(0, len(abs_error) - hold_steps)
+            for idx in range(last_start + 1):
+                if np.max(abs_error[idx : idx + hold_steps]) <= tolerance:
+                    found = idx
+                    break
+            if found is None:
+                failed_cycles += 1
+            else:
+                settling_times.append(float(found))
+        rows.append(
+            {
+                "tolerance": tolerance,
+                "hold_steps": int(hold_steps),
+                "settled_cycles": int(len(settling_times)),
+                "failed_cycles": int(failed_cycles),
+                "median_settling_steps": float(np.median(settling_times))
+                if settling_times
+                else np.nan,
+                "p90_settling_steps": float(np.percentile(settling_times, 90))
+                if settling_times
+                else np.nan,
+                "max_settling_steps": float(np.max(settling_times))
+                if settling_times
+                else np.nan,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def compute_cycle_extremes(
+    episode_metrics: pd.DataFrame,
+    n: int = 5,
+) -> pd.DataFrame:
+    if episode_metrics.empty:
+        return pd.DataFrame()
+    columns = [
+        "cycle",
+        "target_ph",
+        "is_test",
+        "mean_abs_error",
+        "rmse",
+        "max_abs_error",
+        "move_cost_sum",
+    ]
+    worst = episode_metrics.sort_values("mean_abs_error", ascending=False).head(n)
+    best = episode_metrics.sort_values("mean_abs_error", ascending=True).head(n)
+    out = pd.concat(
+        [
+            worst.assign(rank_type="worst"),
+            best.assign(rank_type="best"),
+        ],
+        ignore_index=True,
+    )
+    return out[["rank_type", *columns]]
 
 
 def save_figure(fig: plt.Figure, output_dir: Path, name: str) -> Path:
@@ -654,6 +838,10 @@ def build_report(
     summary_metrics: pd.DataFrame,
     flow_diagnostics: pd.DataFrame,
     episode_metrics: pd.DataFrame,
+    learning_phase_metrics: pd.DataFrame,
+    cycle_group_metrics: pd.DataFrame,
+    settling_diagnostics: pd.DataFrame,
+    cycle_extremes: pd.DataFrame,
     hh_consistency: pd.DataFrame,
     figures: list[Path],
     generated_tables: list[Path],
@@ -669,6 +857,16 @@ def build_report(
     steps_per_cycle = rollout.get("steps_per_cycle", "unknown")
     setpoint_strategy = rollout.get("setpoint_strategy", "unknown")
     fixed_buffer_flow_sum = rollout.get("fixed_buffer_flow_sum", "unknown")
+    early_phase = learning_phase_metrics[
+        learning_phase_metrics["phase"].astype(str).str.startswith("first_")
+        & learning_phase_metrics["phase"].astype(str).str.endswith("_steps")
+    ]
+    after_decay = learning_phase_metrics[
+        learning_phase_metrics["phase"] == "after_exploration_decay"
+    ]
+    eval_phase = learning_phase_metrics[
+        learning_phase_metrics["phase"] == "evaluation_cycle"
+    ]
 
     lines: list[str] = []
     lines.append("# Offline TD3 pH Tracking Result Analysis")
@@ -684,7 +882,7 @@ def build_report(
     lines.append(f"`{repo_rel(result_dir)}`")
     lines.append("")
     lines.append(
-        "The purpose is to create editable figures and a first write-up around the new direct-flow TD3 scaffold. The result should be treated as an offline software diagnostic, not as a validated pH controller."
+        "The purpose is to create editable figures and a first write-up around the ratio-action TD3 scaffold. The result should be treated as an offline software diagnostic, not as a validated pH controller."
     )
     lines.append("")
     lines.append("## Method")
@@ -763,6 +961,90 @@ def build_report(
         f"Overall MAE is {overall['mae']:.4g} pH and overall RMSE is {overall['rmse']:.4g} pH. The evaluation-window MAE is {eval_mae:.4g} pH and evaluation-window RMSE is {eval_rmse:.4g} pH. These values depend on the saved run length and random seed."
     )
     lines.append("")
+    lines.append("## Learning-Phase Diagnostics")
+    lines.append("")
+    lines.extend(
+        markdown_table(
+            learning_phase_metrics,
+            [
+                ("phase", "Phase"),
+                ("steps", "Steps"),
+                ("mae", "MAE"),
+                ("rmse", "RMSE"),
+                ("max_abs_error", "Max |e|"),
+                ("mean_abs_ratio_error", "Mean |ratio error|"),
+                ("mean_exploration_sigma", "Mean sigma"),
+                ("mean_exploration_magnitude", "Mean |noise|"),
+            ],
+        )
+    )
+    lines.append("")
+    if not early_phase.empty and not after_decay.empty:
+        early_row = early_phase.iloc[0]
+        decay_row = after_decay.iloc[0]
+        lines.append(
+            f"The main learning signature is the drop from {early_row['mae']:.4g} pH MAE during `{early_row['phase']}` to {decay_row['mae']:.4g} pH MAE after exploration reaches its floor. This indicates that the one-dimensional ratio action is learnable in the ideal HH simulator."
+        )
+        lines.append("")
+    if not eval_phase.empty:
+        eval_row = eval_phase.iloc[0]
+        lines.append(
+            f"The final deterministic evaluation cycle gives {eval_row['mae']:.4g} pH MAE and {eval_row['max_abs_error']:.4g} pH maximum absolute error. This is encouraging, but it is still only one held-out setpoint cycle from the same reachable fixed-sum range."
+        )
+        lines.append("")
+    lines.append("## Cycle-Group And Settling Diagnostics")
+    lines.append("")
+    lines.extend(
+        markdown_table(
+            cycle_group_metrics,
+            [
+                ("cycle_group", "Cycle group"),
+                ("cycles", "Cycles"),
+                ("mean_cycle_mae", "Mean cycle MAE"),
+                ("mean_cycle_rmse", "Mean cycle RMSE"),
+                ("max_cycle_abs_error", "Max cycle |e|"),
+                ("mean_move_cost_sum", "Mean move cost"),
+            ],
+        )
+    )
+    lines.append("")
+    lines.extend(
+        markdown_table(
+            settling_diagnostics,
+            [
+                ("tolerance", "Tolerance"),
+                ("hold_steps", "Hold steps"),
+                ("settled_cycles", "Settled cycles"),
+                ("failed_cycles", "Failed cycles"),
+                ("median_settling_steps", "Median settling steps"),
+                ("p90_settling_steps", "P90 settling steps"),
+                ("max_settling_steps", "Max settling steps"),
+            ],
+        )
+    )
+    lines.append("")
+    lines.append(
+        "The settling table is computed within each 200-step setpoint hold. A cycle is counted as settled only after the error stays inside the tolerance band for the listed hold duration."
+    )
+    lines.append("")
+    lines.append("## Best And Worst Setpoint Cycles")
+    lines.append("")
+    lines.extend(
+        markdown_table(
+            cycle_extremes,
+            [
+                ("rank_type", "Rank"),
+                ("cycle", "Cycle"),
+                ("target_ph", "Target pH"),
+                ("is_test", "Eval"),
+                ("mean_abs_error", "MAE"),
+                ("rmse", "RMSE"),
+                ("max_abs_error", "Max |e|"),
+                ("move_cost_sum", "Move cost"),
+            ],
+        )
+    )
+    lines.append("")
     lines.append("## Figures")
     lines.append("")
     if "fig_ph_tracking_error_reward" in figure_lookup:
@@ -835,30 +1117,40 @@ def build_report(
     )
     lines.append("")
     lines.append(
-        "The result is not enough to claim controller quality. A short smoke run mainly verifies that the schedule, exploration, reward, TD3 update, and plotting pipeline execute together. A longer multi-seed run is needed before comparing learning behavior."
+        "For this saved run, the TD3 policy appears to learn the static ratio-tracking task after the initial exploration-heavy period. The early cycles contain the dominant tracking failures, while later cycles operate near the ideal HH inverse mapping. This is useful algorithm evidence for the offline simulator, not validation of the laboratory plant."
     )
     lines.append("")
     lines.append("## Bugs, Inconsistencies, Or Risks")
     lines.append("")
     lines.append("- The plant is static ideal HH, so it does not include delay, mixing, residence time, sensor lag, or lab mismatch.")
     lines.append("- Water is fixed at 5 mL/min in this version and is plotted only as a logged process condition.")
-    lines.append("- The final evaluation result is run-dependent and should not be treated as generalization evidence.")
+    lines.append("- The final evaluation result is only one setpoint cycle, so it should not be treated as robust generalization evidence.")
+    lines.append("- The current fixed 15 mL/min buffer-flow sum restricts the reachable setpoint range to about 4.459-5.061 pH under the current pump bounds.")
+    lines.append("- The move penalty is small compared with the absolute-error term, so the learned action can still show occasional sharp moves during training.")
     lines.append("- The report reads saved CSV files, so stale figures are possible if the report is not regenerated after a new run.")
     lines.append("")
-    lines.append("## Recommended Next Experiment")
+    lines.append("## Recommended Next Experiments")
     lines.append("")
     lines.append(
-        "Run the default offline simulation with no HH warm-start segment, 200-step setpoint holds, and one final evaluation cycle. Use the same report script afterward and compare `td3_training_steps`, evaluation MAE, max absolute error, flow saturation fractions, exploration traces, and the action scatter plot."
+        "The next step should be a deterministic evaluation sweep, not another single final-cycle check. After training, evaluate the frozen actor without exploration on a grid of reachable setpoints across 4.459-5.061 pH. The key metrics should be MAE, maximum absolute error, settling count within 0.02 and 0.05 pH, and flow saturation fraction."
     )
     lines.append("")
-    lines.append("Example:")
+    lines.append(
+        "After that, run a small seed batch, for example seeds 7, 21, 47, 73, and 101, using the same 25,000-step protocol. Compare the mean and worst-case evaluation MAE rather than relying on one run."
+    )
+    lines.append("")
+    lines.append(
+        "A third useful experiment is a fixed-sum sweep. Try buffer-flow sums such as 12, 15, and 18 mL/min, and record the reachable pH range, saturation frequency, and tracking quality. This will tell us whether 15 mL/min is a good control design choice or just a convenient first setting."
+    )
+    lines.append("")
+    lines.append("Current reproducibility command:")
     lines.append("")
     lines.append("```powershell")
     lines.append(
-        "& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' run_offline_ph_td3_training.py --total-steps 25000 --set-points-len 200 --batch-size 64 --buffer-size 5000 --seed 21"
+        "& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' run_offline_ph_td3_training.py --total-steps 25000 --set-points-len 200 --batch-size 64 --buffer-size 5000 --seed 7"
     )
     lines.append(
-        "& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' analysis\\generate_offline_ph_td3_report.py"
+        f"& 'C:\\Users\\HAMEDI\\miniconda3\\envs\\rl\\python.exe' analysis\\generate_offline_ph_td3_report.py --result-dir {repo_rel(result_dir)}"
     )
     lines.append("```")
     lines.append("")
@@ -870,10 +1162,8 @@ def build_report(
         "run_offline_ph_td3_training.py",
         "simulation/ph_environment.py",
         "simulation/henderson_hasselbalch_model.py",
-        "external: RL_assisted_MPC/Simulation/rl_sim.py",
-        "external: RL_assisted_MPC/report/scripts/analyze_distillation_all_runners_latest_20260609.py",
-        "external: RL_assisted_MPC/report/generate_rl_state_scaling_report.py",
-        "external: RL_assisted_MPC/utils/plotting_core.py",
+        "reports/overview.md",
+        "reports/offline_ph_rl_environment_report.md",
         repo_rel(result_dir / "tables" / "trajectory.csv"),
         repo_rel(result_dir / "tables" / "episode_metrics.csv"),
         repo_rel(result_dir / "tables" / "training_summary.csv"),
@@ -901,17 +1191,29 @@ def run_report(result_dir: Path, output_dir: Path, report_path: Path) -> dict[st
     summary_metrics = compute_summary_metrics(trajectory)
     flow_diagnostics = compute_flow_diagnostics(trajectory, config)
     hh_consistency = compute_hh_consistency(trajectory)
+    learning_phase_metrics = compute_learning_phase_metrics(trajectory, config)
+    cycle_group_metrics = compute_cycle_group_metrics(episode_metrics)
+    settling_diagnostics = compute_settling_diagnostics(trajectory)
+    cycle_extremes = compute_cycle_extremes(episode_metrics)
 
     summary_path = output_dir / "summary_metrics.csv"
     flow_path = output_dir / "flow_diagnostics.csv"
     episode_path = output_dir / "cycle_metrics.csv"
     hh_path = output_dir / "hh_consistency.csv"
+    learning_phase_path = output_dir / "learning_phase_metrics.csv"
+    cycle_group_path = output_dir / "cycle_group_metrics.csv"
+    settling_path = output_dir / "settling_diagnostics.csv"
+    cycle_extremes_path = output_dir / "cycle_extremes.csv"
     source_summary_path = output_dir / "source_training_summary.csv"
 
     summary_metrics.to_csv(summary_path, index=False)
     flow_diagnostics.to_csv(flow_path, index=False)
     episode_metrics.to_csv(episode_path, index=False)
     hh_consistency.to_csv(hh_path, index=False)
+    learning_phase_metrics.to_csv(learning_phase_path, index=False)
+    cycle_group_metrics.to_csv(cycle_group_path, index=False)
+    settling_diagnostics.to_csv(settling_path, index=False)
+    cycle_extremes.to_csv(cycle_extremes_path, index=False)
     training_summary.to_csv(source_summary_path, index=False)
 
     figures = [
@@ -930,6 +1232,10 @@ def run_report(result_dir: Path, output_dir: Path, report_path: Path) -> dict[st
         flow_path,
         episode_path,
         hh_path,
+        learning_phase_path,
+        cycle_group_path,
+        settling_path,
+        cycle_extremes_path,
         source_summary_path,
     ]
     manifest_path = write_manifest(
@@ -942,9 +1248,8 @@ def run_report(result_dir: Path, output_dir: Path, report_path: Path) -> dict[st
             "run_offline_ph_td3_training.py",
             "simulation/ph_environment.py",
             "simulation/henderson_hasselbalch_model.py",
-            "RL_assisted_MPC/Simulation/rl_sim.py",
-            "RL_assisted_MPC/report/scripts/analyze_distillation_all_runners_latest_20260609.py",
-            "RL_assisted_MPC/report/generate_rl_state_scaling_report.py",
+            "reports/overview.md",
+            "reports/offline_ph_rl_environment_report.md",
         ],
     )
     generated_tables.append(manifest_path)
@@ -956,6 +1261,10 @@ def run_report(result_dir: Path, output_dir: Path, report_path: Path) -> dict[st
         summary_metrics=summary_metrics,
         flow_diagnostics=flow_diagnostics,
         episode_metrics=episode_metrics,
+        learning_phase_metrics=learning_phase_metrics,
+        cycle_group_metrics=cycle_group_metrics,
+        settling_diagnostics=settling_diagnostics,
+        cycle_extremes=cycle_extremes,
         hh_consistency=hh_consistency,
         config=config,
         figures=figures,
