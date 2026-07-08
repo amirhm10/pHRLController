@@ -13,6 +13,8 @@ if str(ROOT) not in sys.path:
 
 from helpers.offline_ph_td3_results import save_offline_ph_td3_result_artifacts
 from run_offline_ph_td3_training import (
+    build_parser,
+    build_reward_config,
     build_setpoint_schedule,
     resolve_n_tests,
     resolve_set_points_len,
@@ -179,6 +181,18 @@ def test_invalid_reward_mode_raises() -> None:
         assert "reward mode" in str(exc)
     else:
         raise AssertionError("expected invalid reward mode to fail")
+
+
+def test_runner_default_reward_is_offset_focused_shaped() -> None:
+    args = build_parser().parse_args([])
+    cfg = build_reward_config(args)
+
+    assert cfg.mode == "relative_band_offset"
+    assert np.isclose(cfg.band_floor_ph, 0.02)
+    assert np.isclose(cfg.q_band, 1.0)
+    assert np.isclose(cfg.r_move, 0.01)
+    assert np.isclose(cfg.absolute_error_weight, 1.0)
+    assert np.isclose(cfg.tail_offset_weight, 5.0)
 
 
 def test_action_bounds_and_ratio_direction() -> None:
@@ -444,6 +458,7 @@ def run_direct() -> None:
     test_relative_band_reward_exposes_shaping_components()
     test_relative_band_offset_penalizes_late_hold_offset_more()
     test_invalid_reward_mode_raises()
+    test_runner_default_reward_is_offset_focused_shaped()
     test_action_bounds_and_ratio_direction()
     test_runner_flow_constraint_validation()
     test_water_is_fixed_and_not_direct_hh_ratio_input()

@@ -754,10 +754,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reward-mode",
         choices=["three_term", "relative_band", "relative_band_offset"],
-        default="three_term",
+        default="relative_band_offset",
+        help=(
+            "Reward used by the offline pH simulation. The default is the "
+            "offset-focused relative-band shaped reward."
+        ),
     )
     parser.add_argument("--reward-band-floor-ph", type=float, default=0.02)
-    parser.add_argument("--reward-tail-offset-weight", type=float, default=0.0)
+    parser.add_argument("--reward-tail-offset-weight", type=float, default=5.0)
     parser.add_argument("--fixed-buffer-flow-sum", type=float, default=15.0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output-dir", type=Path, default=None)
