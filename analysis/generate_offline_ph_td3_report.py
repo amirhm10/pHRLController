@@ -93,6 +93,11 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
             "absolute_error_cost_sum": np.nan,
             "move_cost_sum": np.nan,
             "total_cost_sum": np.nan,
+            "error_effective_term_sum": np.nan,
+            "linear_out_term_sum": np.nan,
+            "linear_in_term_sum": np.nan,
+            "bonus_term_sum": np.nan,
+            "tail_offset_term_sum": np.nan,
             "mean_ph": np.nan,
             "mean_target_ph": np.nan,
             "train_updates": 0,
@@ -113,6 +118,13 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
         "absolute_error_cost_sum": sum_optional(frame, "reward_absolute_error_cost"),
         "move_cost_sum": sum_optional(frame, "reward_move_cost"),
         "total_cost_sum": sum_optional(frame, "reward_total_cost"),
+        "error_effective_term_sum": sum_optional(
+            frame, "reward_error_effective_term"
+        ),
+        "linear_out_term_sum": sum_optional(frame, "reward_linear_out_term"),
+        "linear_in_term_sum": sum_optional(frame, "reward_linear_in_term"),
+        "bonus_term_sum": sum_optional(frame, "reward_bonus_term"),
+        "tail_offset_term_sum": sum_optional(frame, "reward_tail_offset_term"),
         "mean_ph": float(np.mean(frame["ph"])),
         "mean_target_ph": float(np.mean(frame["target_ph"])),
         "train_updates": int(frame["train_updated"].sum())
@@ -859,6 +871,12 @@ def build_report(
     setpoint_strategy = rollout.get("setpoint_strategy", "unknown")
     fixed_buffer_flow_sum = rollout.get("fixed_buffer_flow_sum", "unknown")
     total_steps = rollout.get("total_steps", arguments.get("total_steps", "unknown"))
+    reward_mode = rollout.get("reward_mode", "three_term")
+    reward_definition = rollout.get(
+        "reward_definition",
+        "-(q2*(target_pH - pH)^2 + q1*abs(target_pH - pH) + "
+        "r_move*mean((action_t - action_t_minus_1)^2))",
+    )
     early_phase = learning_phase_metrics[
         learning_phase_metrics["phase"].astype(str).str.startswith("first_")
         & learning_phase_metrics["phase"].astype(str).str.endswith("_steps")
@@ -929,15 +947,34 @@ def build_report(
         "$$ \\mathrm{pH} = pK_a + \\log_{10}\\left(\\frac{F_{Ac}}{F_{HAc}}\\right). $$"
     )
     lines.append("")
-    lines.append("The saved runner reward is")
+    lines.append(f"The saved runner reward mode is `{reward_mode}`.")
     lines.append("")
-    lines.append(
-        "$$ r_t = -\\left(q_2 e_t^2 + q_1 |e_t| + r_{\\Delta u}\\|a_t-a_{t-1}\\|_2^2/n_u\\right), $$"
-    )
+    if str(reward_mode) == "three_term":
+        lines.append(
+            "$$ r_t = -\\left(q_2 e_t^2 + q_1 |e_t| + r_{\\Delta u}\\|a_t-a_{t-1}\\|_2^2/n_u\\right), $$"
+        )
+        lines.append("")
+        lines.append(
+            "where `e_t = pH_sp,t - pH_t`, `a_t` is the normalized ratio action, and `n_u = 1`."
+        )
+    elif str(reward_mode) == "relative_band":
+        lines.append(
+            "$$ r_t = \\left[-\\left(J_{\\mathrm{eff}} + J_{\\Delta u} + J_{\\mathrm{lin,out}} + J_{\\mathrm{lin,in}}\\right) + J_{\\mathrm{bonus}}\\right]\\alpha. $$"
+        )
+        lines.append("")
+        lines.append(
+            "The pH error is scored against a saved physical pH band, with separate inside-band, outside-band, movement, and bonus terms."
+        )
+    else:
+        lines.append(
+            "$$ r_t = r_t^{\\mathrm{band}} - \\alpha\\left(w_{|e|}|e_t| + w_{\\mathrm{tail}} h_t |e_t|\\right). $$"
+        )
+        lines.append("")
+        lines.append(
+            "This mode starts from the relative-band reward and adds absolute-error and late-hold offset penalties."
+        )
     lines.append("")
-    lines.append(
-        "where `e_t = pH_sp,t - pH_t`, `a_t` is the normalized ratio action, and `n_u = 1`."
-    )
+    lines.append(f"Saved compact reward definition: `{reward_definition}`.")
     lines.append("")
     lines.append("## Quantitative Summary")
     lines.append("")

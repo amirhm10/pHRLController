@@ -75,6 +75,11 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
             "absolute_error_cost_sum": np.nan,
             "move_cost_sum": np.nan,
             "total_cost_sum": np.nan,
+            "error_effective_term_sum": np.nan,
+            "linear_out_term_sum": np.nan,
+            "linear_in_term_sum": np.nan,
+            "bonus_term_sum": np.nan,
+            "tail_offset_term_sum": np.nan,
             "mean_ph": np.nan,
             "mean_target_ph": np.nan,
             "train_updates": 0,
@@ -95,6 +100,13 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
         "absolute_error_cost_sum": sum_optional(frame, "reward_absolute_error_cost"),
         "move_cost_sum": sum_optional(frame, "reward_move_cost"),
         "total_cost_sum": sum_optional(frame, "reward_total_cost"),
+        "error_effective_term_sum": sum_optional(
+            frame, "reward_error_effective_term"
+        ),
+        "linear_out_term_sum": sum_optional(frame, "reward_linear_out_term"),
+        "linear_in_term_sum": sum_optional(frame, "reward_linear_in_term"),
+        "bonus_term_sum": sum_optional(frame, "reward_bonus_term"),
+        "tail_offset_term_sum": sum_optional(frame, "reward_tail_offset_term"),
         "mean_ph": float(np.mean(frame["ph"])),
         "mean_target_ph": float(np.mean(frame["target_ph"])),
         "train_updates": int(frame["train_updated"].sum())

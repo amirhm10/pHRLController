@@ -8,6 +8,11 @@ from gymnasium import spaces
 
 from simulation.config import PHProcessConfig
 from simulation.henderson_hasselbalch_model import HendersonHasselbalchModel
+from simulation.ph_reward import (
+    PHRewardBreakdown,
+    PHRewardConfig,
+    compute_ph_reward,
+)
 
 
 @dataclass
@@ -22,8 +27,22 @@ class PHEnvironmentConfig:
     absolute_error_weight: float = 1.0
     move_penalty_weight: float = 0.01
     default_flow_penalty_weight: float = 0.0
+    reward_config: PHRewardConfig | None = None
+    setpoint_hold_steps: int | None = None
     fixed_buffer_flow_sum: float = 15.0
     random_seed: int | None = 7
+
+    def resolved_reward_config(self) -> PHRewardConfig:
+        """Return an explicit reward config while preserving legacy fields."""
+        if self.reward_config is not None:
+            return self.reward_config
+        return PHRewardConfig(
+            mode="three_term",
+            q_squared=self.tracking_weight,
+            q_absolute=self.absolute_error_weight,
+            move_weight=self.move_penalty_weight,
+            default_flow_weight=self.default_flow_penalty_weight,
+        )
 
 
 def fixed_buffer_acid_bounds(
@@ -80,6 +99,7 @@ class PHEnvironment(gym.Env):
         super().__init__()
         self.env_config = config or PHEnvironmentConfig()
         self.process_config = self.env_config.process_config
+        self.reward_config = self.env_config.resolved_reward_config()
         self.model = HendersonHasselbalchModel.from_config(self.process_config)
         self._rng = np.random.default_rng(self.env_config.random_seed)
 
@@ -158,6 +178,7 @@ class PHEnvironment(gym.Env):
         self.current_flows = self.default_flows.copy()
         self.current_ph = float(self.process_config.pKa)
         self.step_count = 0
+        self.setpoint_hold_step = 0
 
     def reset(
         self,
@@ -182,6 +203,7 @@ class PHEnvironment(gym.Env):
         self.current_flows = self._clip_flows(np.asarray(initial_flows, dtype=np.float32))
         self.current_ph = self._predict_ph_from_flows(self.current_flows)
         self.step_count = 0
+        self.setpoint_hold_step = 0
 
         observation = self._make_observation()
         return observation, self._make_info()
@@ -196,46 +218,28 @@ class PHEnvironment(gym.Env):
         self.current_flows = self._action_to_flows(action_arr)
         self.current_ph = self._predict_ph_from_flows(self.current_flows)
         self.step_count += 1
+        self.setpoint_hold_step += 1
 
-        setpoint_error = self.target_ph - self.current_ph
-        tracking_cost = float(setpoint_error**2)
-        absolute_error_cost = float(abs(setpoint_error))
-        move_cost = float(np.mean((action_arr - previous_normalized_flows) ** 2))
-        default_cost = float(
-            np.mean((action_arr - self._normalize_flows(self.default_flows)) ** 2)
+        reward_breakdown = compute_ph_reward(
+            target_ph=self.target_ph,
+            ph=self.current_ph,
+            action=action_arr,
+            previous_action=previous_normalized_flows,
+            default_action=self._normalize_flows(self.default_flows),
+            hold_progress=self._setpoint_hold_progress(),
+            config=self.reward_config,
         )
-        tracking_term = self.env_config.tracking_weight * tracking_cost
-        absolute_error_term = self.env_config.absolute_error_weight * absolute_error_cost
-        move_term = self.env_config.move_penalty_weight * move_cost
-        default_flow_term = self.env_config.default_flow_penalty_weight * default_cost
-        total_cost = (
-            tracking_term
-            + absolute_error_term
-            + move_term
-            + default_flow_term
-        )
-        reward = -total_cost
+        reward = reward_breakdown.reward
 
         terminated = False
         truncated = self.step_count >= int(self.env_config.max_episode_steps)
-        info = self._make_info(
-            reward=float(reward),
-            setpoint_error=setpoint_error,
-            tracking_cost=tracking_cost,
-            absolute_error_cost=absolute_error_cost,
-            move_cost=move_cost,
-            default_flow_cost=default_cost,
-            tracking_term=tracking_term,
-            absolute_error_term=absolute_error_term,
-            move_term=move_term,
-            default_flow_term=default_flow_term,
-            total_cost=total_cost,
-        )
+        info = self._make_info(reward_breakdown=reward_breakdown)
         return self._make_observation(), float(reward), terminated, truncated, info
 
     def set_target_ph(self, target_ph: float) -> tuple[np.ndarray, dict]:
         """Update the current setpoint without resetting the simulated process."""
         self.target_ph = self.process_config.clip_target_ph(float(target_ph))
+        self.setpoint_hold_step = 0
         return self._make_observation(), self._make_info()
 
     def action_to_flows(self, action) -> np.ndarray:
@@ -386,6 +390,12 @@ class PHEnvironment(gym.Env):
             water_flow=float(flows[2]),
         )
 
+    def _setpoint_hold_progress(self) -> float | None:
+        if self.env_config.setpoint_hold_steps is None:
+            return None
+        hold_steps = max(1, int(self.env_config.setpoint_hold_steps))
+        return min(1.0, self.setpoint_hold_step / hold_steps)
+
     def _make_observation(self) -> np.ndarray:
         error = self.current_ph - self.target_ph
         step_fraction = min(
@@ -406,17 +416,7 @@ class PHEnvironment(gym.Env):
 
     def _make_info(
         self,
-        reward: float | None = None,
-        setpoint_error: float | None = None,
-        tracking_cost: float | None = None,
-        absolute_error_cost: float | None = None,
-        move_cost: float | None = None,
-        default_flow_cost: float | None = None,
-        tracking_term: float | None = None,
-        absolute_error_term: float | None = None,
-        move_term: float | None = None,
-        default_flow_term: float | None = None,
-        total_cost: float | None = None,
+        reward_breakdown: PHRewardBreakdown | None = None,
     ) -> dict:
         acid_flow, acetate_flow, water_flow = map(float, self.current_flows)
         error = float(self.current_ph - self.target_ph)
@@ -440,22 +440,9 @@ class PHEnvironment(gym.Env):
             ),
             "success": bool(abs(error) <= self.env_config.target_tolerance),
             "step_count": int(self.step_count),
+            "setpoint_hold_step": int(self.setpoint_hold_step),
+            "setpoint_hold_progress": self._setpoint_hold_progress(),
         }
-        if reward is not None:
-            info.update(
-                {
-                    "reward": float(reward),
-                    "reward_setpoint_error": float(setpoint_error),
-                    "reward_tracking_cost": float(tracking_cost),
-                    "reward_squared_error_cost": float(tracking_cost),
-                    "reward_absolute_error_cost": float(absolute_error_cost),
-                    "reward_move_cost": float(move_cost),
-                    "reward_default_flow_cost": float(default_flow_cost),
-                    "reward_squared_error_term": float(tracking_term),
-                    "reward_absolute_error_term": float(absolute_error_term),
-                    "reward_move_penalty_term": float(move_term),
-                    "reward_default_flow_term": float(default_flow_term),
-                    "reward_total_cost": float(total_cost),
-                }
-            )
+        if reward_breakdown is not None:
+            info.update(reward_breakdown.to_info_dict())
         return info

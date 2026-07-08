@@ -17,9 +17,27 @@ from simulation.ph_environment import (
     PHEnvironmentConfig,
     fixed_buffer_target_ph_bounds,
 )
+from simulation.ph_reward import PHRewardConfig, reward_definition_text
 
 
 DEFAULT_SET_POINTS_LEN = 200
+
+OPTIONAL_INFO_COLUMNS = [
+    "reward_band_ph",
+    "reward_normalized_error",
+    "reward_inside_weight",
+    "reward_error_effective_term",
+    "reward_linear_out_term",
+    "reward_linear_in_term",
+    "reward_bonus_term",
+    "reward_tail_offset_cost",
+    "reward_tail_offset_term",
+    "reward_hold_progress",
+    "reward_hold_weight",
+    "reward_scale",
+    "setpoint_hold_step",
+    "setpoint_hold_progress",
+]
 
 
 def parse_hidden_layers(value: str) -> list[int]:
@@ -164,11 +182,18 @@ def make_output_dir(root: Path | None) -> Path:
     return output_dir
 
 
-def reward_definition_text() -> str:
-    return (
-        "-(q2*(target_pH - pH)^2 + "
-        "q1*abs(target_pH - pH) + "
-        "r_move*mean((action_t - action_t_minus_1)^2))"
+def build_reward_config(args: argparse.Namespace) -> PHRewardConfig:
+    return PHRewardConfig(
+        mode=args.reward_mode,
+        q_squared=args.reward_squared_weight,
+        q_absolute=args.reward_absolute_weight,
+        move_weight=args.move_penalty_weight,
+        default_flow_weight=0.0,
+        band_floor_ph=args.reward_band_floor_ph,
+        q_band=args.reward_squared_weight,
+        r_move=args.move_penalty_weight,
+        absolute_error_weight=args.reward_absolute_weight,
+        tail_offset_weight=args.reward_tail_offset_weight,
     )
 
 
@@ -284,6 +309,7 @@ def validate_trajectory_flow_constraints(
 def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
     set_global_seeds(args.seed)
     process_config = PHProcessConfig()
+    reward_config = build_reward_config(args)
     target_ph_min, target_ph_max = fixed_buffer_target_ph_bounds(
         process_config=process_config,
         fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
@@ -320,6 +346,8 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
             absolute_error_weight=args.reward_absolute_weight,
             move_penalty_weight=args.move_penalty_weight,
             default_flow_penalty_weight=0.0,
+            reward_config=reward_config,
+            setpoint_hold_steps=set_points_len,
             fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
             random_seed=args.seed,
         )
@@ -393,42 +421,44 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         if step_idx >= warm_start_steps and not is_test:
             train_meta = agent.train_step()
 
-        records.append(
-            {
-                "step": step_idx,
-                "cycle": cycle,
-                "is_warm_start": bool(is_warm_start),
-                "is_test": bool(is_test),
-                "action_source": action_source,
-                "target_ph": target_ph,
-                "ph": float(info["ph"]),
-                "ph_error": float(info["ph"] - target_ph),
-                "reward": float(reward),
-                "reward_setpoint_error": float(info["reward_setpoint_error"]),
-                "reward_squared_error_cost": float(info["reward_squared_error_cost"]),
-                "reward_absolute_error_cost": float(
-                    info["reward_absolute_error_cost"]
-                ),
-                "reward_move_cost": float(info["reward_move_cost"]),
-                "reward_total_cost": float(info["reward_total_cost"]),
-                "acid_flow": float(info["acid_flow"]),
-                "acetate_flow": float(info["acetate_flow"]),
-                "water_flow": float(info["water_flow"]),
-                "flow_ratio_acetate_acid": float(info["flow_ratio_acetate_acid"]),
-                "buffer_flow_sum": float(info["buffer_flow_sum"]),
-                "action_ratio": float(np.asarray(action).reshape(-1)[0]),
-                "exploration_sigma": exploration_sigma,
-                "exploration_magnitude": exploration_magnitude,
-                "action_saturation_fraction": action_saturation_fraction,
-                "train_updated": train_meta is not None,
-                "critic_loss": np.nan
-                if train_meta is None
-                else float(train_meta["critic_loss"]),
-                "actor_loss": np.nan
-                if train_meta is None or train_meta["actor_loss"] is None
-                else float(train_meta["actor_loss"]),
-            }
-        )
+        record = {
+            "step": step_idx,
+            "cycle": cycle,
+            "is_warm_start": bool(is_warm_start),
+            "is_test": bool(is_test),
+            "action_source": action_source,
+            "target_ph": target_ph,
+            "ph": float(info["ph"]),
+            "ph_error": float(info["ph"] - target_ph),
+            "reward_mode": str(info["reward_mode"]),
+            "reward": float(reward),
+            "reward_setpoint_error": float(info["reward_setpoint_error"]),
+            "reward_squared_error_cost": float(info["reward_squared_error_cost"]),
+            "reward_absolute_error_cost": float(info["reward_absolute_error_cost"]),
+            "reward_move_cost": float(info["reward_move_cost"]),
+            "reward_total_cost": float(info["reward_total_cost"]),
+            "acid_flow": float(info["acid_flow"]),
+            "acetate_flow": float(info["acetate_flow"]),
+            "water_flow": float(info["water_flow"]),
+            "flow_ratio_acetate_acid": float(info["flow_ratio_acetate_acid"]),
+            "buffer_flow_sum": float(info["buffer_flow_sum"]),
+            "action_ratio": float(np.asarray(action).reshape(-1)[0]),
+            "exploration_sigma": exploration_sigma,
+            "exploration_magnitude": exploration_magnitude,
+            "action_saturation_fraction": action_saturation_fraction,
+            "train_updated": train_meta is not None,
+            "critic_loss": np.nan
+            if train_meta is None
+            else float(train_meta["critic_loss"]),
+            "actor_loss": np.nan
+            if train_meta is None or train_meta["actor_loss"] is None
+            else float(train_meta["actor_loss"]),
+        }
+        for column in OPTIONAL_INFO_COLUMNS:
+            if column in info:
+                value = info[column]
+                record[column] = np.nan if value is None else float(value)
+        records.append(record)
         state = next_state
 
     trajectory = pd.DataFrame.from_records(records)
@@ -449,6 +479,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         warm_start_steps=warm_start_steps,
         target_ph_min=target_ph_min,
         target_ph_max=target_ph_max,
+        reward_config=reward_config,
     )
     setpoint_schedule = summarize_setpoint_schedule(
         setpoint_values=setpoint_values,
@@ -476,6 +507,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         n_setpoints=n_setpoints,
         set_points_len=set_points_len,
         warm_start_steps=warm_start_steps,
+        reward_config=reward_config,
     )
     artifacts = save_offline_ph_td3_result_artifacts(
         output_dir=output_dir,
@@ -518,6 +550,17 @@ def summarize_by_cycle(trajectory: pd.DataFrame) -> pd.DataFrame:
         total_cost_sum=("reward_total_cost", "sum"),
         train_updates=("train_updated", "sum"),
     )
+    optional_sum_columns = [
+        "reward_error_effective_term",
+        "reward_linear_out_term",
+        "reward_linear_in_term",
+        "reward_bonus_term",
+        "reward_tail_offset_term",
+    ]
+    for column in optional_sum_columns:
+        if column in trajectory:
+            values = trajectory.groupby("cycle")[column].sum()
+            metrics[f"{column}_sum"] = metrics["cycle"].map(values).to_numpy(float)
     return metrics
 
 
@@ -550,6 +593,7 @@ def summarize_run(
     warm_start_steps: int,
     target_ph_min: float,
     target_ph_max: float,
+    reward_config: PHRewardConfig,
 ) -> pd.DataFrame:
     test_rows = trajectory[trajectory["is_test"]]
     eval_rows = test_rows if not test_rows.empty else trajectory
@@ -589,10 +633,13 @@ def summarize_run(
                 ),
                 "fixed_buffer_flow_sum": float(args.fixed_buffer_flow_sum),
                 "fixed_water_flow": float(PHProcessConfig().default_water_flow),
+                "reward_mode": reward_config.mode,
                 "reward_squared_weight": float(args.reward_squared_weight),
                 "reward_absolute_weight": float(args.reward_absolute_weight),
                 "move_penalty_weight": float(args.move_penalty_weight),
-                "reward_definition": reward_definition_text(),
+                "reward_band_floor_ph": float(args.reward_band_floor_ph),
+                "reward_tail_offset_weight": float(args.reward_tail_offset_weight),
+                "reward_definition": reward_definition_text(reward_config),
                 "plant_model": "ideal Henderson-Hasselbalch",
             }
         ]
@@ -607,6 +654,7 @@ def write_config_snapshot(
     n_setpoints: int,
     set_points_len: int,
     warm_start_steps: int,
+    reward_config: PHRewardConfig,
 ) -> dict:
     snapshot = {
         "runner": "run_offline_ph_td3_training.py",
@@ -641,10 +689,14 @@ def write_config_snapshot(
             "rl_action_variables": ["acetate_acid_ratio"],
             "fixed_buffer_flow_sum": float(args.fixed_buffer_flow_sum),
             "fixed_water_flow": float(process_config.default_water_flow),
-            "reward_definition": reward_definition_text(),
+            "reward_config": reward_config.to_dict(),
+            "reward_definition": reward_definition_text(reward_config),
+            "reward_mode": reward_config.mode,
             "reward_squared_weight": float(args.reward_squared_weight),
             "reward_absolute_weight": float(args.reward_absolute_weight),
             "move_penalty_weight": float(args.move_penalty_weight),
+            "reward_band_floor_ph": float(args.reward_band_floor_ph),
+            "reward_tail_offset_weight": float(args.reward_tail_offset_weight),
             "exploration_mode": "gaussian",
             "exploration_std_start": float(args.std_start),
             "exploration_std_end": float(args.std_end),
@@ -699,6 +751,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reward-squared-weight", type=float, default=1.0)
     parser.add_argument("--reward-absolute-weight", type=float, default=1.0)
     parser.add_argument("--move-penalty-weight", type=float, default=0.01)
+    parser.add_argument(
+        "--reward-mode",
+        choices=["three_term", "relative_band", "relative_band_offset"],
+        default="three_term",
+    )
+    parser.add_argument("--reward-band-floor-ph", type=float, default=0.02)
+    parser.add_argument("--reward-tail-offset-weight", type=float, default=0.0)
     parser.add_argument("--fixed-buffer-flow-sum", type=float, default=15.0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output-dir", type=Path, default=None)

@@ -24,6 +24,13 @@ from simulation.ph_environment import (
     PHEnvironmentConfig,
     fixed_buffer_target_ph_bounds,
 )
+from simulation.ph_reward import (
+    PHRewardConfig,
+    compute_ph_reward,
+    compute_relative_band_offset_ph_reward,
+    compute_relative_band_ph_reward,
+    compute_three_term_ph_reward,
+)
 from TD3Agent.agent import TD3Agent
 
 
@@ -74,6 +81,104 @@ def test_environment_reward_components() -> None:
     assert np.isclose(info["reward_move_cost"], move_cost)
     assert np.isclose(info["reward_total_cost"], expected_total)
     assert np.isclose(reward, -expected_total)
+
+
+def test_default_reward_function_matches_previous_three_term() -> None:
+    action = np.array([1.0], dtype=np.float32)
+    previous_action = np.array([0.25], dtype=np.float32)
+    cfg = PHRewardConfig(
+        mode="three_term",
+        q_squared=1.0,
+        q_absolute=2.0,
+        move_weight=0.1,
+    )
+
+    breakdown = compute_three_term_ph_reward(
+        target_ph=4.76,
+        ph=4.91,
+        action=action,
+        previous_action=previous_action,
+        config=cfg,
+    )
+
+    setpoint_error = 4.76 - 4.91
+    expected_cost = setpoint_error**2 + 2.0 * abs(setpoint_error) + 0.1 * 0.75**2
+    assert np.isclose(breakdown.squared_error_cost, setpoint_error**2)
+    assert np.isclose(breakdown.absolute_error_cost, abs(setpoint_error))
+    assert np.isclose(breakdown.move_cost, 0.75**2)
+    assert np.isclose(breakdown.total_cost, expected_cost)
+    assert np.isclose(breakdown.reward, -expected_cost)
+
+
+def test_zero_error_scores_better_than_nonzero_error() -> None:
+    cfg = PHRewardConfig(mode="relative_band")
+    zero = compute_ph_reward(
+        target_ph=4.76,
+        ph=4.76,
+        action=np.array([0.0]),
+        previous_action=np.array([0.0]),
+        config=cfg,
+    )
+    offset = compute_ph_reward(
+        target_ph=4.76,
+        ph=4.80,
+        action=np.array([0.0]),
+        previous_action=np.array([0.0]),
+        config=cfg,
+    )
+
+    assert zero.reward > offset.reward
+    assert zero.absolute_error_cost == 0.0
+    assert offset.absolute_error_cost > 0.0
+
+
+def test_relative_band_reward_exposes_shaping_components() -> None:
+    cfg = PHRewardConfig(mode="relative_band", band_floor_ph=0.02)
+    breakdown = compute_relative_band_ph_reward(
+        target_ph=4.76,
+        ph=4.80,
+        action=np.array([0.4]),
+        previous_action=np.array([0.1]),
+        config=cfg,
+    )
+
+    assert np.isclose(breakdown.band_ph, 0.02)
+    assert breakdown.normalized_error > 1.0
+    assert 0.0 <= breakdown.inside_weight <= 1.0
+    assert breakdown.linear_out_term > 0.0
+    assert breakdown.linear_in_term >= 0.0
+    assert breakdown.move_penalty_term > 0.0
+    assert breakdown.bonus_term >= 0.0
+
+
+def test_relative_band_offset_penalizes_late_hold_offset_more() -> None:
+    cfg = PHRewardConfig(
+        mode="relative_band_offset",
+        absolute_error_weight=1.0,
+        tail_offset_weight=5.0,
+    )
+    kwargs = {
+        "target_ph": 4.76,
+        "ph": 4.80,
+        "action": np.array([0.0]),
+        "previous_action": np.array([0.0]),
+        "config": cfg,
+    }
+    early = compute_relative_band_offset_ph_reward(**kwargs, hold_progress=0.10)
+    late = compute_relative_band_offset_ph_reward(**kwargs, hold_progress=0.95)
+
+    assert np.isclose(early.tail_offset_term, 0.0)
+    assert late.tail_offset_term > early.tail_offset_term
+    assert late.reward < early.reward
+
+
+def test_invalid_reward_mode_raises() -> None:
+    try:
+        PHRewardConfig(mode="not_a_reward")
+    except ValueError as exc:
+        assert "reward mode" in str(exc)
+    else:
+        raise AssertionError("expected invalid reward mode to fail")
 
 
 def test_action_bounds_and_ratio_direction() -> None:
@@ -334,6 +439,11 @@ def test_admissible_random_setpoint_schedule() -> None:
 def run_direct() -> None:
     test_environment_reset_and_step()
     test_environment_reward_components()
+    test_default_reward_function_matches_previous_three_term()
+    test_zero_error_scores_better_than_nonzero_error()
+    test_relative_band_reward_exposes_shaping_components()
+    test_relative_band_offset_penalizes_late_hold_offset_more()
+    test_invalid_reward_mode_raises()
     test_action_bounds_and_ratio_direction()
     test_runner_flow_constraint_validation()
     test_water_is_fixed_and_not_direct_hh_ratio_input()
