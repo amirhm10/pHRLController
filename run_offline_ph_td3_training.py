@@ -192,6 +192,7 @@ def build_reward_config(args: argparse.Namespace) -> PHRewardConfig:
         band_floor_ph=args.reward_band_floor_ph,
         q_band=args.reward_squared_weight,
         r_move=args.move_penalty_weight,
+        beta=args.reward_bonus_weight,
         absolute_error_weight=args.reward_absolute_weight,
         tail_offset_weight=args.reward_tail_offset_weight,
     )
@@ -638,6 +639,7 @@ def summarize_run(
                 "reward_absolute_weight": float(args.reward_absolute_weight),
                 "move_penalty_weight": float(args.move_penalty_weight),
                 "reward_band_floor_ph": float(args.reward_band_floor_ph),
+                "reward_bonus_weight": float(reward_config.beta),
                 "reward_tail_offset_weight": float(args.reward_tail_offset_weight),
                 "reward_definition": reward_definition_text(reward_config),
                 "plant_model": "ideal Henderson-Hasselbalch",
@@ -696,6 +698,7 @@ def write_config_snapshot(
             "reward_absolute_weight": float(args.reward_absolute_weight),
             "move_penalty_weight": float(args.move_penalty_weight),
             "reward_band_floor_ph": float(args.reward_band_floor_ph),
+            "reward_bonus_weight": float(reward_config.beta),
             "reward_tail_offset_weight": float(args.reward_tail_offset_weight),
             "exploration_mode": "gaussian",
             "exploration_std_start": float(args.std_start),
@@ -719,7 +722,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run a repo-style offline TD3 simulation for the ideal-HH pH plant."
     )
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--total-steps", type=int, default=25_000)
+    parser.add_argument("--total-steps", type=int, default=100_000)
     parser.add_argument("--n-tests", type=int, default=None)
     parser.add_argument("--set-points-len", type=int, default=None)
     parser.add_argument(
@@ -761,6 +764,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--reward-band-floor-ph", type=float, default=0.02)
+    parser.add_argument(
+        "--reward-bonus-weight",
+        type=float,
+        default=25.0,
+        help=(
+            "Weight beta on the relative-band near-setpoint bonus. Larger "
+            "values make zero and near-zero pH offset more attractive."
+        ),
+    )
     parser.add_argument("--reward-tail-offset-weight", type=float, default=5.0)
     parser.add_argument("--fixed-buffer-flow-sum", type=float, default=15.0)
     parser.add_argument("--device", default="cpu")

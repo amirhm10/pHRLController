@@ -187,10 +187,12 @@ def test_runner_default_reward_is_offset_focused_shaped() -> None:
     args = build_parser().parse_args([])
     cfg = build_reward_config(args)
 
+    assert args.total_steps == 100_000
     assert cfg.mode == "relative_band_offset"
     assert np.isclose(cfg.band_floor_ph, 0.02)
     assert np.isclose(cfg.q_band, 1.0)
     assert np.isclose(cfg.r_move, 0.01)
+    assert np.isclose(cfg.beta, 25.0)
     assert np.isclose(cfg.absolute_error_weight, 1.0)
     assert np.isclose(cfg.tail_offset_weight, 5.0)
 
