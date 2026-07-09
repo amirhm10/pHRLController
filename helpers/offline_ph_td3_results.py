@@ -550,7 +550,7 @@ def plot_setpoint_average_reward(
 
 def select_last_setpoint_cycles(
     trajectory: pd.DataFrame,
-    n_cycles: int = 5,
+    n_cycles: int = 25,
 ) -> pd.DataFrame:
     cycles = np.sort(trajectory["cycle"].unique())
     keep = set(cycles[-max(1, int(n_cycles)) :])
@@ -560,7 +560,7 @@ def select_last_setpoint_cycles(
 def plot_last_setpoint_tracking(
     trajectory: pd.DataFrame,
     output_dir: Path,
-    n_cycles: int = 5,
+    n_cycles: int = 25,
 ) -> Path:
     subset = select_last_setpoint_cycles(trajectory, n_cycles=n_cycles)
     steps = subset["step"]
@@ -652,7 +652,11 @@ def plot_last_setpoint_tracking(
         mark_setpoint_boundaries(ax, subset)
         shade_protocol_regions(ax, subset)
     fig.tight_layout()
-    return save_figure(fig, output_dir, "fig_last_5_setpoint_tracking.png")
+    return save_figure(
+        fig,
+        output_dir,
+        f"fig_last_{int(n_cycles)}_setpoint_tracking.png",
+    )
 
 
 def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:

@@ -924,7 +924,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run a repo-style offline TD3 simulation for the ideal-HH pH plant."
     )
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--total-steps", type=int, default=200_000)
+    parser.add_argument("--total-steps", type=int, default=500_000)
     parser.add_argument("--n-tests", type=int, default=None)
     parser.add_argument("--set-points-len", type=int, default=None)
     parser.add_argument(
@@ -958,10 +958,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Column containing desired pH setpoints in the setpoint data CSV.",
     )
     parser.add_argument("--warm-start-cycles", type=int, default=0)
-    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--buffer-size", type=int, default=60_000)
-    parser.add_argument("--actor-hidden", type=parse_hidden_layers, default=[64, 64])
-    parser.add_argument("--critic-hidden", type=parse_hidden_layers, default=[64, 64])
+    parser.add_argument("--actor-hidden", type=parse_hidden_layers, default=[128, 128])
+    parser.add_argument("--critic-hidden", type=parse_hidden_layers, default=[128, 128])
     parser.add_argument("--actor-lr", type=float, default=1e-4)
     parser.add_argument("--critic-lr", type=float, default=1e-3)
     parser.add_argument("--gamma", type=float, default=0.97)

@@ -258,8 +258,8 @@ The current runner constructs a TD3 agent with:
 |---|---:|
 | State dimension | 5 |
 | Action dimension | 2 |
-| Actor hidden layers | `[64, 64]` |
-| Critic hidden layers | `[64, 64]` |
+| Actor hidden layers | `[128, 128]` |
+| Critic hidden layers | `[128, 128]` |
 | Activation | ReLU |
 | Actor output squash | tanh |
 | Maximum action magnitude | 1.0 |
@@ -278,7 +278,7 @@ $$
 With the default hidden layers, the actor structure is:
 
 $$
-5 \rightarrow 64 \rightarrow 64 \rightarrow 2,
+5 \rightarrow 128 \rightarrow 128 \rightarrow 2,
 $$
 
 with ReLU activations on the hidden layers and a final tanh squash so that the
@@ -299,7 +299,7 @@ $$
 Each critic branch has structure:
 
 $$
-7 \rightarrow 64 \rightarrow 64 \rightarrow 1.
+7 \rightarrow 128 \rightarrow 128 \rightarrow 1.
 $$
 
 The critic returns two estimates:
@@ -318,13 +318,13 @@ The current default runner settings are:
 
 | Parameter | Value |
 |---|---:|
-| Total rollout steps | 200000 |
+| Total rollout steps | 500000 |
 | Default setpoint hold length | 200 steps |
-| Default number of setpoint cycles | 1000 |
+| Default number of setpoint cycles | 2500 |
 | Default setpoint range source | lab-data `target_ph` range |
 | Lab-data desired setpoint range | 3.7 to 5.7 pH |
 | Resolved default training setpoint range | 3.76 to 5.7 pH |
-| Batch size | 128 |
+| Batch size | 64 |
 | Replay buffer capacity | 60000 |
 | Discount factor `gamma` | 0.97 |
 | Actor learning rate | 1e-4 |
@@ -738,8 +738,8 @@ The latest full run is:
 
 `results/offline_ph_td3_training_20260709_001341`
 
-This run used the current defaults: `200000` rollout steps, `1000` setpoint
-cycles, `200` steps per setpoint, `batch_size = 128`,
+This completed run used the previous defaults: `200000` rollout steps,
+`1000` setpoint cycles, `200` steps per setpoint, `batch_size = 128`,
 `buffer_size = 60000`, lab-data setpoint range source, and the shaped
 `relative_band_offset` reward with `sum_move_penalty_weight = 5.0`,
 `reward_bonus_weight = 0.05`, and `tail_offset_weight = 0.0`.
@@ -817,12 +817,12 @@ Important limitations:
 - final-cycle evaluation is only one held setpoint unless additional evaluation
   sweeps are added.
 
-The runner now saves per-setpoint average reward, last-five-setpoint tracking,
+The runner now saves per-setpoint average reward, last-25-setpoint tracking,
 action diagnostics, flow diagnostics, reward-shape comparison figures, and
 training-loss figures. Critic loss is plotted on a log axis when positive, and
 actor loss is plotted on a signed-log axis because TD3 actor loss can be
 negative.
 
 The next addition to this report should be a quantitative interpretation of a full
-200000-step run plus a frozen-policy evaluation sweep across the reachable pH
+500000-step run plus a frozen-policy evaluation sweep across the reachable pH
 range.

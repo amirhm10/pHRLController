@@ -271,11 +271,13 @@ def test_runner_default_reward_is_offset_focused_shaped() -> None:
     args = build_parser().parse_args([])
     cfg = build_reward_config(args)
 
-    assert args.total_steps == 200_000
+    assert args.total_steps == 500_000
     assert args.setpoint_range_source == "lab_data"
     assert args.action_mode == "ratio_buffer_sum"
-    assert args.batch_size == 128
+    assert args.batch_size == 64
     assert args.buffer_size == 60_000
+    assert args.actor_hidden == [128, 128]
+    assert args.critic_hidden == [128, 128]
     assert np.isclose(args.std_end, 0.01)
     assert cfg.mode == "relative_band_offset"
     assert np.isclose(cfg.band_floor_ph, 0.01)
@@ -578,7 +580,7 @@ def test_result_artifact_helper_smoke() -> None:
     assert (output_dir / "tables" / "result_artifact_manifest.json").exists()
     figure_names = {path.name for path in artifacts["figures"]}
     assert "fig_setpoint_average_reward.png" in figure_names
-    assert "fig_last_5_setpoint_tracking.png" in figure_names
+    assert "fig_last_25_setpoint_tracking.png" in figure_names
     assert "fig_reward_shape_comparison.png" in figure_names
     assert len(artifacts["figures"]) >= 8
     assert all(path.exists() for path in artifacts["figures"])
