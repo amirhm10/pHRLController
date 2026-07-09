@@ -72,31 +72,32 @@ small shaping deltas directly:
 
 ### Interpretation
 
-The current reward is not really being shaped by the bonus or the linear
-inside/outside terms. It is primarily an absolute-error plus late-hold
-absolute-error reward. The total-flow move penalty is also small relative to
-tracking penalties. It regularizes large total-flow jumps, but it is not a
+The analyzed reward was not really being shaped by the bonus or the linear
+inside/outside terms. It was primarily an absolute-error plus late-hold
+absolute-error reward. The total-flow move penalty was also small relative to
+tracking penalties. It regularized large total-flow jumps, but it was not a
 dominant training signal.
 
-The next reward experiment should make the offset-focused reward simpler and
+The implemented follow-up reward makes the offset-focused reward simpler and
 better scaled:
 
 $$
 r_t =
 -w_e |e_t|
--w_{tail}h_t |e_t|
 -w_S
 \left(
 \frac{S_t-S_{t-1}}{S_{\max}-S_{\min}}
 \right)^2
-+w_b \exp\left(-\frac{|e_t|}{b}\right).
++w_b f_{bonus}\left(\frac{|e_t|}{b}\right)
+\quad
+\text{plus the retained small relative-band quadratic and linear terms.}
 $$
 
-Use `b = 0.01`, keep `w_e = 1`, reduce `w_tail` from `5` to about `2`, increase
-the total-flow move weight from `0.1` to about `1.0`, and set the bonus in
-absolute reward units, for example `w_b = 0.05`, instead of scaling it by
-`b^2`. This would make the bonus visible enough to shape near-zero offset while
-keeping large errors strongly penalized.
+The current defaults are `b = 0.01`, `w_e = 1`, `w_tail = 0`, `w_S = 1.0`,
+`w_b = 0.05`, and `bonus_k = 6.0`. The key correction is that the bonus is now
+in absolute reward units instead of being scaled by `b^2`. This makes the
+near-zero-offset attraction visible while keeping large errors strongly
+penalized by the absolute-error term.
 
 The older sections below describe the previous one-action fixed-sum run and
 are retained as historical context.

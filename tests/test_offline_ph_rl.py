@@ -160,7 +160,8 @@ def test_relative_band_reward_exposes_shaping_components() -> None:
         mode="relative_band",
         band_floor_ph=0.01,
         r_move=0.0,
-        sum_move_weight=0.1,
+        sum_move_weight=1.0,
+        bonus_weight_abs=0.05,
     )
     breakdown = compute_relative_band_ph_reward(
         target_ph=4.76,
@@ -183,7 +184,17 @@ def test_relative_band_reward_exposes_shaping_components() -> None:
     assert np.isclose(breakdown.move_penalty_term, 0.0)
     assert breakdown.sum_move_cost > 0.0
     assert breakdown.sum_move_penalty_term > 0.0
-    assert breakdown.bonus_term >= 0.0
+    assert np.isclose(breakdown.sum_move_penalty_term, breakdown.sum_move_cost)
+    assert np.isclose(breakdown.bonus_term, 0.0)
+
+    at_setpoint = compute_relative_band_ph_reward(
+        target_ph=4.76,
+        ph=4.76,
+        action=np.array([0.0, 0.0]),
+        previous_action=np.array([0.0, 0.0]),
+        config=cfg,
+    )
+    assert at_setpoint.bonus_term > 0.03
 
 
 def test_sum_move_penalty_lowers_reward_for_large_total_flow_change() -> None:
@@ -191,7 +202,7 @@ def test_sum_move_penalty_lowers_reward_for_large_total_flow_change() -> None:
         mode="relative_band_offset",
         band_floor_ph=0.01,
         r_move=0.0,
-        sum_move_weight=0.1,
+        sum_move_weight=1.0,
     )
     kwargs = {
         "target_ph": 4.76,
@@ -262,10 +273,12 @@ def test_runner_default_reward_is_offset_focused_shaped() -> None:
     assert np.isclose(cfg.band_floor_ph, 0.01)
     assert np.isclose(cfg.q_band, 1.0)
     assert np.isclose(cfg.r_move, 0.0)
-    assert np.isclose(cfg.sum_move_weight, 0.1)
-    assert np.isclose(cfg.beta, 25.0)
+    assert np.isclose(cfg.sum_move_weight, 1.0)
+    assert np.isclose(cfg.beta, 0.0)
+    assert np.isclose(cfg.bonus_weight_abs, 0.05)
+    assert np.isclose(cfg.bonus_k, 6.0)
     assert np.isclose(cfg.absolute_error_weight, 1.0)
-    assert np.isclose(cfg.tail_offset_weight, 5.0)
+    assert np.isclose(cfg.tail_offset_weight, 0.0)
 
 
 def test_action_bounds_and_ratio_direction() -> None:
@@ -512,7 +525,7 @@ def test_result_artifact_helper_smoke() -> None:
                 mode="relative_band_offset",
                 band_floor_ph=0.01,
                 r_move=0.0,
-                sum_move_weight=0.1,
+                sum_move_weight=1.0,
             ).to_dict(),
         },
     }

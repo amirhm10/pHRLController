@@ -27,10 +27,11 @@ class PHRewardConfig:
     tau_frac: float = 0.7
     gamma_out: float = 0.5
     gamma_in: float = 0.5
-    beta: float = 7.0
+    beta: float = 0.0
     lam_in: float = 1.0
     bonus_kind: str = "exp"
-    bonus_k: float = 12.0
+    bonus_weight_abs: float = 0.05
+    bonus_k: float = 6.0
     bonus_p: float = 0.6
     bonus_c: float = 20.0
     reward_scale: float = 1.0
@@ -60,6 +61,7 @@ class PHRewardConfig:
             "gamma_in",
             "beta",
             "lam_in",
+            "bonus_weight_abs",
             "bonus_k",
             "bonus_p",
             "bonus_c",
@@ -266,9 +268,7 @@ def compute_relative_band_ph_reward(
     linear_in_term = inside_weight * cfg.gamma_in * slope_at_edge * inside_magnitude
     bonus_term = (
         inside_weight
-        * cfg.beta
-        * cfg.q_band
-        * band_ph**2
+        * cfg.bonus_weight_abs
         * _bonus_shape(normalized_error, cfg)
     )
 
@@ -431,11 +431,11 @@ def reward_definition_text(config: PHRewardConfig | None = None) -> str:
     if cfg.mode == "relative_band":
         return (
             "[-(J_eff + J_move + J_delta_sum + J_lin_out + J_lin_in) + "
-            "J_bonus] * reward_scale"
+            "J_bonus_abs] * reward_scale"
         )
     return (
-        "relative_band reward minus absolute-error and late-hold offset "
-        "penalties, with optional normalized total-flow move penalty"
+        "relative_band reward minus absolute-error penalty, with optional "
+        "late-hold offset and normalized total-flow move penalties"
     )
 
 

@@ -200,7 +200,9 @@ def build_reward_config(args: argparse.Namespace) -> PHRewardConfig:
         q_band=args.reward_squared_weight,
         r_move=args.move_penalty_weight,
         sum_move_weight=args.sum_move_penalty_weight,
-        beta=args.reward_bonus_weight,
+        beta=0.0,
+        bonus_weight_abs=args.reward_bonus_weight,
+        bonus_k=args.reward_bonus_k,
         absolute_error_weight=args.reward_absolute_weight,
         tail_offset_weight=args.reward_tail_offset_weight,
     )
@@ -713,7 +715,8 @@ def summarize_run(
                 "move_penalty_weight": float(args.move_penalty_weight),
                 "sum_move_penalty_weight": float(args.sum_move_penalty_weight),
                 "reward_band_floor_ph": float(args.reward_band_floor_ph),
-                "reward_bonus_weight": float(reward_config.beta),
+                "reward_bonus_weight": float(reward_config.bonus_weight_abs),
+                "reward_bonus_k": float(reward_config.bonus_k),
                 "reward_tail_offset_weight": float(args.reward_tail_offset_weight),
                 "reward_definition": reward_definition_text(reward_config),
                 "plant_model": "ideal Henderson-Hasselbalch",
@@ -796,7 +799,8 @@ def write_config_snapshot(
             "move_penalty_weight": float(args.move_penalty_weight),
             "sum_move_penalty_weight": float(args.sum_move_penalty_weight),
             "reward_band_floor_ph": float(args.reward_band_floor_ph),
-            "reward_bonus_weight": float(reward_config.beta),
+            "reward_bonus_weight": float(reward_config.bonus_weight_abs),
+            "reward_bonus_k": float(reward_config.bonus_k),
             "reward_tail_offset_weight": float(args.reward_tail_offset_weight),
             "exploration_mode": "gaussian",
             "exploration_std_start": float(args.std_start),
@@ -860,7 +864,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sum-move-penalty-weight",
         type=float,
-        default=0.1,
+        default=1.0,
         help=(
             "Weight on ((acid+acetate sum change)/(sum range))^2. "
             "This is the MPC-like move penalty used by the variable-sum action."
@@ -879,13 +883,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reward-bonus-weight",
         type=float,
-        default=25.0,
+        default=0.05,
         help=(
-            "Weight beta on the relative-band near-setpoint bonus. Larger "
-            "values make zero and near-zero pH offset more attractive."
+            "Absolute reward-unit weight on the relative-band near-setpoint "
+            "bonus. Larger values make zero and near-zero pH offset more attractive."
         ),
     )
-    parser.add_argument("--reward-tail-offset-weight", type=float, default=5.0)
+    parser.add_argument(
+        "--reward-bonus-k",
+        type=float,
+        default=6.0,
+        help="Sharpness of the exponential near-setpoint bonus shape.",
+    )
+    parser.add_argument("--reward-tail-offset-weight", type=float, default=0.0)
     parser.add_argument(
         "--action-mode",
         choices=["ratio", "ratio_buffer_sum"],

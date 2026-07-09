@@ -368,7 +368,9 @@ No normal uniform-only replay buffer is used in the offline pH TD3 path.
 
 The current default reward mode in `run_offline_ph_td3_training.py` is
 `relative_band_offset`. This reward starts from a relative-band shaped reward
-and adds explicit absolute-error and late-hold offset penalties.
+and adds an explicit absolute-error penalty. The late-hold tail offset penalty
+is still available as an ablation option, but it is off in the current default
+because it dominated the reward magnitude in the previous run.
 
 Let
 
@@ -445,7 +447,7 @@ $$
 The current default uses
 
 $$
-r_{\Delta S}=0.1,
+r_{\Delta S}=1.0,
 \qquad
 S_{\min}=2~\mathrm{mL/min},
 \qquad
@@ -482,11 +484,14 @@ $$
 J_{bonus,t}
 =
 w^{in}_t
-\,\beta
-\,q_{band}
-\,b_t^2
+\,w_{bonus}
 f_{bonus}(z_t).
 $$
+
+Here \(w_{bonus}\) is an absolute reward-unit weight, not a weight multiplied
+by \(b_t^2\). This matters because the pH band is only `0.01` pH. Scaling the
+bonus by \(b_t^2\) would reduce the maximum bonus by \(10^{-4}\), making it
+nearly invisible compared with the absolute pH-error penalty.
 
 For the default exponential bonus shape,
 
@@ -512,7 +517,8 @@ h_t =
 \right).
 $$
 
-The default reward is
+This optional term is only active when `tail_offset_weight > 0`. The current
+default uses `tail_offset_weight = 0`, so the active default reward is
 
 $$
 r_t =
@@ -524,16 +530,23 @@ J_{eff,t}
 +J_{lin,in,t}
 -J_{bonus,t}
 +w_{|e|}\epsilon_t
-+w_{tail}h_t\epsilon_t
 \right].
+$$
+
+If a late-hold tail penalty is deliberately enabled for an ablation, the
+additional cost is
+
+$$
+J_{tail,t}=w_{tail}h_t\epsilon_t.
 $$
 
 In simple terms, the shaped reward makes the pH band tight and attractive. The
 `0.01` pH band defines the near-zero-offset region, the linear terms shape the
-slope as the error moves inside or outside that band, the bonus adds extra
-reward near exact tracking, and the total-flow penalty discourages abrupt
-changes in the acid+acetate sum. This is why the reward is offset-focused
-without asking the ratio action itself to be smooth.
+slope as the error moves inside or outside that band, the `0.05` reward-unit
+bonus adds a visible attraction near exact tracking, and the total-flow penalty
+discourages abrupt changes in the acid+acetate sum. The default is now
+offset-focused without the extra late-hold tail term that previously dominated
+the reward values.
 
 The report-level reward-shape comparison is shown below. The same figure is
 also saved by the offline TD3 result-artifact helper as
@@ -548,19 +561,20 @@ The default reward parameters used by the runner are:
 | Reward mode | `relative_band_offset` |
 | `q_band` | 1.0 |
 | `r_move` | 0.0 |
-| `r_delta_S` or `sum_move_penalty_weight` | 0.1 |
+| `r_delta_S` or `sum_move_penalty_weight` | 1.0 |
 | `b_min` or `band_floor_ph` | 0.01 |
 | `k_rel` | 0.0 |
 | `tau_frac` | 0.7 |
 | `gamma_out` | 0.5 |
 | `gamma_in` | 0.5 |
-| `beta` or `reward_bonus_weight` | 25.0 |
+| legacy `beta` | 0.0 |
+| `w_bonus` or `reward_bonus_weight` | 0.05 |
 | `lambda_in` | 1.0 |
 | `bonus_kind` | `exp` |
-| `bonus_k` | 12.0 |
+| `bonus_k` | 6.0 |
 | `reward_scale` or `alpha` | 1.0 |
 | `w_abs` or `absolute_error_weight` | 1.0 |
-| `w_tail` or `tail_offset_weight` | 5.0 |
+| `w_tail` or `tail_offset_weight` | 0.0 |
 | `p_start` or `tail_start_fraction` | 0.75 |
 | `default_flow_weight` | 0.0 |
 

@@ -882,7 +882,7 @@ def plot_reward_shape_comparison(output_dir: Path, config: dict) -> Path:
     previous_action = np.zeros(2, dtype=np.float32)
     curves = [
         ("full shaped", base_cfg, "#0072B2"),
-        ("no bonus", replace(base_cfg, beta=0.0), "#D55E00"),
+        ("no bonus", replace(base_cfg, beta=0.0, bonus_weight_abs=0.0), "#D55E00"),
         (
             "no linear terms",
             replace(base_cfg, gamma_out=0.0, gamma_in=0.0),
@@ -890,7 +890,13 @@ def plot_reward_shape_comparison(output_dir: Path, config: dict) -> Path:
         ),
         (
             "no bonus or linear",
-            replace(base_cfg, beta=0.0, gamma_out=0.0, gamma_in=0.0),
+            replace(
+                base_cfg,
+                beta=0.0,
+                bonus_weight_abs=0.0,
+                gamma_out=0.0,
+                gamma_in=0.0,
+            ),
             "#AA4499",
         ),
     ]
