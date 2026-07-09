@@ -732,6 +732,74 @@ The runner additionally logs:
 | `critic_loss` | critic loss when a training update occurs |
 | `actor_loss` | actor loss when a delayed actor update occurs |
 
+## Latest Offline TD3 Result For Meeting
+
+The latest full run is:
+
+`results/offline_ph_td3_training_20260709_001341`
+
+This run used the current defaults: `200000` rollout steps, `1000` setpoint
+cycles, `200` steps per setpoint, `batch_size = 128`,
+`buffer_size = 60000`, lab-data setpoint range source, and the shaped
+`relative_band_offset` reward with `sum_move_penalty_weight = 5.0`,
+`reward_bonus_weight = 0.05`, and `tail_offset_weight = 0.0`.
+
+The lab CSV desired setpoint range was `3.7` to `5.7` pH, and the simulator
+resolved this to `3.76` to `5.7` pH after intersecting with the reachable
+ideal-HH range.
+
+| Scope | Steps | MAE | RMSE | Max \|e\| | Mean reward |
+|---|---:|---:|---:|---:|---:|
+| all steps | 200000 | 0.03360 | 0.06711 | 1.60821 | -0.03933 |
+| post-decay training | 194800 | 0.02870 | 0.04511 | 0.88321 | -0.03010 |
+| last 100 training cycles | 20000 | 0.03035 | 0.04914 | 0.55538 | -0.03225 |
+| final evaluation cycle | 200 | 0.01838 | 0.01898 | 0.06393 | -0.01900 |
+| final evaluation tail 150 steps | 151 | 0.01777 | 0.01777 | 0.01777 | -0.01817 |
+
+The final deterministic evaluation target was `4.53664` pH, and the final pH
+was `4.55441`. The final logged error was therefore `0.01777` pH. This is
+inside the current `0.02` pH success tolerance, but it is not yet strong
+evidence of robust offset-free control because it is one final target only.
+
+The reward-component magnitudes show that the current reward is interpretable:
+
+| Component | Share of gross positive cost |
+|---|---:|
+| absolute-error term | 81.81% |
+| effective squared-error term | 10.97% |
+| weighted total-flow move penalty | 6.58% |
+| outside plus inside linear terms | 0.64% |
+| late-hold tail term | 0.00% |
+| bonus term | 4.22% negative cost |
+
+The important finding is that the absolute bonus is now visible in reward
+units and the late-hold tail term no longer dominates. Increasing the
+total-flow move penalty to `5.0` also reduced the raw normalized total-flow
+movement per step compared with the previous 100000-step absolute-bonus run,
+although the comparison is not perfectly controlled because the setpoint
+schedule and run length changed.
+
+The main remaining weakness is edge behavior. In the latest run, low-edge
+targets with `target_ph <= 3.90` had mean tail-50 MAE `0.06267` pH and median
+tail-50 MAE `0.03568` pH, which is worse than the middle of the range. Since
+the environment is static ideal Henderson-Hasselbalch, this is best explained
+by action geometry near pump bounds rather than hidden process dynamics.
+
+The next result needed for a meeting-quality claim is a frozen-policy
+setpoint sweep. The actor should be trained with the current defaults, saved,
+then evaluated without exploration or learning updates over a grid from
+`3.76` to `5.7` pH. The sweep should report tail-50 MAE, final error,
+flow commands, total-flow command, action saturation, and pump-bound activity
+for each target.
+
+Key figures from this run:
+
+![200000-step average reward trend](../results/offline_ph_td3_training_20260709_001341/figures/fig_setpoint_average_reward.png)
+
+![200000-step last five setpoints](../results/offline_ph_td3_training_20260709_001341/figures/fig_last_5_setpoint_tracking.png)
+
+![200000-step reward shape](../results/offline_ph_td3_training_20260709_001341/figures/fig_reward_shape_comparison.png)
+
 ## Scope And Limitations
 
 This setup is useful for testing the offline RL scaffold and reward design

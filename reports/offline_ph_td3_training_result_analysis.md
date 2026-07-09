@@ -2,6 +2,206 @@
 
 Generated on 2026-07-02 00:40:05 from saved result files only. Rewritten on 2026-07-02 after inspecting the latest requested 50,000-step run and the neighboring result folders.
 
+## Meeting Summary: 200000-Step Variable-Sum TD3 Run, 2026-07-09
+
+This update analyzes the latest full offline TD3 run:
+
+`results/offline_ph_td3_training_20260709_001341`
+
+This is the first full run with the current defaults:
+
+- `total_steps = 200000`
+- `batch_size = 128`
+- `buffer_size = 60000`
+- `std_end = 0.01`
+- lab-data setpoint source from
+  `Data/dsp_db.biosmb-rl-controller-treated-dataset-weights.csv`
+- desired lab setpoint range `3.7` to `5.7` pH
+- resolved simulator training range `3.76` to `5.7` pH
+- shaped reward with `band_floor_ph = 0.01`,
+  `reward_bonus_weight = 0.05`, `bonus_k = 6.0`,
+  `sum_move_penalty_weight = 5.0`, and `tail_offset_weight = 0.0`
+
+The active reward remains
+
+$$
+r_t =
+-J_{eff,t}
+-J_{\Delta S,t}
+-J_{lin,out,t}
+-J_{lin,in,t}
+-w_{|e|}|e_t|
++J_{bonus,t}.
+$$
+
+The late-hold tail penalty is still disabled. This is important because the
+previous tail term dominated the reward and made the result harder to
+interpret.
+
+### Headline Result
+
+The 200000-step run is better globally than the previous 100000-step
+absolute-bonus run, but it is not uniformly offset-free across all setpoints.
+Overall MAE decreased from `0.04202` pH in
+`offline_ph_td3_training_20260708_233033` to `0.03360` pH in the latest run.
+After the initial exploration-decay period, the latest training MAE is
+`0.02870` pH. The final deterministic evaluation hold has MAE `0.01838` pH,
+which is inside the `0.02` pH success tolerance, but the final hold is still
+biased high by about `0.0178` pH.
+
+| Scope | Steps | MAE | RMSE | Max \|e\| | Mean reward |
+|---|---:|---:|---:|---:|---:|
+| all steps | 200000 | 0.03360 | 0.06711 | 1.60821 | -0.03933 |
+| first 5000 exploration-decay steps | 5000 | 0.22514 | 0.31763 | 1.60821 | -0.39985 |
+| post-decay training | 194800 | 0.02870 | 0.04511 | 0.88321 | -0.03010 |
+| last 100 training cycles | 20000 | 0.03035 | 0.04914 | 0.55538 | -0.03225 |
+| final evaluation cycle | 200 | 0.01838 | 0.01898 | 0.06393 | -0.01900 |
+| final evaluation after first 10 steps | 191 | 0.01778 | 0.01778 | 0.01855 | -0.01818 |
+| final evaluation tail 150 steps | 151 | 0.01777 | 0.01777 | 0.01777 | -0.01817 |
+
+The final evaluation target was `4.53664` pH. The final pH was `4.55441`,
+so the logged final error was
+
+$$
+\mathrm{pH} - \mathrm{pH}_{sp} = 0.01777.
+$$
+
+This is close enough to satisfy the current success tolerance, but it is not
+as close as the best previous final target from the 100000-step absolute-bonus
+run, where the post-transition final-evaluation MAE was about `0.00193` pH.
+Because the final evaluation is only one target, this should be interpreted as
+a warning about evaluation coverage, not as proof that the new defaults are
+worse.
+
+### Figures For The Meeting
+
+The average-reward figure is now a connected scatter plot. It shows rapid
+early improvement, then mostly stable setpoint rewards near zero with a few
+isolated bad setpoints.
+
+![200000-step average reward trend](../results/offline_ph_td3_training_20260709_001341/figures/fig_setpoint_average_reward.png)
+
+The last-five-setpoint plot shows the most important qualitative behavior.
+The final shaded evaluation hold is deterministic and flat, but it is slightly
+biased high. The preceding training holds still wiggle because exploration and
+TD3 updates are active during training.
+
+![200000-step last five setpoints](../results/offline_ph_td3_training_20260709_001341/figures/fig_last_5_setpoint_tracking.png)
+
+The reward-shape figure confirms that the absolute bonus is now visible in
+reward units near zero pH error. The bonus is no longer scaled by
+`band_floor_ph^2`, so it creates a clear attraction around exact tracking.
+
+![200000-step reward shape](../results/offline_ph_td3_training_20260709_001341/figures/fig_reward_shape_comparison.png)
+
+The train-loss plot is now readable on logarithmic and signed-log axes. The
+critic loss drops after the initial transient, then becomes noisier late in
+training. This is not by itself a failure, but it supports keeping evaluation
+separate from ongoing actor updates.
+
+![200000-step TD3 losses](../results/offline_ph_td3_training_20260709_001341/figures/fig_training_losses.png)
+
+### Reward Magnitude With The New Move Penalty
+
+The active reward cost is now dominated by absolute pH error, with a visible
+but not dominant total-flow move penalty. The bonus is meaningful, and the
+late-hold tail term is zero.
+
+| Component | Sum | Share of gross positive cost |
+|---|---:|---:|
+| absolute-error term | 6719.42 | 81.81% |
+| effective squared-error term | 900.84 | 10.97% |
+| weighted total-flow move penalty | 540.72 | 6.58% |
+| outside linear term | 48.58 | 0.59% |
+| inside linear term | 3.63 | 0.04% |
+| late-hold tail offset term | 0.00 | 0.00% |
+| bonus term | 346.43 | 4.22% negative cost |
+
+For post-decay training only, the bonus share rises to `5.55%` of gross
+positive cost. This is the desired direction: the near-zero bonus is large
+enough to matter once the agent reaches the neighborhood of the setpoint.
+
+Increasing `sum_move_penalty_weight` from `1.0` to `5.0` did increase the
+weighted reward contribution from total-flow movement. At the same time, the
+raw normalized total-flow movement per step dropped from about `0.00105` in
+the previous 100000-step absolute-bonus run to about `0.00054` in this
+200000-step run. This suggests the stronger penalty is doing useful smoothing,
+although the comparison is not perfectly controlled because the run length and
+setpoint schedule changed.
+
+### Late-Operation Drift And Edge Behavior
+
+The last 100 training cycles still show occasional drift:
+
+| Diagnostic | Value |
+|---|---:|
+| mean tail-50 MAE | 0.03172 pH |
+| median tail-50 MAE | 0.01749 pH |
+| 90th percentile tail-50 MAE | 0.06511 pH |
+| maximum tail-50 MAE | 0.31395 pH |
+| mean absolute tail-minus-first error shift | 0.01927 pH |
+| cycles with absolute drift above 0.02 pH | 22 of 100 |
+
+The drift is still not a dynamic-process effect. The saved HH consistency
+check has maximum residual `8.88e-16` pH, so the pH follows the static ideal
+Henderson-Hasselbalch map exactly:
+
+$$
+\mathrm{pH}
+= pK_a+\log_{10}\left(\frac{F_{Ac}}{F_{HAc}}\right).
+$$
+
+Therefore, within-hold drift must come from the selected actions. The latest
+run indicates that the hardest region is still the low-pH edge of the
+lab-data setpoint range:
+
+| Target group | Cycles | Mean tail-50 MAE | Median tail-50 MAE | P90 tail-50 MAE | Worst tail-50 MAE |
+|---|---:|---:|---:|---:|---:|
+| low edge, target <= 3.90 | 72 | 0.06267 | 0.03568 | 0.16023 | 0.75054 |
+| high edge, target >= 5.55 | 77 | 0.03121 | 0.01820 | 0.06529 | 0.13823 |
+| middle targets | 850 | 0.02982 | 0.01881 | 0.05310 | 0.81000 |
+
+The middle-target worst case is an early exploration cycle, so the more
+important persistent warning is the low-pH edge. Low pH requires a high acid
+fraction. If the actor also chooses a total acid+acetate sum that conflicts
+with individual pump bounds, the nominal ratio action alone cannot recover the
+desired pH. This is the same action-geometry issue seen in the previous
+analysis, but the larger sum-move penalty now makes some transitions smoother.
+
+### Interpretation For The Meeting
+
+The current reward design is moving in the right direction. The absolute bonus
+is visible, the tail penalty is removed, the final deterministic hold is inside
+the current tolerance, and the 200000-step run improves overall MAE relative
+to the previous absolute-bonus run.
+
+The result is still not enough to claim robust offset-free control. The final
+evaluation is one setpoint only. The low-pH edge still has large occasional
+tail errors, and several late training holds drift because the actor continues
+to update while exploration is active. The correct conclusion is that the
+software scaffold and reward are now scientifically reasonable for offline
+diagnostics, but the evaluation protocol needs to be strengthened before we
+compare reward variants or make claims about generalization.
+
+### Recommended Next Step
+
+The next step should be a frozen-policy setpoint sweep using this exact
+200000-step training protocol:
+
+1. Train TD3 with the current defaults and save the actor checkpoint.
+2. Freeze the actor.
+3. Disable exploration and learning updates.
+4. Evaluate a grid of setpoints from `3.76` to `5.7` pH.
+5. Save per-target final error, tail-50 MAE, acid flow, acetate flow,
+   buffer-flow sum, action saturation, and pump-bound activity.
+6. Plot target pH versus final error and target pH versus flow commands.
+
+The success criterion for the next meeting should be explicit: median
+evaluation tail-50 MAE below `0.02` pH across the grid, with no systematic
+low-pH or high-pH edge bias. If the low edge still fails, the next code change
+should be an edge-aware action mapping or a setpoint-conditioned nominal
+buffer-flow sum, not another global reward-bonus increase.
+
 ## Absolute-Bonus Variable-Sum Reward Analysis, 2026-07-08
 
 This update analyzes the newest full offline TD3 run:
