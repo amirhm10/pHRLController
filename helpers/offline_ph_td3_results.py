@@ -824,28 +824,51 @@ def plot_training_losses(trajectory: pd.DataFrame, output_dir: Path) -> Path | N
     if not has_critic and not has_actor:
         return None
 
-    fig, ax = plt.subplots(figsize=(9.5, 4.8))
+    n_axes = int(has_critic) + int(has_actor)
+    fig, axs = plt.subplots(
+        n_axes,
+        1,
+        figsize=(9.5, 6.4 if n_axes > 1 else 4.8),
+        sharex=True,
+    )
+    axes = np.atleast_1d(axs)
+    axis_index = 0
     if has_critic:
+        ax = axes[axis_index]
+        axis_index += 1
+        critic_rows = train_rows[train_rows["critic_loss"].notna()]
         ax.plot(
-            train_rows["step"],
-            train_rows["critic_loss"],
+            critic_rows["step"],
+            critic_rows["critic_loss"],
             color="#0072B2",
             linewidth=1.4,
             label="critic loss",
         )
+        critic_values = critic_rows["critic_loss"].to_numpy(float)
+        if np.all(critic_values > 0.0):
+            ax.set_yscale("log")
+            ax.set_ylabel("critic loss (log)")
+        else:
+            ax.set_yscale("symlog", linthresh=1.0e-4)
+            ax.set_ylabel("critic loss (signed log)")
+        ax.grid(alpha=0.28, which="both")
+        ax.legend(loc="best")
     if has_actor:
+        ax = axes[axis_index]
+        actor_rows = train_rows[train_rows["actor_loss"].notna()]
         ax.plot(
-            train_rows["step"],
-            train_rows["actor_loss"],
+            actor_rows["step"],
+            actor_rows["actor_loss"],
             color="#D55E00",
             linewidth=1.4,
             label="actor loss",
         )
-    ax.set_xlabel("step")
-    ax.set_ylabel("loss")
-    ax.set_title("TD3 Train-Step Loss Trace")
-    ax.grid(alpha=0.28)
-    ax.legend(loc="best")
+        ax.set_yscale("symlog", linthresh=1.0e-4)
+        ax.set_ylabel("actor loss (signed log)")
+        ax.grid(alpha=0.28, which="both")
+        ax.legend(loc="best")
+    axes[0].set_title("TD3 Train-Step Loss Trace")
+    axes[-1].set_xlabel("step")
     fig.tight_layout()
     return save_figure(fig, output_dir, "fig_training_losses.png")
 

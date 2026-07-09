@@ -22,6 +22,10 @@ from simulation.ph_reward import PHRewardConfig, reward_definition_text
 
 
 DEFAULT_SET_POINTS_LEN = 200
+DEFAULT_SETPOINT_DATA_PATH = Path(
+    "Data/dsp_db.biosmb-rl-controller-treated-dataset-weights.csv"
+)
+DEFAULT_SETPOINT_COLUMN = "target_ph"
 
 OPTIONAL_INFO_COLUMNS = [
     "reward_band_ph",
@@ -105,6 +109,77 @@ def build_setpoint_schedule(
     schedule = np.repeat(targets, set_points_len).astype(np.float32)
     cycle_indices = np.repeat(np.arange(n_tests), set_points_len)
     return schedule, cycle_indices, targets
+
+
+def load_setpoint_range_from_csv(
+    path: Path,
+    column: str = DEFAULT_SETPOINT_COLUMN,
+) -> tuple[float, float, int]:
+    """Return finite target-pH min, max, and count from a lab-data CSV."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"setpoint range CSV not found: {path}")
+    try:
+        values = pd.read_csv(path, usecols=[column])[column]
+    except ValueError as exc:
+        raise ValueError(f"setpoint range CSV must contain column '{column}'.") from exc
+    values = pd.to_numeric(values, errors="coerce").to_numpy(float)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        raise ValueError(f"setpoint column '{column}' contains no finite values.")
+    return float(np.min(values)), float(np.max(values)), int(values.size)
+
+
+def resolve_training_target_ph_bounds(
+    *,
+    args: argparse.Namespace,
+    process_config: PHProcessConfig,
+    reachable_bounds: tuple[float, float],
+) -> tuple[float, float, dict]:
+    """Resolve the actual training target range and source metadata."""
+    reachable_low, reachable_high = map(float, reachable_bounds)
+    if args.setpoint_range_source == "reachable":
+        desired_low = reachable_low
+        desired_high = reachable_high
+        desired_count = None
+        source = "reachable_action_range"
+    elif args.setpoint_range_source == "lab_data":
+        desired_low, desired_high, desired_count = load_setpoint_range_from_csv(
+            path=args.setpoint_data_path,
+            column=args.setpoint_column,
+        )
+        source = "lab_data_target_ph_range"
+    else:
+        raise ValueError("setpoint_range_source must be 'lab_data' or 'reachable'.")
+
+    target_low = max(desired_low, reachable_low, float(process_config.target_ph_min))
+    target_high = min(desired_high, reachable_high, float(process_config.target_ph_max))
+    if target_low >= target_high:
+        raise ValueError(
+            "Resolved setpoint range is empty after intersecting desired, "
+            "reachable, and process target bounds."
+        )
+    metadata = {
+        "setpoint_source": source,
+        "setpoint_data_path": str(args.setpoint_data_path)
+        if args.setpoint_range_source == "lab_data"
+        else None,
+        "setpoint_column": str(args.setpoint_column)
+        if args.setpoint_range_source == "lab_data"
+        else None,
+        "desired_setpoint_min": float(desired_low),
+        "desired_setpoint_max": float(desired_high),
+        "desired_setpoint_count": desired_count,
+        "reachable_setpoint_min": float(reachable_low),
+        "reachable_setpoint_max": float(reachable_high),
+        "resolved_setpoint_min": float(target_low),
+        "resolved_setpoint_max": float(target_high),
+        "range_was_clipped": bool(
+            not np.isclose(target_low, desired_low)
+            or not np.isclose(target_high, desired_high)
+        ),
+    }
+    return float(target_low), float(target_high), metadata
 
 
 def resolve_set_points_len(
@@ -352,16 +427,21 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
     process_config = PHProcessConfig()
     reward_config = build_reward_config(args)
     if args.action_mode == "ratio":
-        target_ph_min, target_ph_max = fixed_buffer_target_ph_bounds(
+        reachable_target_bounds = fixed_buffer_target_ph_bounds(
             process_config=process_config,
             fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
         )
     else:
-        target_ph_min, target_ph_max = variable_buffer_target_ph_bounds(
+        reachable_target_bounds = variable_buffer_target_ph_bounds(
             process_config=process_config,
             buffer_flow_sum_min=args.buffer_flow_sum_min,
             buffer_flow_sum_max=args.buffer_flow_sum_max,
         )
+    target_ph_min, target_ph_max, setpoint_metadata = resolve_training_target_ph_bounds(
+        args=args,
+        process_config=process_config,
+        reachable_bounds=reachable_target_bounds,
+    )
     set_points_len = resolve_set_points_len(
         total_steps=args.total_steps,
         n_tests=args.n_tests,
@@ -541,6 +621,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         warm_start_steps=warm_start_steps,
         target_ph_min=target_ph_min,
         target_ph_max=target_ph_max,
+        setpoint_metadata=setpoint_metadata,
         reward_config=reward_config,
         env=env,
     )
@@ -572,6 +653,9 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         warm_start_steps=warm_start_steps,
         reward_config=reward_config,
         env=env,
+        target_ph_min=target_ph_min,
+        target_ph_max=target_ph_max,
+        setpoint_metadata=setpoint_metadata,
     )
     artifacts = save_offline_ph_td3_result_artifacts(
         output_dir=output_dir,
@@ -660,6 +744,7 @@ def summarize_run(
     warm_start_steps: int,
     target_ph_min: float,
     target_ph_max: float,
+    setpoint_metadata: dict,
     reward_config: PHRewardConfig,
     env: PHEnvironment,
 ) -> pd.DataFrame:
@@ -672,8 +757,18 @@ def summarize_run(
                 "setpoint_cycles": int(n_setpoints),
                 "steps_per_cycle": int(set_points_len),
                 "setpoint_strategy": str(args.setpoint_strategy),
+                "setpoint_source": str(setpoint_metadata["setpoint_source"]),
                 "setpoint_min": float(target_ph_min),
                 "setpoint_max": float(target_ph_max),
+                "desired_setpoint_min": float(
+                    setpoint_metadata["desired_setpoint_min"]
+                ),
+                "desired_setpoint_max": float(
+                    setpoint_metadata["desired_setpoint_max"]
+                ),
+                "setpoint_range_was_clipped": bool(
+                    setpoint_metadata["range_was_clipped"]
+                ),
                 "warm_start_steps": int(warm_start_steps),
                 "td3_train_steps": int(agent.train_steps),
                 "batch_size": int(args.batch_size),
@@ -735,20 +830,10 @@ def write_config_snapshot(
     warm_start_steps: int,
     reward_config: PHRewardConfig,
     env: PHEnvironment,
+    target_ph_min: float,
+    target_ph_max: float,
+    setpoint_metadata: dict,
 ) -> dict:
-    if args.action_mode == "ratio":
-        setpoint_source = "seeded_fixed_sum_reachable_range"
-        resolved_target_bounds = fixed_buffer_target_ph_bounds(
-            process_config=process_config,
-            fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
-        )
-    else:
-        setpoint_source = "seeded_variable_sum_reachable_range"
-        resolved_target_bounds = variable_buffer_target_ph_bounds(
-            process_config=process_config,
-            buffer_flow_sum_min=args.buffer_flow_sum_min,
-            buffer_flow_sum_max=args.buffer_flow_sum_max,
-        )
     snapshot = {
         "runner": "run_offline_ph_td3_training.py",
         "simulation_only": True,
@@ -759,9 +844,24 @@ def write_config_snapshot(
             "setpoint_cycles": int(n_setpoints),
             "steps_per_cycle": int(set_points_len),
             "setpoint_strategy": str(args.setpoint_strategy),
-            "setpoint_source": setpoint_source,
-            "setpoint_min": float(resolved_target_bounds[0]),
-            "setpoint_max": float(resolved_target_bounds[1]),
+            "setpoint_source": str(setpoint_metadata["setpoint_source"]),
+            "setpoint_range_source": str(args.setpoint_range_source),
+            "setpoint_data_path": str(args.setpoint_data_path),
+            "setpoint_column": str(args.setpoint_column),
+            "desired_setpoint_min": float(setpoint_metadata["desired_setpoint_min"]),
+            "desired_setpoint_max": float(setpoint_metadata["desired_setpoint_max"]),
+            "desired_setpoint_count": setpoint_metadata["desired_setpoint_count"],
+            "reachable_setpoint_min": float(
+                setpoint_metadata["reachable_setpoint_min"]
+            ),
+            "reachable_setpoint_max": float(
+                setpoint_metadata["reachable_setpoint_max"]
+            ),
+            "setpoint_min": float(target_ph_min),
+            "setpoint_max": float(target_ph_max),
+            "setpoint_range_was_clipped": bool(
+                setpoint_metadata["range_was_clipped"]
+            ),
             "warm_start_steps": int(warm_start_steps),
             "evaluation_cycle": int(n_setpoints - 1),
             "offline_training_protocol": "direct_td3_no_warm_start"
@@ -824,7 +924,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run a repo-style offline TD3 simulation for the ideal-HH pH plant."
     )
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--total-steps", type=int, default=100_000)
+    parser.add_argument("--total-steps", type=int, default=200_000)
     parser.add_argument("--n-tests", type=int, default=None)
     parser.add_argument("--set-points-len", type=int, default=None)
     parser.add_argument(
@@ -833,11 +933,32 @@ def build_parser() -> argparse.ArgumentParser:
         default="admissible_random",
         help=(
             "How to choose setpoints. admissible_random draws seeded stratified "
-            "targets from the reachable fixed-sum pH range."
+            "targets from the resolved target-pH range."
         ),
     )
+    parser.add_argument(
+        "--setpoint-range-source",
+        choices=["lab_data", "reachable"],
+        default="lab_data",
+        help=(
+            "Source for the desired target-pH range. lab_data uses the min/max "
+            "of the configured setpoint CSV column, intersected with reachable "
+            "simulator bounds."
+        ),
+    )
+    parser.add_argument(
+        "--setpoint-data-path",
+        type=Path,
+        default=DEFAULT_SETPOINT_DATA_PATH,
+        help="CSV used when --setpoint-range-source lab_data is selected.",
+    )
+    parser.add_argument(
+        "--setpoint-column",
+        default=DEFAULT_SETPOINT_COLUMN,
+        help="Column containing desired pH setpoints in the setpoint data CSV.",
+    )
     parser.add_argument("--warm-start-cycles", type=int, default=0)
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--buffer-size", type=int, default=60_000)
     parser.add_argument("--actor-hidden", type=parse_hidden_layers, default=[64, 64])
     parser.add_argument("--critic-hidden", type=parse_hidden_layers, default=[64, 64])
@@ -864,7 +985,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sum-move-penalty-weight",
         type=float,
-        default=1.0,
+        default=5.0,
         help=(
             "Weight on ((acid+acetate sum change)/(sum range))^2. "
             "This is the MPC-like move penalty used by the variable-sum action."

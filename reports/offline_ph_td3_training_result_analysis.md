@@ -8,7 +8,7 @@ This update analyzes the newest full offline TD3 run:
 
 `results/offline_ph_td3_training_20260708_233033`
 
-This run uses the current absolute-bonus shaped reward:
+This run used the absolute-bonus shaped reward:
 
 $$
 r_t =
@@ -143,6 +143,16 @@ The next bottleneck is not the bonus weight. The next bottleneck is whether the
 two-action mapping can reliably coordinate ratio and total-flow sum near the
 edges of the feasible pH range.
 
+For the next default training run, the rollout length is increased from
+`100000` to `200000` steps and the normalized acid+acetate total-flow move
+penalty is increased from `1.0` to `5.0`. This should give the actor more
+training exposure while making unnecessary total-flow movement more expensive.
+The default TD3 batch size is also increased from `64` to `128`.
+The setpoint range is also changed from the full simulator reachable range to
+the lab-data desired range: the CSV `target_ph` values span `3.7` to `5.7` pH,
+which resolves to `3.76` to `5.7` pH after intersecting with current simulator
+bounds.
+
 The next experiment should be a deterministic frozen-policy evaluation sweep:
 
 1. Train as usual with the current absolute-bonus reward.
@@ -256,11 +266,10 @@ r_t =
 \text{plus the retained small relative-band quadratic and linear terms.}
 $$
 
-The current defaults are `b = 0.01`, `w_e = 1`, `w_tail = 0`, `w_S = 1.0`,
-`w_b = 0.05`, and `bonus_k = 6.0`. The key correction is that the bonus is now
-in absolute reward units instead of being scaled by `b^2`. This makes the
-near-zero-offset attraction visible while keeping large errors strongly
-penalized by the absolute-error term.
+The absolute-bonus experiment used `b = 0.01`, `w_e = 1`, `w_tail = 0`,
+`w_S = 1.0`, `w_b = 0.05`, and `bonus_k = 6.0`. The key correction was that the
+bonus moved to absolute reward units instead of being scaled by `b^2`. The next
+default run keeps that bonus design and increases `w_S` to `5.0`.
 
 The older sections below describe the previous one-action fixed-sum run and
 are retained as historical context.

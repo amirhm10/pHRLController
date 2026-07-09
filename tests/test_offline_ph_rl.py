@@ -11,11 +11,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from helpers.offline_ph_td3_results import save_offline_ph_td3_result_artifacts
+from helpers.offline_ph_td3_results import (
+    plot_training_losses,
+    save_offline_ph_td3_result_artifacts,
+)
 from run_offline_ph_td3_training import (
     build_parser,
     build_reward_config,
     build_setpoint_schedule,
+    load_setpoint_range_from_csv,
+    resolve_training_target_ph_bounds,
     resolve_n_tests,
     resolve_set_points_len,
     validate_trajectory_flow_constraints,
@@ -25,6 +30,7 @@ from simulation.ph_environment import (
     PHEnvironment,
     PHEnvironmentConfig,
     fixed_buffer_target_ph_bounds,
+    variable_buffer_target_ph_bounds,
 )
 from simulation.ph_reward import (
     PHRewardConfig,
@@ -160,7 +166,7 @@ def test_relative_band_reward_exposes_shaping_components() -> None:
         mode="relative_band",
         band_floor_ph=0.01,
         r_move=0.0,
-        sum_move_weight=1.0,
+        sum_move_weight=5.0,
         bonus_weight_abs=0.05,
     )
     breakdown = compute_relative_band_ph_reward(
@@ -184,7 +190,7 @@ def test_relative_band_reward_exposes_shaping_components() -> None:
     assert np.isclose(breakdown.move_penalty_term, 0.0)
     assert breakdown.sum_move_cost > 0.0
     assert breakdown.sum_move_penalty_term > 0.0
-    assert np.isclose(breakdown.sum_move_penalty_term, breakdown.sum_move_cost)
+    assert np.isclose(breakdown.sum_move_penalty_term, 5.0 * breakdown.sum_move_cost)
     assert np.isclose(breakdown.bonus_term, 0.0)
 
     at_setpoint = compute_relative_band_ph_reward(
@@ -202,7 +208,7 @@ def test_sum_move_penalty_lowers_reward_for_large_total_flow_change() -> None:
         mode="relative_band_offset",
         band_floor_ph=0.01,
         r_move=0.0,
-        sum_move_weight=1.0,
+        sum_move_weight=5.0,
     )
     kwargs = {
         "target_ph": 4.76,
@@ -265,20 +271,48 @@ def test_runner_default_reward_is_offset_focused_shaped() -> None:
     args = build_parser().parse_args([])
     cfg = build_reward_config(args)
 
-    assert args.total_steps == 100_000
+    assert args.total_steps == 200_000
+    assert args.setpoint_range_source == "lab_data"
     assert args.action_mode == "ratio_buffer_sum"
+    assert args.batch_size == 128
     assert args.buffer_size == 60_000
     assert np.isclose(args.std_end, 0.01)
     assert cfg.mode == "relative_band_offset"
     assert np.isclose(cfg.band_floor_ph, 0.01)
     assert np.isclose(cfg.q_band, 1.0)
     assert np.isclose(cfg.r_move, 0.0)
-    assert np.isclose(cfg.sum_move_weight, 1.0)
+    assert np.isclose(cfg.sum_move_weight, 5.0)
     assert np.isclose(cfg.beta, 0.0)
     assert np.isclose(cfg.bonus_weight_abs, 0.05)
     assert np.isclose(cfg.bonus_k, 6.0)
     assert np.isclose(cfg.absolute_error_weight, 1.0)
     assert np.isclose(cfg.tail_offset_weight, 0.0)
+
+
+def test_lab_data_setpoint_range_is_used_by_default() -> None:
+    args = build_parser().parse_args([])
+    process_config = PHProcessConfig()
+    reachable = variable_buffer_target_ph_bounds(
+        process_config=process_config,
+        buffer_flow_sum_min=2.0,
+        buffer_flow_sum_max=20.0,
+    )
+    data_low, data_high, count = load_setpoint_range_from_csv(
+        args.setpoint_data_path,
+        args.setpoint_column,
+    )
+    target_low, target_high, metadata = resolve_training_target_ph_bounds(
+        args=args,
+        process_config=process_config,
+        reachable_bounds=reachable,
+    )
+
+    assert count > 0
+    assert np.isclose(data_low, 3.7)
+    assert np.isclose(data_high, 5.7)
+    assert np.isclose(target_low, reachable[0])
+    assert np.isclose(target_high, data_high)
+    assert metadata["range_was_clipped"] is True
 
 
 def test_action_bounds_and_ratio_direction() -> None:
@@ -525,7 +559,7 @@ def test_result_artifact_helper_smoke() -> None:
                 mode="relative_band_offset",
                 band_floor_ph=0.01,
                 r_move=0.0,
-                sum_move_weight=1.0,
+                sum_move_weight=5.0,
             ).to_dict(),
         },
     }
@@ -548,6 +582,22 @@ def test_result_artifact_helper_smoke() -> None:
     assert "fig_reward_shape_comparison.png" in figure_names
     assert len(artifacts["figures"]) >= 8
     assert all(path.exists() for path in artifacts["figures"])
+
+
+def test_training_loss_plot_handles_signed_actor_loss() -> None:
+    trajectory = pd.DataFrame(
+        {
+            "step": [1, 2, 3, 4],
+            "train_updated": [True, True, True, True],
+            "critic_loss": [1.0e-1, 1.0e-2, 1.0e-3, 1.0e-4],
+            "actor_loss": [-2.0, -0.5, 0.25, 1.0],
+        }
+    )
+    output_dir = ROOT / "results" / "_test_offline_ph_td3_loss_plot"
+    path = plot_training_losses(trajectory, output_dir)
+
+    assert path is not None
+    assert path.exists()
 
 
 def test_default_total_step_resolution() -> None:
@@ -611,12 +661,14 @@ def run_direct() -> None:
     test_invalid_reward_mode_raises()
     test_invalid_action_mode_raises()
     test_runner_default_reward_is_offset_focused_shaped()
+    test_lab_data_setpoint_range_is_used_by_default()
     test_action_bounds_and_ratio_direction()
     test_runner_flow_constraint_validation()
     test_water_is_fixed_and_not_direct_hh_ratio_input()
     test_public_flow_helpers_and_target_update()
     test_td3_import_and_train_step_smoke()
     test_result_artifact_helper_smoke()
+    test_training_loss_plot_handles_signed_actor_loss()
     test_default_total_step_resolution()
     test_admissible_random_setpoint_schedule()
     print("offline pH RL smoke tests passed")

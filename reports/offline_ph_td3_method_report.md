@@ -318,10 +318,13 @@ The current default runner settings are:
 
 | Parameter | Value |
 |---|---:|
-| Total rollout steps | 100000 |
+| Total rollout steps | 200000 |
 | Default setpoint hold length | 200 steps |
-| Default number of setpoint cycles | 500 |
-| Batch size | 64 |
+| Default number of setpoint cycles | 1000 |
+| Default setpoint range source | lab-data `target_ph` range |
+| Lab-data desired setpoint range | 3.7 to 5.7 pH |
+| Resolved default training setpoint range | 3.76 to 5.7 pH |
+| Batch size | 128 |
 | Replay buffer capacity | 60000 |
 | Discount factor `gamma` | 0.97 |
 | Actor learning rate | 1e-4 |
@@ -447,7 +450,7 @@ $$
 The current default uses
 
 $$
-r_{\Delta S}=1.0,
+r_{\Delta S}=5.0,
 \qquad
 S_{\min}=2~\mathrm{mL/min},
 \qquad
@@ -561,7 +564,7 @@ The default reward parameters used by the runner are:
 | Reward mode | `relative_band_offset` |
 | `q_band` | 1.0 |
 | `r_move` | 0.0 |
-| `r_delta_S` or `sum_move_penalty_weight` | 1.0 |
+| `r_delta_S` or `sum_move_penalty_weight` | 5.0 |
 | `b_min` or `band_floor_ph` | 0.01 |
 | `k_rel` | 0.0 |
 | `tau_frac` | 0.7 |
@@ -614,6 +617,8 @@ It can be selected with:
 | `buffer_flow_sum_max` | 20.0 mL/min | maximum selectable `acid_flow + acetate_flow` |
 | `fixed_water_flow` | 5.0 mL/min | current water stream value |
 | nominal target range | 3.76 to 5.76 pH | general process target bounds |
+| lab-data desired target range | 3.7 to 5.7 pH | min/max of `target_ph` in `Data/dsp_db.biosmb-rl-controller-treated-dataset-weights.csv` |
+| resolved default training target range | about 3.76 to 5.70 pH | lab-data range intersected with current process/reachable bounds |
 | reachable default variable-sum target range | about 3.76 to 5.76 pH | due to variable 2-20 mL/min buffer sum and 1-10 mL/min pump bounds |
 | reachable ratio-only target range | about 4.459 to 5.061 pH | due to fixed 15 mL/min buffer sum and 1-10 mL/min pump bounds |
 | target tolerance | 0.02 pH | success flag threshold |
@@ -745,7 +750,11 @@ Important limitations:
   sweeps are added.
 
 The runner now saves per-setpoint average reward, last-five-setpoint tracking,
-action diagnostics, flow diagnostics, and reward-shape comparison figures. The
-next addition to this report should be a quantitative interpretation of a full
-100000-step run plus a frozen-policy evaluation sweep across the reachable pH
+action diagnostics, flow diagnostics, reward-shape comparison figures, and
+training-loss figures. Critic loss is plotted on a log axis when positive, and
+actor loss is plotted on a signed-log axis because TD3 actor loss can be
+negative.
+
+The next addition to this report should be a quantitative interpretation of a full
+200000-step run plus a frozen-policy evaluation sweep across the reachable pH
 range.

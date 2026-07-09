@@ -29,7 +29,7 @@ class PHEnvironmentConfig:
     tracking_weight: float = 1.0
     absolute_error_weight: float = 1.0
     move_penalty_weight: float = 0.0
-    sum_move_penalty_weight: float = 1.0
+    sum_move_penalty_weight: float = 5.0
     default_flow_penalty_weight: float = 0.0
     reward_config: PHRewardConfig | None = None
     setpoint_hold_steps: int | None = None
