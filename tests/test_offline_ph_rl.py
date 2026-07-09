@@ -34,18 +34,20 @@ from simulation.ph_reward import (
     compute_three_term_ph_reward,
 )
 from TD3Agent.agent import TD3Agent
+from TD3Agent.replay_buffer import PERRecentReplayBuffer
 
 
 def test_environment_reset_and_step() -> None:
     env = PHEnvironment(PHEnvironmentConfig(target_ph=4.76, max_episode_steps=3))
     observation, info = env.reset(seed=11)
     assert observation.shape == (5,)
-    assert env.action_space.shape == (1,)
+    assert env.action_space.shape == (2,)
     assert np.all(np.isfinite(observation))
     assert info["target_ph"] == 4.76
+    assert np.isclose(observation[4], env.flows_to_action(env.current_flows)[1])
 
     next_observation, reward, terminated, truncated, step_info = env.step(
-        np.array([0.0], dtype=np.float32)
+        np.array([0.0, 0.0], dtype=np.float32)
     )
     assert next_observation.shape == (5,)
     assert np.all(np.isfinite(next_observation))
@@ -55,6 +57,24 @@ def test_environment_reset_and_step() -> None:
     assert "reward_tracking_cost" in step_info
     assert "reward_absolute_error_cost" in step_info
     assert "reward_move_cost" in step_info
+    assert "reward_sum_move_cost" in step_info
+
+
+def test_ratio_only_mode_removes_time_fraction_state() -> None:
+    env = PHEnvironment(
+        PHEnvironmentConfig(
+            target_ph=4.76,
+            max_episode_steps=20,
+            action_mode="ratio",
+        )
+    )
+    observation, _ = env.reset(seed=11)
+    assert observation.shape == (4,)
+    assert env.action_space.shape == (1,)
+
+    next_observation, _, _, _, _ = env.step(np.array([0.0], dtype=np.float32))
+    assert next_observation.shape == (4,)
+    assert np.isclose(next_observation[3], env.flows_to_action(env.current_flows)[0])
 
 
 def test_environment_reward_components() -> None:
@@ -65,6 +85,7 @@ def test_environment_reward_components() -> None:
             absolute_error_weight=2.0,
             move_penalty_weight=0.1,
             default_flow_penalty_weight=0.0,
+            action_mode="ratio",
         )
     )
     env.reset(options={"target_ph": 4.76})
@@ -135,22 +156,59 @@ def test_zero_error_scores_better_than_nonzero_error() -> None:
 
 
 def test_relative_band_reward_exposes_shaping_components() -> None:
-    cfg = PHRewardConfig(mode="relative_band", band_floor_ph=0.02)
+    cfg = PHRewardConfig(
+        mode="relative_band",
+        band_floor_ph=0.01,
+        r_move=0.0,
+        sum_move_weight=0.1,
+    )
     breakdown = compute_relative_band_ph_reward(
         target_ph=4.76,
         ph=4.80,
-        action=np.array([0.4]),
-        previous_action=np.array([0.1]),
+        action=np.array([0.4, 0.0]),
+        previous_action=np.array([0.1, -0.5]),
         config=cfg,
+        buffer_sum=11.0,
+        previous_buffer_sum=6.5,
+        buffer_sum_min=2.0,
+        buffer_sum_max=20.0,
     )
 
-    assert np.isclose(breakdown.band_ph, 0.02)
+    assert np.isclose(breakdown.band_ph, 0.01)
     assert breakdown.normalized_error > 1.0
     assert 0.0 <= breakdown.inside_weight <= 1.0
     assert breakdown.linear_out_term > 0.0
     assert breakdown.linear_in_term >= 0.0
-    assert breakdown.move_penalty_term > 0.0
+    assert breakdown.move_cost > 0.0
+    assert np.isclose(breakdown.move_penalty_term, 0.0)
+    assert breakdown.sum_move_cost > 0.0
+    assert breakdown.sum_move_penalty_term > 0.0
     assert breakdown.bonus_term >= 0.0
+
+
+def test_sum_move_penalty_lowers_reward_for_large_total_flow_change() -> None:
+    cfg = PHRewardConfig(
+        mode="relative_band_offset",
+        band_floor_ph=0.01,
+        r_move=0.0,
+        sum_move_weight=0.1,
+    )
+    kwargs = {
+        "target_ph": 4.76,
+        "ph": 4.76,
+        "action": np.array([0.0, 0.0]),
+        "previous_action": np.array([0.0, 0.0]),
+        "config": cfg,
+        "buffer_sum": 15.0,
+        "buffer_sum_min": 2.0,
+        "buffer_sum_max": 20.0,
+    }
+    no_change = compute_ph_reward(**kwargs, previous_buffer_sum=15.0)
+    large_change = compute_ph_reward(**kwargs, previous_buffer_sum=2.0)
+
+    assert np.isclose(no_change.sum_move_penalty_term, 0.0)
+    assert large_change.sum_move_penalty_term > no_change.sum_move_penalty_term
+    assert large_change.reward < no_change.reward
 
 
 def test_relative_band_offset_penalizes_late_hold_offset_more() -> None:
@@ -183,15 +241,28 @@ def test_invalid_reward_mode_raises() -> None:
         raise AssertionError("expected invalid reward mode to fail")
 
 
+def test_invalid_action_mode_raises() -> None:
+    try:
+        PHEnvironmentConfig(action_mode="not_an_action_mode")
+    except ValueError as exc:
+        assert "action_mode" in str(exc)
+    else:
+        raise AssertionError("expected invalid action mode to fail")
+
+
 def test_runner_default_reward_is_offset_focused_shaped() -> None:
     args = build_parser().parse_args([])
     cfg = build_reward_config(args)
 
     assert args.total_steps == 100_000
+    assert args.action_mode == "ratio_buffer_sum"
+    assert args.buffer_size == 60_000
+    assert np.isclose(args.std_end, 0.01)
     assert cfg.mode == "relative_band_offset"
-    assert np.isclose(cfg.band_floor_ph, 0.02)
+    assert np.isclose(cfg.band_floor_ph, 0.01)
     assert np.isclose(cfg.q_band, 1.0)
-    assert np.isclose(cfg.r_move, 0.01)
+    assert np.isclose(cfg.r_move, 0.0)
+    assert np.isclose(cfg.sum_move_weight, 0.1)
     assert np.isclose(cfg.beta, 25.0)
     assert np.isclose(cfg.absolute_error_weight, 1.0)
     assert np.isclose(cfg.tail_offset_weight, 5.0)
@@ -200,8 +271,10 @@ def test_runner_default_reward_is_offset_focused_shaped() -> None:
 def test_action_bounds_and_ratio_direction() -> None:
     env = PHEnvironment(PHEnvironmentConfig(target_ph=4.76))
     env.reset(options={"target_ph": 4.76})
-    _, _, _, _, high_info = env.step(np.array([1.0], dtype=np.float32))
-    _, _, _, _, low_info = env.step(np.array([-1.0], dtype=np.float32))
+    high_action = env.flows_to_action(np.array([5.0, 10.0, 5.0], dtype=np.float32))
+    low_action = env.flows_to_action(np.array([10.0, 5.0, 5.0], dtype=np.float32))
+    _, _, _, _, high_info = env.step(high_action)
+    _, _, _, _, low_info = env.step(low_action)
 
     assert high_info["acid_flow"] == 5.0
     assert high_info["acetate_flow"] == 10.0
@@ -213,13 +286,20 @@ def test_action_bounds_and_ratio_direction() -> None:
     assert low_info["buffer_flow_sum"] == 15.0
     assert high_info["ph"] > low_info["ph"]
 
-    for raw_action in np.linspace(-5.0, 5.0, num=41):
-        flows = env.action_to_flows(np.array([raw_action], dtype=np.float32))
+    min_sum_flows = env.action_to_flows(np.array([0.0, -1.0], dtype=np.float32))
+    max_sum_flows = env.action_to_flows(np.array([0.0, 1.0], dtype=np.float32))
+    assert np.isclose(min_sum_flows[0] + min_sum_flows[1], 2.0)
+    assert np.isclose(max_sum_flows[0] + max_sum_flows[1], 20.0)
+
+    rng = np.random.default_rng(21)
+    for raw_action in rng.uniform(-5.0, 5.0, size=(41, 2)):
+        flows = env.action_to_flows(raw_action.astype(np.float32))
         assert np.all(flows >= env.flow_low - 1e-6)
         assert np.all(flows <= env.flow_high + 1e-6)
-        assert np.isclose(flows[0] + flows[1], 15.0)
+        assert env.buffer_flow_sum_min - 1e-6 <= flows[0] + flows[1]
+        assert flows[0] + flows[1] <= env.buffer_flow_sum_max + 1e-6
         assert np.isclose(flows[2], 5.0)
-        env.step(np.array([raw_action], dtype=np.float32))
+        env.step(raw_action.astype(np.float32))
         env.assert_current_flow_constraints()
 
 
@@ -236,7 +316,10 @@ def test_runner_flow_constraint_validation() -> None:
     check = validate_trajectory_flow_constraints(
         trajectory=valid,
         process_config=process_config,
+        action_mode="ratio_buffer_sum",
         fixed_buffer_flow_sum=15.0,
+        buffer_flow_sum_min=2.0,
+        buffer_flow_sum_max=20.0,
         fixed_water_flow=5.0,
     )
     assert int(check["above_bound_count"].sum()) == 0
@@ -249,7 +332,10 @@ def test_runner_flow_constraint_validation() -> None:
         validate_trajectory_flow_constraints(
             trajectory=invalid,
             process_config=process_config,
+            action_mode="ratio_buffer_sum",
             fixed_buffer_flow_sum=15.0,
+            buffer_flow_sum_min=2.0,
+            buffer_flow_sum_max=20.0,
             fixed_water_flow=5.0,
         )
     except ValueError as exc:
@@ -257,12 +343,29 @@ def test_runner_flow_constraint_validation() -> None:
     else:
         raise AssertionError("expected flow constraint validation to fail")
 
+    fixed_sum_invalid = valid.copy()
+    fixed_sum_invalid.loc[1, "buffer_flow_sum"] = 14.0
+    try:
+        validate_trajectory_flow_constraints(
+            trajectory=fixed_sum_invalid,
+            process_config=process_config,
+            action_mode="ratio",
+            fixed_buffer_flow_sum=15.0,
+            buffer_flow_sum_min=2.0,
+            buffer_flow_sum_max=20.0,
+            fixed_water_flow=5.0,
+        )
+    except ValueError as exc:
+        assert "acid+acetate sum deviates" in str(exc)
+    else:
+        raise AssertionError("expected fixed-sum validation to fail")
+
 
 def test_water_is_fixed_and_not_direct_hh_ratio_input() -> None:
     env = PHEnvironment(PHEnvironmentConfig(target_ph=4.76))
     env.reset(options={"target_ph": 4.76})
-    _, _, _, _, first_info = env.step(np.array([0.0], dtype=np.float32))
-    _, _, _, _, second_info = env.step(np.array([0.0], dtype=np.float32))
+    _, _, _, _, first_info = env.step(np.array([0.0, 0.0], dtype=np.float32))
+    _, _, _, _, second_info = env.step(np.array([0.0, 0.0], dtype=np.float32))
 
     assert first_info["water_flow"] == 5.0
     assert second_info["water_flow"] == 5.0
@@ -278,10 +381,13 @@ def test_public_flow_helpers_and_target_update() -> None:
     observation, info = env.reset(options={"target_ph": 4.76})
     assert np.isclose(info["target_ph"], 4.76)
 
-    flows = env.action_to_flows(np.array([-2.0], dtype=np.float32))
+    low_ratio_action = env.flows_to_action(
+        np.array([10.0, 5.0, 5.0], dtype=np.float32)
+    )
+    flows = env.action_to_flows(low_ratio_action)
     assert np.allclose(flows, np.array([10.0, 5.0, 5.0], dtype=np.float32))
     action = env.flows_to_action(flows)
-    assert action.shape == (1,)
+    assert action.shape == (2,)
     assert np.all(action >= -1.0)
     assert np.all(action <= 1.0)
 
@@ -298,8 +404,8 @@ def test_td3_import_and_train_step_smoke() -> None:
     env = PHEnvironment(PHEnvironmentConfig(target_ph=4.76, max_episode_steps=20))
     observation, _ = env.reset(seed=3)
     agent = TD3Agent(
-        state_dim=5,
-        action_dim=1,
+        state_dim=env.observation_space.shape[0],
+        action_dim=env.action_space.shape[0],
         actor_hidden=[16],
         critic_hidden=[16],
         batch_size=4,
@@ -307,10 +413,15 @@ def test_td3_import_and_train_step_smoke() -> None:
         device=torch.device("cpu"),
         seed=5,
     )
+    assert isinstance(agent.buffer, PERRecentReplayBuffer)
     rng = np.random.default_rng(13)
     meta = None
     for _ in range(8):
-        action = rng.uniform(-1.0, 1.0, size=1).astype(np.float32)
+        action = rng.uniform(
+            -1.0,
+            1.0,
+            size=env.action_space.shape[0],
+        ).astype(np.float32)
         next_observation, reward, terminated, truncated, _ = env.step(action)
         done = terminated or truncated
         agent.push(observation, action, reward, next_observation, done)
@@ -331,9 +442,9 @@ def test_result_artifact_helper_smoke() -> None:
     records = []
     for step, action in enumerate(
         [
-            np.array([0.0], dtype=np.float32),
-            np.array([0.2], dtype=np.float32),
-            np.array([-0.1], dtype=np.float32),
+            np.array([0.0, 0.0], dtype=np.float32),
+            np.array([0.2, 0.1], dtype=np.float32),
+            np.array([-0.1, -0.2], dtype=np.float32),
         ]
     ):
         _, reward, _, _, info = env.step(action)
@@ -355,6 +466,10 @@ def test_result_artifact_helper_smoke() -> None:
                     info["reward_absolute_error_cost"]
                 ),
                 "reward_move_cost": float(info["reward_move_cost"]),
+                "reward_sum_move_cost": float(info["reward_sum_move_cost"]),
+                "reward_sum_move_penalty_term": float(
+                    info["reward_sum_move_penalty_term"]
+                ),
                 "reward_total_cost": float(info["reward_total_cost"]),
                 "acid_flow": float(info["acid_flow"]),
                 "acetate_flow": float(info["acetate_flow"]),
@@ -362,6 +477,7 @@ def test_result_artifact_helper_smoke() -> None:
                 "buffer_flow_sum": float(info["buffer_flow_sum"]),
                 "flow_ratio_acetate_acid": float(info["flow_ratio_acetate_acid"]),
                 "action_ratio": float(action[0]),
+                "action_buffer_sum": float(action[1]),
                 "train_updated": False,
                 "critic_loss": np.nan,
                 "actor_loss": np.nan,
@@ -386,7 +502,20 @@ def test_result_artifact_helper_smoke() -> None:
         ]
     )
     training_summary = pd.DataFrame([{"total_steps": len(trajectory)}])
-    config = {"process_config": PHProcessConfig().__dict__}
+    config = {
+        "process_config": PHProcessConfig().__dict__,
+        "resolved_rollout": {
+            "fixed_buffer_flow_sum": 15.0,
+            "buffer_flow_sum_min": 2.0,
+            "buffer_flow_sum_max": 20.0,
+            "reward_config": PHRewardConfig(
+                mode="relative_band_offset",
+                band_floor_ph=0.01,
+                r_move=0.0,
+                sum_move_weight=0.1,
+            ).to_dict(),
+        },
+    }
 
     output_dir = ROOT / "results" / "_test_offline_ph_td3_artifacts"
     artifacts = save_offline_ph_td3_result_artifacts(
@@ -403,7 +532,8 @@ def test_result_artifact_helper_smoke() -> None:
     figure_names = {path.name for path in artifacts["figures"]}
     assert "fig_setpoint_average_reward.png" in figure_names
     assert "fig_last_5_setpoint_tracking.png" in figure_names
-    assert len(artifacts["figures"]) >= 7
+    assert "fig_reward_shape_comparison.png" in figure_names
+    assert len(artifacts["figures"]) >= 8
     assert all(path.exists() for path in artifacts["figures"])
 
 
@@ -458,12 +588,15 @@ def test_admissible_random_setpoint_schedule() -> None:
 
 def run_direct() -> None:
     test_environment_reset_and_step()
+    test_ratio_only_mode_removes_time_fraction_state()
     test_environment_reward_components()
     test_default_reward_function_matches_previous_three_term()
     test_zero_error_scores_better_than_nonzero_error()
     test_relative_band_reward_exposes_shaping_components()
+    test_sum_move_penalty_lowers_reward_for_large_total_flow_change()
     test_relative_band_offset_penalizes_late_hold_offset_more()
     test_invalid_reward_mode_raises()
+    test_invalid_action_mode_raises()
     test_runner_default_reward_is_offset_focused_shaped()
     test_action_bounds_and_ratio_direction()
     test_runner_flow_constraint_validation()

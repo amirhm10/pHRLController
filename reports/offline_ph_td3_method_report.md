@@ -80,33 +80,75 @@ The physical pump variables are:
 | `water_flow` or `F_W` | Arium water flowrate | fixed at the default value |
 
 The RL action is not a direct three-pump command in the current offline setup.
-Instead, the agent outputs one normalized action:
+By default, the agent outputs two normalized actions:
 
 $$
-a_t \in [-1, 1].
+a_t =
+\begin{bmatrix}
+a^{\rho}_t \\
+a^{S}_t
+\end{bmatrix},
+\qquad
+a^{\rho}_t,a^{S}_t \in [-1,1].
 $$
 
-This action is mapped to a log acid/base ratio. Define
+The first action, `a_ratio`, is mapped to a log acetate/acid ratio. The second
+action, `a_buffer_sum`, is mapped to the total acid+acetate flow:
 
 $$
-\eta_t = \frac{a_t + 1}{2},
+\eta^{S}_t = \frac{a^{S}_t + 1}{2},
+\qquad
+S_t = S_{\min} + \eta^{S}_t(S_{\max}-S_{\min}).
 $$
 
-where `eta_t` is a unit-interval interpolation coordinate. The feasible
+The current default bounds are
+
+$$
+S_{\min}=2~\mathrm{mL/min},
+\qquad
+S_{\max}=20~\mathrm{mL/min}.
+$$
+
+For the selected \(S_t\), the environment computes the feasible acid-flow
+interval implied by the individual pump bounds:
+
+$$
+F^{\min}_{HAc}(S_t)=\max(F^{\min}_{HAc}, S_t-F^{\max}_{Ac}),
+\qquad
+F^{\max}_{HAc}(S_t)=\min(F^{\max}_{HAc}, S_t-F^{\min}_{Ac}).
+$$
+
+This gives a feasible acetate/acid ratio interval:
+
+$$
+R_{\min}(S_t)=\frac{S_t-F^{\max}_{HAc}(S_t)}
+{F^{\max}_{HAc}(S_t)},
+\qquad
+R_{\max}(S_t)=\frac{S_t-F^{\min}_{HAc}(S_t)}
+{F^{\min}_{HAc}(S_t)}.
+$$
+
+The ratio action is then mapped inside that feasible log-ratio interval. Define
+
+$$
+\eta^{\rho}_t = \frac{a^{\rho}_t + 1}{2},
+$$
+
+where `eta_ratio` is a unit-interval interpolation coordinate. The feasible
 log-ratio is
 
 $$
 \ell_t =
-\ell_{\min}
-+ \eta_t(\ell_{\max} - \ell_{\min}),
+\ell_{\min}(S_t)
++ \eta^{\rho}_t(\ell_{\max}(S_t) - \ell_{\min}(S_t)),
 $$
 
 where
 
 $$
-\ell_{\min} = \log_{10}(R_{\min}),
+\ell_{\min}(S_t) = \log_{10}(R_{\min}(S_t)),
 \qquad
-\ell_{\max} = \log_{10}(R_{\max}).
+\ell_{\max}(S_t) = \log_{10}(R_{\max}(S_t)).
 $$
 
 The commanded acetate-to-acid flow ratio is
@@ -115,18 +157,12 @@ $$
 R_t = 10^{\ell_t}.
 $$
 
-The acid and acetate flows are then computed from the fixed buffer-flow sum
+The acid and acetate flows are then computed from the selected buffer-flow sum:
 
 $$
-S = F_{HAc} + F_{Ac}.
-$$
-
-Specifically,
-
-$$
-F_{HAc,t} = \frac{S}{1 + R_t},
+F_{HAc,t} = \frac{S_t}{1 + R_t},
 \qquad
-F_{Ac,t} = S - F_{HAc,t},
+F_{Ac,t} = S_t - F_{HAc,t},
 \qquad
 F_{W,t} = F_W^{\mathrm{fixed}}.
 $$
@@ -134,10 +170,14 @@ $$
 For the current default runner,
 
 $$
-S = 15~\mathrm{mL/min},
+S_t \in [2,20]~\mathrm{mL/min},
 \qquad
 F_W^{\mathrm{fixed}} = 5~\mathrm{mL/min}.
 $$
+
+The older one-action fixed-sum setup is still available with
+`--action-mode ratio`. In that ablation mode, \(S=15~\mathrm{mL/min}\) by
+default and the agent controls only the ratio action.
 
 The controlled output in the offline simulation is the simulated outlet pH.
 The tracking target is `target_ph`. The logged tracking error is
@@ -157,7 +197,7 @@ Both signs have the same absolute error and squared error. The report uses
 
 ## RL State And Action
 
-The environment observation has dimension 5:
+The default environment observation has dimension 5:
 
 $$
 s_t =
@@ -165,8 +205,8 @@ s_t =
 \mathrm{pH}_t \\
 \mathrm{pH}_{sp,t} \\
 \mathrm{pH}_t - \mathrm{pH}_{sp,t} \\
-a^{\mathrm{ratio}}_t \\
-t/T
+a^{\rho}_{t-1} \\
+a^{S}_{t-1}
 \end{bmatrix}.
 $$
 
@@ -178,20 +218,37 @@ The state components are:
 | 1 | `target_ph` | current setpoint |
 | 2 | `current_ph - target_ph` | signed pH tracking error |
 | 3 | normalized ratio action | current acid/acetate log-ratio coordinate in `[-1, 1]` |
-| 4 | step fraction | `step_count / max_episode_steps`, clipped at 1 |
+| 4 | normalized buffer-sum action | current acid+acetate total-flow coordinate in `[-1, 1]` |
 
-The action has dimension 1:
+The earlier `t/T` step-fraction state has been removed. The reason is that the
+current task is steady-state setpoint tracking, not a finite-horizon trajectory
+planning problem, so the normalized time state can encourage horizon-dependent
+behavior that is not physically meaningful for steady holds.
+
+The default action has dimension 2:
 
 $$
 a_t =
 \begin{bmatrix}
-a^{\mathrm{ratio}}_t
+a^{\rho}_t \\
+a^{S}_t
 \end{bmatrix},
 \qquad
-a^{\mathrm{ratio}}_t \in [-1,1].
+a^{\rho}_t,a^{S}_t \in [-1,1].
 $$
 
-The action is clipped to `[-1, 1]` before it is mapped to physical flows.
+The action is clipped to `[-1, 1]` before it is mapped to physical flows. For
+ablation, `--action-mode ratio` keeps the old one-action form and uses the
+state
+
+$$
+\begin{bmatrix}
+\mathrm{pH}_t &
+\mathrm{pH}_{sp,t} &
+\mathrm{pH}_t-\mathrm{pH}_{sp,t} &
+a^{\rho}_{t-1}
+\end{bmatrix}^{T}.
+$$
 
 ## TD3 Agent Architecture
 
@@ -200,7 +257,7 @@ The current runner constructs a TD3 agent with:
 | Item | Current default |
 |---|---:|
 | State dimension | 5 |
-| Action dimension | 1 |
+| Action dimension | 2 |
 | Actor hidden layers | `[64, 64]` |
 | Critic hidden layers | `[64, 64]` |
 | Activation | ReLU |
@@ -215,13 +272,13 @@ $$
 \pi_\theta:
 \mathbb{R}^{5}
 \rightarrow
-\mathbb{R}^{1}.
+\mathbb{R}^{2}.
 $$
 
 With the default hidden layers, the actor structure is:
 
 $$
-5 \rightarrow 64 \rightarrow 64 \rightarrow 1,
+5 \rightarrow 64 \rightarrow 64 \rightarrow 2,
 $$
 
 with ReLU activations on the hidden layers and a final tanh squash so that the
@@ -236,13 +293,13 @@ $$
 s_t \\
 a_t
 \end{bmatrix}
-\in \mathbb{R}^{6}.
+\in \mathbb{R}^{7}.
 $$
 
 Each critic branch has structure:
 
 $$
-6 \rightarrow 64 \rightarrow 64 \rightarrow 1.
+7 \rightarrow 64 \rightarrow 64 \rightarrow 1.
 $$
 
 The critic returns two estimates:
@@ -265,7 +322,7 @@ The current default runner settings are:
 | Default setpoint hold length | 200 steps |
 | Default number of setpoint cycles | 500 |
 | Batch size | 64 |
-| Replay buffer capacity | 5000 |
+| Replay buffer capacity | 60000 |
 | Discount factor `gamma` | 0.97 |
 | Actor learning rate | 1e-4 |
 | Critic learning rate | 1e-3 |
@@ -286,7 +343,7 @@ The default exploration mode is Gaussian action noise:
 | Exploration parameter | Value |
 |---|---:|
 | Initial standard deviation | 0.35 |
-| Final standard deviation | 0.03 |
+| Final standard deviation | 0.01 |
 | Decay mode | linear |
 | Decay steps | 5000 |
 | Exponential decay rate option | 0.99 |
@@ -303,6 +360,9 @@ The replay buffer is a mixed prioritized/recent/uniform buffer:
 | Importance beta start | 0.4 |
 | Importance beta end | 1.0 |
 | Importance beta steps | 50000 |
+
+The active TD3 implementation instantiates `PERRecentReplayBuffer` directly.
+No normal uniform-only replay buffer is used in the offline pH TD3 path.
 
 ## Reward Function
 
@@ -328,7 +388,7 @@ $$
 The current defaults use `k_rel = 0`, so
 
 $$
-b_t = b_{\min} = 0.02~\mathrm{pH}.
+b_t = b_{\min} = 0.01~\mathrm{pH}.
 $$
 
 The smooth inside-band weight is
@@ -364,17 +424,33 @@ $$
 Since the default `lambda_in` is 1, this currently reduces to
 `J_eff,t = J_quad,t`, but the explicit form is kept for diagnostic consistency.
 
-The move penalty is
+The old ratio-action move penalty is disabled in the default steady-state
+tracking setup:
 
 $$
-J_{\Delta u,t}
-= r_{move}
-\frac{1}{n_a}
-\sum_{i=1}^{n_a}
-(a_{t,i} - a_{t-1,i})^2.
+r_{move}=0.
 $$
 
-Here `n_a = 1`, because the agent has one action.
+Instead, the default move penalty is placed on the physical total acid+acetate
+flow:
+
+$$
+J_{\Delta S,t}
+= r_{\Delta S}
+\left(
+\frac{S_t-S_{t-1}}{S_{\max}-S_{\min}}
+\right)^2.
+$$
+
+The current default uses
+
+$$
+r_{\Delta S}=0.1,
+\qquad
+S_{\min}=2~\mathrm{mL/min},
+\qquad
+S_{\max}=20~\mathrm{mL/min}.
+$$
 
 The linear outside-band and inside-band terms use the slope at the band edge:
 
@@ -443,7 +519,7 @@ r_t =
 -\alpha
 \left[
 J_{eff,t}
-+J_{\Delta u,t}
++J_{\Delta S,t}
 +J_{lin,out,t}
 +J_{lin,in,t}
 -J_{bonus,t}
@@ -452,14 +528,28 @@ J_{eff,t}
 \right].
 $$
 
+In simple terms, the shaped reward makes the pH band tight and attractive. The
+`0.01` pH band defines the near-zero-offset region, the linear terms shape the
+slope as the error moves inside or outside that band, the bonus adds extra
+reward near exact tracking, and the total-flow penalty discourages abrupt
+changes in the acid+acetate sum. This is why the reward is offset-focused
+without asking the ratio action itself to be smooth.
+
+The report-level reward-shape comparison is shown below. The same figure is
+also saved by the offline TD3 result-artifact helper as
+`fig_reward_shape_comparison.png`.
+
+![Reward shape comparison](figures/fig_reward_shape_comparison.png)
+
 The default reward parameters used by the runner are:
 
 | Reward parameter | Value |
 |---|---:|
 | Reward mode | `relative_band_offset` |
 | `q_band` | 1.0 |
-| `r_move` | 0.01 |
-| `b_min` or `band_floor_ph` | 0.02 |
+| `r_move` | 0.0 |
+| `r_delta_S` or `sum_move_penalty_weight` | 0.1 |
+| `b_min` or `band_floor_ph` | 0.01 |
 | `k_rel` | 0.0 |
 | `tau_frac` | 0.7 |
 | `gamma_out` | 0.5 |
@@ -505,13 +595,46 @@ It can be selected with:
 | `water_flow_min` | 1.0 mL/min | pump lower bound |
 | `water_flow_max` | 10.0 mL/min | pump upper bound |
 | `default_buffer_flow_sum` | 10.0 mL/min | process-config default, not the current TD3 runner fixed sum |
-| `fixed_buffer_flow_sum` | 15.0 mL/min | `acid_flow + acetate_flow` |
+| `fixed_buffer_flow_sum` | 15.0 mL/min | nominal/default sum and ratio-only fixed sum |
+| `buffer_flow_sum_min` | 2.0 mL/min | minimum selectable `acid_flow + acetate_flow` |
+| `buffer_flow_sum_max` | 20.0 mL/min | maximum selectable `acid_flow + acetate_flow` |
 | `fixed_water_flow` | 5.0 mL/min | current water stream value |
 | nominal target range | 3.76 to 5.76 pH | general process target bounds |
-| reachable fixed-sum target range | about 4.459 to 5.061 pH | due to fixed 15 mL/min buffer sum and 1-10 mL/min pump bounds |
+| reachable default variable-sum target range | about 3.76 to 5.76 pH | due to variable 2-20 mL/min buffer sum and 1-10 mL/min pump bounds |
+| reachable ratio-only target range | about 4.459 to 5.061 pH | due to fixed 15 mL/min buffer sum and 1-10 mL/min pump bounds |
 | target tolerance | 0.02 pH | success flag threshold |
 
-For the current fixed buffer-flow sum, the feasible acid flow range becomes:
+For the default variable-sum action, the acid+acetate sum can vary over:
+
+$$
+S_t \in [2,20]~\mathrm{mL/min}.
+$$
+
+The individual acid and acetate pumps still satisfy:
+
+$$
+F_{HAc,t},F_{Ac,t} \in [1,10]~\mathrm{mL/min}.
+$$
+
+The widest ideal-Henderson-Hasselbalch ratios occur when one buffer pump is at
+its minimum and the other is at its maximum:
+
+$$
+R_{\min}=\frac{1}{10}=0.1,
+\qquad
+R_{\max}=\frac{10}{1}=10.
+$$
+
+With `pKa = 4.76`, the variable-sum setup can therefore span approximately
+
+$$
+\mathrm{pH}_{\min}=4.76+\log_{10}(0.1)=3.76,
+\qquad
+\mathrm{pH}_{\max}=4.76+\log_{10}(10)=5.76.
+$$
+
+For the ratio-only fixed-sum ablation with \(S=15~\mathrm{mL/min}\), the
+feasible acid flow range becomes:
 
 $$
 F_{HAc} \in [5,10]~\mathrm{mL/min},
@@ -561,9 +684,12 @@ trajectory table:
 | `acetate_flow` | current sodium acetate flow |
 | `water_flow` | current water flow |
 | `buffer_flow_sum` | `acid_flow + acetate_flow` |
+| `buffer_flow_sum_min` | lower bound for selectable acid+acetate sum |
+| `buffer_flow_sum_max` | upper bound for selectable acid+acetate sum |
 | `flow_ratio_acetate_acid` | `acetate_flow / acid_flow` |
 | `log10_flow_ratio_acetate_acid` | log flow ratio |
 | `ratio_action` | normalized ratio action |
+| `normalized_buffer_sum_action` | normalized total-flow action |
 | `molar_base_acid_ratio` | ideal molar base/acid ratio |
 | `success` | true when `abs(ph-target_ph) <= 0.02` |
 | `step_count` | step count within environment episode |
@@ -580,6 +706,7 @@ The runner additionally logs:
 | `is_test` | whether the step belongs to the final deterministic evaluation cycle |
 | `action_source` | `td3_explore`, `td3_eval`, or `warm_start_hh` |
 | `action_ratio` | raw TD3 normalized action used for the ratio |
+| `action_buffer_sum` | raw TD3 normalized action used for acid+acetate total flow |
 | `exploration_sigma` | current Gaussian noise standard deviation |
 | `exploration_magnitude` | mean absolute exploration noise |
 | `action_saturation_fraction` | fraction of action dimensions at saturation |
@@ -603,7 +730,8 @@ Important limitations:
 - final-cycle evaluation is only one held setpoint unless additional evaluation
   sweeps are added.
 
-The next additions to this report should include generated figures from a full
-100000-step run, per-setpoint average reward, last-five-setpoint tracking
-diagnostics, and a frozen-policy evaluation sweep across the reachable pH
+The runner now saves per-setpoint average reward, last-five-setpoint tracking,
+action diagnostics, flow diagnostics, and reward-shape comparison figures. The
+next addition to this report should be a quantitative interpretation of a full
+100000-step run plus a frozen-policy evaluation sweep across the reachable pH
 range.

@@ -16,6 +16,7 @@ from simulation.ph_environment import (
     PHEnvironment,
     PHEnvironmentConfig,
     fixed_buffer_target_ph_bounds,
+    variable_buffer_target_ph_bounds,
 )
 from simulation.ph_reward import PHRewardConfig, reward_definition_text
 
@@ -30,6 +31,8 @@ OPTIONAL_INFO_COLUMNS = [
     "reward_linear_out_term",
     "reward_linear_in_term",
     "reward_bonus_term",
+    "reward_sum_move_cost",
+    "reward_sum_move_penalty_term",
     "reward_tail_offset_cost",
     "reward_tail_offset_term",
     "reward_hold_progress",
@@ -152,10 +155,14 @@ def resolve_n_tests(
     return int(total_steps // set_points_len)
 
 
-def create_agent(args: argparse.Namespace) -> TD3Agent:
+def create_agent(
+    args: argparse.Namespace,
+    state_dim: int,
+    action_dim: int,
+) -> TD3Agent:
     return TD3Agent(
-        state_dim=5,
-        action_dim=1,
+        state_dim=int(state_dim),
+        action_dim=int(action_dim),
         actor_hidden=args.actor_hidden,
         critic_hidden=args.critic_hidden,
         gamma=args.gamma,
@@ -192,6 +199,7 @@ def build_reward_config(args: argparse.Namespace) -> PHRewardConfig:
         band_floor_ph=args.reward_band_floor_ph,
         q_band=args.reward_squared_weight,
         r_move=args.move_penalty_weight,
+        sum_move_weight=args.sum_move_penalty_weight,
         beta=args.reward_bonus_weight,
         absolute_error_weight=args.reward_absolute_weight,
         tail_offset_weight=args.reward_tail_offset_weight,
@@ -201,7 +209,10 @@ def build_reward_config(args: argparse.Namespace) -> PHRewardConfig:
 def validate_trajectory_flow_constraints(
     trajectory: pd.DataFrame,
     process_config: PHProcessConfig,
+    action_mode: str,
     fixed_buffer_flow_sum: float,
+    buffer_flow_sum_min: float,
+    buffer_flow_sum_max: float,
     fixed_water_flow: float,
     tolerance: float = 1e-6,
 ) -> pd.DataFrame:
@@ -259,26 +270,53 @@ def validate_trajectory_flow_constraints(
         else trajectory["acid_flow"].to_numpy(float)
         + trajectory["acetate_flow"].to_numpy(float)
     )
-    buffer_deviation = np.abs(buffer_sum - float(fixed_buffer_flow_sum))
-    buffer_violation_count = int(np.sum(buffer_deviation > tolerance))
-    rows.append(
-        {
-            "constraint": "fixed_buffer_flow_sum",
-            "lower_bound": float(fixed_buffer_flow_sum),
-            "upper_bound": float(fixed_buffer_flow_sum),
-            "observed_min": float(np.nanmin(buffer_sum)),
-            "observed_max": float(np.nanmax(buffer_sum)),
-            "below_bound_count": 0,
-            "above_bound_count": 0,
-            "nonfinite_count": int(np.sum(~np.isfinite(buffer_sum))),
-            "max_abs_deviation": float(np.nanmax(buffer_deviation)),
-        }
-    )
-    if buffer_violation_count:
-        violations.append(
-            f"acid+acetate sum deviates from {float(fixed_buffer_flow_sum)} "
-            f"by up to {float(np.nanmax(buffer_deviation))}"
+    action_mode = str(action_mode)
+    if action_mode == "ratio":
+        buffer_deviation = np.abs(buffer_sum - float(fixed_buffer_flow_sum))
+        buffer_violation_count = int(np.sum(buffer_deviation > tolerance))
+        rows.append(
+            {
+                "constraint": "fixed_buffer_flow_sum",
+                "lower_bound": float(fixed_buffer_flow_sum),
+                "upper_bound": float(fixed_buffer_flow_sum),
+                "observed_min": float(np.nanmin(buffer_sum)),
+                "observed_max": float(np.nanmax(buffer_sum)),
+                "below_bound_count": 0,
+                "above_bound_count": 0,
+                "nonfinite_count": int(np.sum(~np.isfinite(buffer_sum))),
+                "max_abs_deviation": float(np.nanmax(buffer_deviation)),
+            }
         )
+        if buffer_violation_count:
+            violations.append(
+                f"acid+acetate sum deviates from {float(fixed_buffer_flow_sum)} "
+                f"by up to {float(np.nanmax(buffer_deviation))}"
+            )
+    elif action_mode == "ratio_buffer_sum":
+        lower = float(buffer_flow_sum_min)
+        upper = float(buffer_flow_sum_max)
+        below_count = int(np.sum(buffer_sum < lower - tolerance))
+        above_count = int(np.sum(buffer_sum > upper + tolerance))
+        rows.append(
+            {
+                "constraint": "buffer_flow_sum_bounds",
+                "lower_bound": lower,
+                "upper_bound": upper,
+                "observed_min": float(np.nanmin(buffer_sum)),
+                "observed_max": float(np.nanmax(buffer_sum)),
+                "below_bound_count": below_count,
+                "above_bound_count": above_count,
+                "nonfinite_count": int(np.sum(~np.isfinite(buffer_sum))),
+                "max_abs_deviation": np.nan,
+            }
+        )
+        if below_count or above_count:
+            violations.append(
+                f"acid+acetate sum outside [{lower}, {upper}] "
+                f"with min={float(np.nanmin(buffer_sum))}, max={float(np.nanmax(buffer_sum))}"
+            )
+    else:
+        raise ValueError("action_mode must be 'ratio' or 'ratio_buffer_sum'.")
 
     water_values = trajectory["water_flow"].to_numpy(float)
     water_deviation = np.abs(water_values - float(fixed_water_flow))
@@ -311,10 +349,17 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
     set_global_seeds(args.seed)
     process_config = PHProcessConfig()
     reward_config = build_reward_config(args)
-    target_ph_min, target_ph_max = fixed_buffer_target_ph_bounds(
-        process_config=process_config,
-        fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
-    )
+    if args.action_mode == "ratio":
+        target_ph_min, target_ph_max = fixed_buffer_target_ph_bounds(
+            process_config=process_config,
+            fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
+        )
+    else:
+        target_ph_min, target_ph_max = variable_buffer_target_ph_bounds(
+            process_config=process_config,
+            buffer_flow_sum_min=args.buffer_flow_sum_min,
+            buffer_flow_sum_max=args.buffer_flow_sum_max,
+        )
     set_points_len = resolve_set_points_len(
         total_steps=args.total_steps,
         n_tests=args.n_tests,
@@ -349,7 +394,10 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
             default_flow_penalty_weight=0.0,
             reward_config=reward_config,
             setpoint_hold_steps=set_points_len,
+            action_mode=args.action_mode,
             fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
+            buffer_flow_sum_min=args.buffer_flow_sum_min,
+            buffer_flow_sum_max=args.buffer_flow_sum_max,
             random_seed=args.seed,
         )
     )
@@ -364,7 +412,11 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
             ),
         },
     )
-    agent = create_agent(args)
+    agent = create_agent(
+        args,
+        state_dim=env.observation_space.shape[0],
+        action_dim=env.action_space.shape[0],
+    )
 
     records: list[dict] = []
     previous_target = float(schedule[0])
@@ -444,6 +496,10 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
             "flow_ratio_acetate_acid": float(info["flow_ratio_acetate_acid"]),
             "buffer_flow_sum": float(info["buffer_flow_sum"]),
             "action_ratio": float(np.asarray(action).reshape(-1)[0]),
+            "action_buffer_sum": float(np.asarray(action).reshape(-1)[1])
+            if np.asarray(action).reshape(-1).size > 1
+            else np.nan,
+            "normalized_buffer_sum_action": float(info["normalized_buffer_sum_action"]),
             "exploration_sigma": exploration_sigma,
             "exploration_magnitude": exploration_magnitude,
             "action_saturation_fraction": action_saturation_fraction,
@@ -466,7 +522,10 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
     flow_constraint_check = validate_trajectory_flow_constraints(
         trajectory=trajectory,
         process_config=process_config,
+        action_mode=args.action_mode,
         fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
+        buffer_flow_sum_min=args.buffer_flow_sum_min,
+        buffer_flow_sum_max=args.buffer_flow_sum_max,
         fixed_water_flow=env.fixed_water_flow,
     )
     episode_metrics = summarize_by_cycle(trajectory)
@@ -481,6 +540,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         target_ph_min=target_ph_min,
         target_ph_max=target_ph_max,
         reward_config=reward_config,
+        env=env,
     )
     setpoint_schedule = summarize_setpoint_schedule(
         setpoint_values=setpoint_values,
@@ -509,6 +569,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         set_points_len=set_points_len,
         warm_start_steps=warm_start_steps,
         reward_config=reward_config,
+        env=env,
     )
     artifacts = save_offline_ph_td3_result_artifacts(
         output_dir=output_dir,
@@ -549,6 +610,7 @@ def summarize_by_cycle(trajectory: pd.DataFrame) -> pd.DataFrame:
         squared_error_cost_sum=("reward_squared_error_cost", "sum"),
         absolute_error_cost_sum=("reward_absolute_error_cost", "sum"),
         move_cost_sum=("reward_move_cost", "sum"),
+        sum_move_cost_sum=("reward_sum_move_cost", "sum"),
         total_cost_sum=("reward_total_cost", "sum"),
         train_updates=("train_updated", "sum"),
     )
@@ -557,6 +619,7 @@ def summarize_by_cycle(trajectory: pd.DataFrame) -> pd.DataFrame:
         "reward_linear_out_term",
         "reward_linear_in_term",
         "reward_bonus_term",
+        "reward_sum_move_penalty_term",
         "reward_tail_offset_term",
     ]
     for column in optional_sum_columns:
@@ -596,6 +659,7 @@ def summarize_run(
     target_ph_min: float,
     target_ph_max: float,
     reward_config: PHRewardConfig,
+    env: PHEnvironment,
 ) -> pd.DataFrame:
     test_rows = trajectory[trajectory["is_test"]]
     eval_rows = test_rows if not test_rows.empty else trajectory
@@ -624,6 +688,9 @@ def summarize_run(
                     trajectory["reward_absolute_error_cost"].sum()
                 ),
                 "overall_move_cost": float(trajectory["reward_move_cost"].sum()),
+                "overall_sum_move_cost": float(
+                    trajectory["reward_sum_move_cost"].sum()
+                ),
                 "mean_exploration_sigma": float(
                     trajectory["exploration_sigma"].mean()
                 ),
@@ -634,11 +701,17 @@ def summarize_run(
                     trajectory["action_saturation_fraction"].mean()
                 ),
                 "fixed_buffer_flow_sum": float(args.fixed_buffer_flow_sum),
-                "fixed_water_flow": float(PHProcessConfig().default_water_flow),
+                "buffer_flow_sum_min": float(args.buffer_flow_sum_min),
+                "buffer_flow_sum_max": float(args.buffer_flow_sum_max),
+                "fixed_water_flow": float(env.fixed_water_flow),
+                "action_mode": str(args.action_mode),
+                "rl_state_dimension": int(env.observation_space.shape[0]),
+                "rl_action_dimension": int(env.action_space.shape[0]),
                 "reward_mode": reward_config.mode,
                 "reward_squared_weight": float(args.reward_squared_weight),
                 "reward_absolute_weight": float(args.reward_absolute_weight),
                 "move_penalty_weight": float(args.move_penalty_weight),
+                "sum_move_penalty_weight": float(args.sum_move_penalty_weight),
                 "reward_band_floor_ph": float(args.reward_band_floor_ph),
                 "reward_bonus_weight": float(reward_config.beta),
                 "reward_tail_offset_weight": float(args.reward_tail_offset_weight),
@@ -658,7 +731,21 @@ def write_config_snapshot(
     set_points_len: int,
     warm_start_steps: int,
     reward_config: PHRewardConfig,
+    env: PHEnvironment,
 ) -> dict:
+    if args.action_mode == "ratio":
+        setpoint_source = "seeded_fixed_sum_reachable_range"
+        resolved_target_bounds = fixed_buffer_target_ph_bounds(
+            process_config=process_config,
+            fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
+        )
+    else:
+        setpoint_source = "seeded_variable_sum_reachable_range"
+        resolved_target_bounds = variable_buffer_target_ph_bounds(
+            process_config=process_config,
+            buffer_flow_sum_min=args.buffer_flow_sum_min,
+            buffer_flow_sum_max=args.buffer_flow_sum_max,
+        )
     snapshot = {
         "runner": "run_offline_ph_td3_training.py",
         "simulation_only": True,
@@ -669,35 +756,45 @@ def write_config_snapshot(
             "setpoint_cycles": int(n_setpoints),
             "steps_per_cycle": int(set_points_len),
             "setpoint_strategy": str(args.setpoint_strategy),
-            "setpoint_source": "seeded_fixed_sum_reachable_range",
-            "setpoint_min": float(
-                fixed_buffer_target_ph_bounds(
-                    process_config=process_config,
-                    fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
-                )[0]
-            ),
-            "setpoint_max": float(
-                fixed_buffer_target_ph_bounds(
-                    process_config=process_config,
-                    fixed_buffer_flow_sum=args.fixed_buffer_flow_sum,
-                )[1]
-            ),
+            "setpoint_source": setpoint_source,
+            "setpoint_min": float(resolved_target_bounds[0]),
+            "setpoint_max": float(resolved_target_bounds[1]),
             "warm_start_steps": int(warm_start_steps),
             "evaluation_cycle": int(n_setpoints - 1),
             "offline_training_protocol": "direct_td3_no_warm_start"
             if warm_start_steps == 0
             else "legacy_hh_warm_start_then_td3",
-            "rl_state_dimension": 5,
-            "rl_action_dimension": 1,
-            "rl_action_variables": ["acetate_acid_ratio"],
+            "rl_state_dimension": int(env.observation_space.shape[0]),
+            "rl_action_dimension": int(env.action_space.shape[0]),
+            "rl_state_variables": [
+                "current_ph",
+                "target_ph",
+                "current_ph_minus_target_ph",
+                "normalized_ratio_action",
+            ]
+            + (
+                ["normalized_buffer_sum_action"]
+                if args.action_mode == "ratio_buffer_sum"
+                else []
+            ),
+            "rl_action_variables": ["acetate_acid_ratio"]
+            + (
+                ["acid_acetate_total_flow"]
+                if args.action_mode == "ratio_buffer_sum"
+                else []
+            ),
+            "action_mode": str(args.action_mode),
             "fixed_buffer_flow_sum": float(args.fixed_buffer_flow_sum),
-            "fixed_water_flow": float(process_config.default_water_flow),
+            "buffer_flow_sum_min": float(args.buffer_flow_sum_min),
+            "buffer_flow_sum_max": float(args.buffer_flow_sum_max),
+            "fixed_water_flow": float(env.fixed_water_flow),
             "reward_config": reward_config.to_dict(),
             "reward_definition": reward_definition_text(reward_config),
             "reward_mode": reward_config.mode,
             "reward_squared_weight": float(args.reward_squared_weight),
             "reward_absolute_weight": float(args.reward_absolute_weight),
             "move_penalty_weight": float(args.move_penalty_weight),
+            "sum_move_penalty_weight": float(args.sum_move_penalty_weight),
             "reward_band_floor_ph": float(args.reward_band_floor_ph),
             "reward_bonus_weight": float(reward_config.beta),
             "reward_tail_offset_weight": float(args.reward_tail_offset_weight),
@@ -737,14 +834,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--warm-start-cycles", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--buffer-size", type=int, default=5000)
+    parser.add_argument("--buffer-size", type=int, default=60_000)
     parser.add_argument("--actor-hidden", type=parse_hidden_layers, default=[64, 64])
     parser.add_argument("--critic-hidden", type=parse_hidden_layers, default=[64, 64])
     parser.add_argument("--actor-lr", type=float, default=1e-4)
     parser.add_argument("--critic-lr", type=float, default=1e-3)
     parser.add_argument("--gamma", type=float, default=0.97)
     parser.add_argument("--std-start", type=float, default=0.35)
-    parser.add_argument("--std-end", type=float, default=0.03)
+    parser.add_argument("--std-end", type=float, default=0.01)
     parser.add_argument("--std-decay-steps", type=int, default=5000)
     parser.add_argument(
         "--std-decay-mode",
@@ -754,7 +851,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--std-decay-rate", type=float, default=0.99)
     parser.add_argument("--reward-squared-weight", type=float, default=1.0)
     parser.add_argument("--reward-absolute-weight", type=float, default=1.0)
-    parser.add_argument("--move-penalty-weight", type=float, default=0.01)
+    parser.add_argument(
+        "--move-penalty-weight",
+        type=float,
+        default=0.0,
+        help="Weight on normalized action movement. Defaults to zero for steady-state tracking.",
+    )
+    parser.add_argument(
+        "--sum-move-penalty-weight",
+        type=float,
+        default=0.1,
+        help=(
+            "Weight on ((acid+acetate sum change)/(sum range))^2. "
+            "This is the MPC-like move penalty used by the variable-sum action."
+        ),
+    )
     parser.add_argument(
         "--reward-mode",
         choices=["three_term", "relative_band", "relative_band_offset"],
@@ -764,7 +875,7 @@ def build_parser() -> argparse.ArgumentParser:
             "offset-focused relative-band shaped reward."
         ),
     )
-    parser.add_argument("--reward-band-floor-ph", type=float, default=0.02)
+    parser.add_argument("--reward-band-floor-ph", type=float, default=0.01)
     parser.add_argument(
         "--reward-bonus-weight",
         type=float,
@@ -775,7 +886,26 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--reward-tail-offset-weight", type=float, default=5.0)
-    parser.add_argument("--fixed-buffer-flow-sum", type=float, default=15.0)
+    parser.add_argument(
+        "--action-mode",
+        choices=["ratio", "ratio_buffer_sum"],
+        default="ratio_buffer_sum",
+        help=(
+            "ratio uses the legacy one-action fixed-sum setup. "
+            "ratio_buffer_sum lets TD3 choose ratio and acid+acetate total flow."
+        ),
+    )
+    parser.add_argument(
+        "--fixed-buffer-flow-sum",
+        type=float,
+        default=15.0,
+        help=(
+            "Acid+acetate sum in ratio-only mode, and nominal/default sum in "
+            "ratio_buffer_sum mode."
+        ),
+    )
+    parser.add_argument("--buffer-flow-sum-min", type=float, default=2.0)
+    parser.add_argument("--buffer-flow-sum-max", type=float, default=20.0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--save-checkpoint", action="store_true")

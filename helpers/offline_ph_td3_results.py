@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +12,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from simulation.ph_reward import PHRewardConfig, compute_ph_reward
 
 
 def float_or_nan(value) -> float:
@@ -36,7 +39,13 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
     if "reward_move_cost" not in out:
         action_columns = [
             column
-            for column in ["action_ratio", "action_acid", "action_acetate", "action_water"]
+            for column in [
+                "action_ratio",
+                "action_buffer_sum",
+                "action_acid",
+                "action_acetate",
+                "action_water",
+            ]
             if column in out
         ]
         if action_columns:
@@ -47,7 +56,13 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
             out["reward_move_cost"] = 0.0
     if "reward_total_cost" not in out:
         out["reward_total_cost"] = -out["reward"].to_numpy(float)
-    for column in ["action_ratio", "action_acid", "action_acetate", "action_water"]:
+    for column in [
+        "action_ratio",
+        "action_buffer_sum",
+        "action_acid",
+        "action_acetate",
+        "action_water",
+    ]:
         if column in out:
             out[f"abs_{column}"] = np.abs(out[column])
     return out
@@ -74,6 +89,8 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
             "squared_error_cost_sum": np.nan,
             "absolute_error_cost_sum": np.nan,
             "move_cost_sum": np.nan,
+            "sum_move_cost_sum": np.nan,
+            "sum_move_penalty_sum": np.nan,
             "total_cost_sum": np.nan,
             "error_effective_term_sum": np.nan,
             "linear_out_term_sum": np.nan,
@@ -99,6 +116,11 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
         "squared_error_cost_sum": sum_optional(frame, "reward_squared_error_cost"),
         "absolute_error_cost_sum": sum_optional(frame, "reward_absolute_error_cost"),
         "move_cost_sum": sum_optional(frame, "reward_move_cost"),
+        "sum_move_cost_sum": sum_optional(frame, "reward_sum_move_cost"),
+        "sum_move_penalty_sum": sum_optional(
+            frame,
+            "reward_sum_move_penalty_term",
+        ),
         "total_cost_sum": sum_optional(frame, "reward_total_cost"),
         "error_effective_term_sum": sum_optional(
             frame, "reward_error_effective_term"
@@ -166,9 +188,13 @@ def compute_flow_diagnostics(trajectory: pd.DataFrame, config: dict) -> pd.DataF
         )
     if "buffer_flow_sum" in trajectory:
         values = trajectory["buffer_flow_sum"].to_numpy(float)
-        target = float_or_nan(
-            config.get("resolved_rollout", {}).get("fixed_buffer_flow_sum", np.nan)
-        )
+        rollout = config.get("resolved_rollout", {})
+        lower = float_or_nan(rollout.get("buffer_flow_sum_min", np.nan))
+        upper = float_or_nan(rollout.get("buffer_flow_sum_max", np.nan))
+        if not np.isfinite(lower) or not np.isfinite(upper):
+            fixed = float_or_nan(rollout.get("fixed_buffer_flow_sum", np.nan))
+            lower = fixed
+            upper = fixed
         deltas = np.diff(values)
         rows.append(
             {
@@ -178,8 +204,8 @@ def compute_flow_diagnostics(trajectory: pd.DataFrame, config: dict) -> pd.DataF
                 "max": float(np.max(values)),
                 "p05": float(np.percentile(values, 5)),
                 "p95": float(np.percentile(values, 95)),
-                "lower_bound": target,
-                "upper_bound": target,
+                "lower_bound": lower,
+                "upper_bound": upper,
                 "lower_saturation_fraction": np.nan,
                 "upper_saturation_fraction": np.nan,
                 "mean_abs_step_change": float(np.mean(np.abs(deltas)))
@@ -235,6 +261,16 @@ def save_figure(fig: plt.Figure, output_dir: Path, name: str) -> Path:
     return path
 
 
+def reward_band_from_trajectory(trajectory: pd.DataFrame, fallback: float = 0.01) -> float:
+    if "reward_band_ph" not in trajectory:
+        return float(fallback)
+    values = trajectory["reward_band_ph"].to_numpy(float)
+    values = values[np.isfinite(values) & (values > 0.0)]
+    if values.size == 0:
+        return float(fallback)
+    return float(np.median(values))
+
+
 def boolean_spans(frame: pd.DataFrame, column: str) -> list[tuple[int, int]]:
     if column not in frame:
         return []
@@ -271,6 +307,7 @@ def mark_setpoint_boundaries(ax: plt.Axes, trajectory: pd.DataFrame) -> None:
 def plot_tracking_reward(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     fig, axs = plt.subplots(4, 1, figsize=(10.5, 10.2), sharex=True)
     steps = trajectory["step"]
+    reward_band = reward_band_from_trajectory(trajectory)
 
     axs[0].plot(steps, trajectory["ph"], color="#1F77B4", linewidth=1.8, label="pH")
     axs[0].step(
@@ -290,8 +327,8 @@ def plot_tracking_reward(trajectory: pd.DataFrame, output_dir: Path) -> Path:
 
     axs[1].plot(steps, trajectory["ph_error"], color="#D55E00", linewidth=1.3)
     axs[1].axhline(0.0, color="#222222", linewidth=0.8)
-    axs[1].axhline(0.02, color="#777777", linestyle=":", linewidth=0.9)
-    axs[1].axhline(-0.02, color="#777777", linestyle=":", linewidth=0.9)
+    axs[1].axhline(reward_band, color="#777777", linestyle=":", linewidth=0.9)
+    axs[1].axhline(-reward_band, color="#777777", linestyle=":", linewidth=0.9)
     shade_protocol_regions(axs[1], trajectory)
     axs[1].set_ylabel("pH error")
     axs[1].grid(alpha=0.28)
@@ -320,8 +357,16 @@ def plot_tracking_reward(trajectory: pd.DataFrame, output_dir: Path) -> Path:
         trajectory["reward_move_cost"],
         color="#AA4499",
         linewidth=1.15,
-        label="move cost",
+        label="action move cost",
     )
+    if "reward_sum_move_cost" in trajectory:
+        axs[3].plot(
+            steps,
+            trajectory["reward_sum_move_cost"],
+            color="#E69F00",
+            linewidth=1.15,
+            label="sum-flow move cost",
+        )
     shade_protocol_regions(axs[3], trajectory)
     axs[3].set_xlabel("step")
     axs[3].set_ylabel("raw costs")
@@ -334,7 +379,7 @@ def plot_tracking_reward(trajectory: pd.DataFrame, output_dir: Path) -> Path:
 def plot_flow_commands(trajectory: pd.DataFrame, output_dir: Path, config: dict) -> Path:
     process_config = config.get("process_config", {})
     steps = trajectory["step"]
-    fig, axs = plt.subplots(2, 1, figsize=(10.5, 6.8), sharex=True)
+    fig, axs = plt.subplots(3, 1, figsize=(10.5, 8.8), sharex=True)
     colors = {
         "acid_flow": "#CC6677",
         "acetate_flow": "#4477AA",
@@ -367,19 +412,41 @@ def plot_flow_commands(trajectory: pd.DataFrame, output_dir: Path, config: dict)
     axs[0].grid(alpha=0.28)
     axs[0].legend(loc="best")
 
-    axs[1].plot(
+    if "buffer_flow_sum" in trajectory:
+        rollout = config.get("resolved_rollout", {})
+        sum_low = float_or_nan(rollout.get("buffer_flow_sum_min", np.nan))
+        sum_high = float_or_nan(rollout.get("buffer_flow_sum_max", np.nan))
+        fixed_sum = float_or_nan(rollout.get("fixed_buffer_flow_sum", np.nan))
+        axs[1].plot(
+            steps,
+            trajectory["buffer_flow_sum"],
+            color="#E69F00",
+            linewidth=1.4,
+            label="acid + acetate",
+        )
+        if np.isfinite(sum_low) and np.isfinite(sum_high):
+            axs[1].axhline(sum_low, color="#777777", linestyle=":", linewidth=0.8)
+            axs[1].axhline(sum_high, color="#777777", linestyle=":", linewidth=0.8)
+        elif np.isfinite(fixed_sum):
+            axs[1].axhline(fixed_sum, color="#777777", linestyle=":", linewidth=0.8)
+        shade_protocol_regions(axs[1], trajectory)
+        axs[1].set_ylabel("buffer sum")
+        axs[1].grid(alpha=0.28)
+        axs[1].legend(loc="best")
+
+    axs[2].plot(
         steps,
         trajectory["log10_flow_ratio"],
         color="#AA4499",
         linewidth=1.5,
         label="log10(acetate/acid)",
     )
-    axs[1].axhline(0.0, color="#222222", linewidth=0.8)
-    shade_protocol_regions(axs[1], trajectory)
-    axs[1].set_xlabel("step")
-    axs[1].set_ylabel("log flow ratio")
-    axs[1].grid(alpha=0.28)
-    axs[1].legend(loc="best")
+    axs[2].axhline(0.0, color="#222222", linewidth=0.8)
+    shade_protocol_regions(axs[2], trajectory)
+    axs[2].set_xlabel("step")
+    axs[2].set_ylabel("log flow ratio")
+    axs[2].grid(alpha=0.28)
+    axs[2].legend(loc="best")
     fig.tight_layout()
     return save_figure(fig, output_dir, "fig_flow_commands_and_ratio.png")
 
@@ -474,6 +541,7 @@ def plot_last_setpoint_tracking(
 ) -> Path:
     subset = select_last_setpoint_cycles(trajectory, n_cycles=n_cycles)
     steps = subset["step"]
+    reward_band = reward_band_from_trajectory(subset)
     fig, axs = plt.subplots(5, 1, figsize=(10.8, 12.4), sharex=True)
 
     axs[0].plot(steps, subset["ph"], color="#1F77B4", linewidth=1.8, label="pH")
@@ -493,8 +561,8 @@ def plot_last_setpoint_tracking(
 
     axs[1].plot(steps, subset["ph_error"], color="#D55E00", linewidth=1.3)
     axs[1].axhline(0.0, color="#222222", linewidth=0.8)
-    axs[1].axhline(0.02, color="#777777", linestyle=":", linewidth=0.9)
-    axs[1].axhline(-0.02, color="#777777", linestyle=":", linewidth=0.9)
+    axs[1].axhline(reward_band, color="#777777", linestyle=":", linewidth=0.9)
+    axs[1].axhline(-reward_band, color="#777777", linestyle=":", linewidth=0.9)
     axs[1].set_ylabel("pH error")
     axs[1].grid(alpha=0.28)
 
@@ -524,6 +592,14 @@ def plot_last_setpoint_tracking(
             linewidth=1.3,
             label="ratio action",
         )
+        if "action_buffer_sum" in subset:
+            axs[4].plot(
+                steps,
+                subset["action_buffer_sum"],
+                color="#E69F00",
+                linewidth=1.2,
+                label="sum action",
+            )
         axs[4].axhline(1.0, color="#777777", linestyle=":", linewidth=0.8)
         axs[4].axhline(-1.0, color="#777777", linestyle=":", linewidth=0.8)
         axs[4].set_ylabel("action")
@@ -567,6 +643,7 @@ def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     steps = trajectory["step"]
     action_specs = [
         ("action_ratio", "#AA4499", "ratio action"),
+        ("action_buffer_sum", "#E69F00", "sum action"),
         ("action_acid", "#CC6677", "acid action"),
         ("action_acetate", "#4477AA", "acetate action"),
         ("action_water", "#228833", "water action"),
@@ -583,7 +660,21 @@ def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     axs[0].grid(alpha=0.28)
     axs[0].legend(loc="best")
 
-    if "action_ratio" in trajectory:
+    if "action_ratio" in trajectory and "action_buffer_sum" in trajectory:
+        scatter = axs[1].scatter(
+            trajectory["action_ratio"],
+            trajectory["action_buffer_sum"],
+            c=trajectory["abs_ph_error"],
+            cmap="viridis",
+            s=34,
+            edgecolor="#222222",
+            linewidth=0.25,
+        )
+        axs[1].set_xlabel("ratio action")
+        axs[1].set_ylabel("sum action")
+        axs[1].set_xlim(-1.05, 1.05)
+        axs[1].set_ylim(-1.05, 1.05)
+    elif "action_ratio" in trajectory:
         scatter = axs[1].scatter(
             trajectory["action_ratio"],
             trajectory["log10_flow_ratio"],
@@ -736,6 +827,83 @@ def plot_training_losses(trajectory: pd.DataFrame, output_dir: Path) -> Path | N
     return save_figure(fig, output_dir, "fig_training_losses.png")
 
 
+def reward_config_from_snapshot(config: dict) -> PHRewardConfig:
+    reward_data = config.get("resolved_rollout", {}).get("reward_config", {})
+    if not isinstance(reward_data, dict) or not reward_data:
+        reward_data = {"mode": "relative_band_offset"}
+    return PHRewardConfig(**reward_data)
+
+
+def plot_reward_shape_comparison(output_dir: Path, config: dict) -> Path:
+    process_config = config.get("process_config", {})
+    target_ph = float_or_nan(process_config.get("pKa", 4.76))
+    if not np.isfinite(target_ph):
+        target_ph = 4.76
+    base_cfg = reward_config_from_snapshot(config)
+    if base_cfg.mode == "three_term":
+        base_cfg = replace(base_cfg, mode="relative_band_offset")
+
+    rollout = config.get("resolved_rollout", {})
+    buffer_sum_min = float_or_nan(rollout.get("buffer_flow_sum_min", 2.0))
+    buffer_sum_max = float_or_nan(rollout.get("buffer_flow_sum_max", 20.0))
+    fixed_sum = float_or_nan(rollout.get("fixed_buffer_flow_sum", 15.0))
+    if not np.isfinite(buffer_sum_min):
+        buffer_sum_min = 2.0
+    if not np.isfinite(buffer_sum_max):
+        buffer_sum_max = 20.0
+    if not np.isfinite(fixed_sum):
+        fixed_sum = 15.0
+
+    errors = np.linspace(-0.05, 0.05, 401)
+    action = np.zeros(2, dtype=np.float32)
+    previous_action = np.zeros(2, dtype=np.float32)
+    curves = [
+        ("full shaped", base_cfg, "#0072B2"),
+        ("no bonus", replace(base_cfg, beta=0.0), "#D55E00"),
+        (
+            "no linear terms",
+            replace(base_cfg, gamma_out=0.0, gamma_in=0.0),
+            "#009E73",
+        ),
+        (
+            "no bonus or linear",
+            replace(base_cfg, beta=0.0, gamma_out=0.0, gamma_in=0.0),
+            "#AA4499",
+        ),
+    ]
+
+    fig, ax = plt.subplots(figsize=(8.8, 5.4))
+    for label, cfg, color in curves:
+        rewards = [
+            compute_ph_reward(
+                target_ph=target_ph,
+                ph=target_ph + float(error),
+                action=action,
+                previous_action=previous_action,
+                config=cfg,
+                hold_progress=1.0,
+                buffer_sum=fixed_sum,
+                previous_buffer_sum=fixed_sum,
+                buffer_sum_min=buffer_sum_min,
+                buffer_sum_max=buffer_sum_max,
+            ).reward
+            for error in errors
+        ]
+        ax.plot(errors, rewards, color=color, linewidth=1.8, label=label)
+
+    band = base_cfg.band_floor_ph
+    ax.axvline(0.0, color="#222222", linewidth=0.8)
+    ax.axvline(band, color="#777777", linestyle=":", linewidth=0.9)
+    ax.axvline(-band, color="#777777", linestyle=":", linewidth=0.9)
+    ax.set_xlabel("logged pH error, pH - target")
+    ax.set_ylabel("instantaneous reward")
+    ax.set_title("Shaped Reward Components Around Setpoint")
+    ax.grid(alpha=0.28)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    return save_figure(fig, output_dir, "fig_reward_shape_comparison.png")
+
+
 def write_result_artifact_manifest(
     output_dir: Path,
     figures: list[Path],
@@ -796,6 +964,7 @@ def save_offline_ph_td3_result_artifacts(
         plot_last_setpoint_tracking(diagnostic_trajectory, figures_dir),
         plot_action_diagnostics(diagnostic_trajectory, figures_dir),
         plot_hh_ratio_consistency(diagnostic_trajectory, figures_dir, config),
+        plot_reward_shape_comparison(figures_dir, config),
     ]
     loss_figure = plot_training_losses(diagnostic_trajectory, figures_dir)
     if loss_figure is not None:
