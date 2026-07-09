@@ -2,6 +2,169 @@
 
 Generated on 2026-07-02 00:40:05 from saved result files only. Rewritten on 2026-07-02 after inspecting the latest requested 50,000-step run and the neighboring result folders.
 
+## Absolute-Bonus Variable-Sum Reward Analysis, 2026-07-08
+
+This update analyzes the newest full offline TD3 run:
+
+`results/offline_ph_td3_training_20260708_233033`
+
+This run uses the current absolute-bonus shaped reward:
+
+$$
+r_t =
+-J_{eff,t}
+-J_{\Delta S,t}
+-J_{lin,out,t}
+-J_{lin,in,t}
+-w_{|e|}|e_t|
++J_{bonus,t},
+$$
+
+with `band_floor_ph = 0.01`, `reward_bonus_weight = 0.05`,
+`bonus_k = 6.0`, `sum_move_penalty_weight = 1.0`, and
+`tail_offset_weight = 0.0`.
+
+### Tracking Summary
+
+| Scope | Steps | MAE | RMSE | Max \|e\| | Mean reward |
+|---|---:|---:|---:|---:|---:|
+| all steps | 100000 | 0.04202 | 0.09307 | 1.50627 | -0.05048 |
+| first 5000 exploration-decay steps | 5000 | 0.23074 | 0.32422 | 1.50627 | -0.35620 |
+| post-decay training | 94800 | 0.03215 | 0.05994 | 0.91126 | -0.03448 |
+| last 100 training cycles | 20000 | 0.02751 | 0.04350 | 0.41846 | -0.02802 |
+| final evaluation cycle | 200 | 0.00532 | 0.02751 | 0.34611 | 0.00515 |
+| final evaluation after first 10 steps | 190 | 0.00193 | 0.00193 | 0.00193 | 0.00990 |
+
+The absolute-bonus reward helped the final deterministic evaluation offset.
+The previous full variable-sum run, `20260708_230047`, had final evaluation
+tail MAE of `0.01910` pH at the same final target. The new run has final
+evaluation tail MAE of `0.00193` pH. That is the cleanest evidence that the
+new bonus scaling helped remove steady offset.
+
+The all-step MAE is not lower because it includes the early exploration-heavy
+period and a few late edge-setpoint failures. This is why the final evaluation
+looks much better than the global run average.
+
+The relevant figures are:
+
+![absolute-bonus average reward trend](../results/offline_ph_td3_training_20260708_233033/figures/fig_setpoint_average_reward.png)
+
+![absolute-bonus last five setpoints](../results/offline_ph_td3_training_20260708_233033/figures/fig_last_5_setpoint_tracking.png)
+
+### Reward Magnitude After Rescaling
+
+The reward component sums over the 100000-step run are:
+
+| Component | Sum | Share of gross positive cost |
+|---|---:|---:|
+| absolute-error term | 4202.16 | 80.68% |
+| effective squared-error term | 866.29 | 16.63% |
+| normalized total-flow move penalty | 105.44 | 2.02% |
+| outside linear term | 32.62 | 0.63% |
+| inside linear term | 1.69 | 0.03% |
+| late-hold tail offset term | 0.00 | 0.00% |
+| bonus term | 159.81 | 3.07% negative cost |
+
+This is a much better scaling than the previous reward. The bonus is no longer
+invisible. It increased from about `0.06%` of gross cost in the previous run to
+about `3.07%` in this run. The tail term is now truly absent. The total-flow
+move penalty also has a visible but not dominant role.
+
+The linear terms are still very small. This means the current shaped reward is
+mostly an absolute-error reward plus a meaningful near-zero bonus and a modest
+total-flow move penalty.
+
+### Late-Operation Drifts
+
+The last-five-setpoint plot shows two different behaviors:
+
+- the final yellow evaluation hold is deterministic, flat, and nearly
+  offset-free after the first transition steps,
+- the preceding green training holds still have small drift and jitter around
+  the setpoint.
+
+This drift is not a hidden process dynamic. The current environment is static:
+
+$$
+\mathrm{pH}_t =
+pK_a+\log_{10}\left(\frac{F_{Ac,t}}{F_{HAc,t}}\right).
+$$
+
+Therefore, any pH drift inside a hold must come from changing actions. In the
+last training cycles, exploration is still active at `std_end = 0.01`, and TD3
+continues updating during the hold. Each 200-step training hold has 50 updates
+inside its final 50-step tail. The evaluation hold has no exploration and no
+updates, and it becomes flat.
+
+The last 100 training cycles had:
+
+| Drift diagnostic | Value |
+|---|---:|
+| mean tail MAE | 0.02616 pH |
+| median tail MAE | 0.01947 pH |
+| 90th percentile tail MAE | 0.04261 pH |
+| maximum tail MAE | 0.27043 pH |
+| mean absolute tail-minus-early drift | 0.01426 pH |
+| cycles with absolute tail-minus-early drift > 0.02 pH | 25 of 100 |
+
+The strongest late-cycle correlation is between pH error and ratio-related
+variables, not the total-flow action by itself:
+
+| Late-cycle correlation | Value |
+|---|---:|
+| `ph_error` vs `action_ratio` | -0.3565 |
+| `ph_error` vs `flow_ratio_acetate_acid` | -0.3447 |
+| `ph_error` vs `action_buffer_sum` | 0.0497 |
+
+The difficult failures are mostly near the reachable pH edges. For example,
+cycle 392 had target `3.7676` pH. The actor saturated the ratio action at
+`-1`, but chose an acid+acetate sum near `13.0` mL/min. With the acid pump at
+its `10` mL/min upper bound, that sum forces acetate near `3.0` mL/min, so the
+lowest achievable ratio in that moment is about `0.30`, not the target ratio
+near `0.10`. The result was a tail error of about `+0.469` pH.
+
+The same action-geometry issue appears at high-pH edge targets. At cycle 394,
+target `5.6960` pH requires a very high acetate/acid ratio. The ratio action
+was near `+1`, but the selected sum moved enough that the individual pump
+bounds prevented the desired ratio from being maintained. This produced a
+large transient and a poor final error.
+
+So the near-end drift is best interpreted as an action-parameterization and
+edge-feasibility problem, amplified by residual exploration and ongoing actor
+updates. It is not evidence that the absolute bonus made offset worse.
+
+### Interpretation And Next Step
+
+The reward change did what it was supposed to do for offset: it made the
+zero-offset region attractive enough that the final deterministic policy
+settled within about `0.002` pH of the final setpoint after the transition.
+
+The next bottleneck is not the bonus weight. The next bottleneck is whether the
+two-action mapping can reliably coordinate ratio and total-flow sum near the
+edges of the feasible pH range.
+
+The next experiment should be a deterministic frozen-policy evaluation sweep:
+
+1. Train as usual with the current absolute-bonus reward.
+2. Freeze the actor.
+3. Evaluate without exploration and without training updates over a grid of
+   target pH values from `3.76` to `5.76`.
+4. Save per-target tail MAE, final error, acid/acetate/sum actions, and pump
+   saturation flags.
+5. Plot target pH versus tail error and target pH versus final acid, acetate,
+   and sum.
+
+This will show whether the new offset-free behavior is robust across the full
+range or only good at the final held-out target. If edge targets fail in the
+frozen sweep, the most useful next code change is not another global bonus
+increase. It is an edge-aware action mapping or a setpoint-conditioned nominal
+sum helper so the actor cannot choose a total-flow sum that makes the requested
+ratio infeasible under pump bounds.
+
+The numeric support tables for this section are saved under:
+
+`reports/figures/offline_ph_td3_training_20260708_233033_analysis/`
+
 ## Latest Variable-Sum Reward Analysis, 2026-07-08
 
 This update analyzes the newer variable-sum TD3 run:
