@@ -545,6 +545,7 @@ def summarize_by_cycle(trajectory: pd.DataFrame) -> pd.DataFrame:
         rmse=("ph_error", lambda x: float(np.sqrt(np.mean(np.square(x))))),
         max_abs_error=("ph_error", lambda x: float(np.max(np.abs(x)))),
         reward_sum=("reward", "sum"),
+        mean_reward=("reward", "mean"),
         squared_error_cost_sum=("reward_squared_error_cost", "sum"),
         absolute_error_cost_sum=("reward_absolute_error_cost", "sum"),
         move_cost_sum=("reward_move_cost", "sum"),

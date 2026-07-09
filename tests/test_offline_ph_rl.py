@@ -398,8 +398,12 @@ def test_result_artifact_helper_smoke() -> None:
     )
     assert (output_dir / "tables" / "summary_metrics.csv").exists()
     assert (output_dir / "tables" / "trajectory_diagnostics.csv").exists()
+    assert (output_dir / "tables" / "setpoint_reward_metrics.csv").exists()
     assert (output_dir / "tables" / "result_artifact_manifest.json").exists()
-    assert len(artifacts["figures"]) >= 5
+    figure_names = {path.name for path in artifacts["figures"]}
+    assert "fig_setpoint_average_reward.png" in figure_names
+    assert "fig_last_5_setpoint_tracking.png" in figure_names
+    assert len(artifacts["figures"]) >= 7
     assert all(path.exists() for path in artifacts["figures"])
 
 

@@ -210,6 +210,23 @@ def compute_hh_consistency(trajectory: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def compute_setpoint_reward_metrics(trajectory: pd.DataFrame) -> pd.DataFrame:
+    """Summarize reward and tracking quality for each held setpoint segment."""
+    grouped = trajectory.groupby("cycle", as_index=False)
+    return grouped.agg(
+        target_ph=("target_ph", "first"),
+        is_test=("is_test", "max"),
+        start_step=("step", "min"),
+        end_step=("step", "max"),
+        steps=("step", "count"),
+        mean_reward=("reward", "mean"),
+        reward_sum=("reward", "sum"),
+        mean_abs_error=("ph_error", lambda x: float(np.mean(np.abs(x)))),
+        rmse=("ph_error", lambda x: float(np.sqrt(np.mean(np.square(x))))),
+        max_abs_error=("ph_error", lambda x: float(np.max(np.abs(x)))),
+    )
+
+
 def save_figure(fig: plt.Figure, output_dir: Path, name: str) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / name
@@ -243,6 +260,12 @@ def shade_protocol_regions(ax: plt.Axes, trajectory: pd.DataFrame) -> None:
         ax.axvspan(start, end, color="#D9D9D9", alpha=0.25)
     for start, end in boolean_spans(trajectory, "is_test"):
         ax.axvspan(start, end, color="#F2C14E", alpha=0.18)
+
+
+def mark_setpoint_boundaries(ax: plt.Axes, trajectory: pd.DataFrame) -> None:
+    for _, frame in trajectory.groupby("cycle"):
+        start = int(frame["step"].min())
+        ax.axvline(start, color="#BBBBBB", linewidth=0.55, alpha=0.65)
 
 
 def plot_tracking_reward(trajectory: pd.DataFrame, output_dir: Path) -> Path:
@@ -365,6 +388,12 @@ def plot_cycle_metrics(episode_metrics: pd.DataFrame, output_dir: Path) -> Path:
     fig, axs = plt.subplots(2, 1, figsize=(10.0, 6.8), sharex=True)
     x = episode_metrics["cycle"].to_numpy(int)
     width = 0.36
+    mean_reward = (
+        episode_metrics["mean_reward"].to_numpy(float)
+        if "mean_reward" in episode_metrics
+        else episode_metrics["reward_sum"].to_numpy(float)
+        / np.maximum(episode_metrics["steps"].to_numpy(float), 1.0)
+    )
     axs[0].bar(
         x - width / 2,
         episode_metrics["mean_abs_error"],
@@ -384,13 +413,147 @@ def plot_cycle_metrics(episode_metrics: pd.DataFrame, output_dir: Path) -> Path:
     axs[0].grid(axis="y", alpha=0.28)
     axs[0].legend(loc="best")
 
-    axs[1].bar(x, episode_metrics["reward_sum"], color="#228833", alpha=0.9)
+    axs[1].bar(x, mean_reward, color="#228833", alpha=0.9)
     axs[1].axhline(0.0, color="#222222", linewidth=0.8)
     axs[1].set_xlabel("setpoint cycle")
-    axs[1].set_ylabel("reward sum")
+    axs[1].set_ylabel("mean reward")
     axs[1].grid(axis="y", alpha=0.28)
     fig.tight_layout()
     return save_figure(fig, output_dir, "fig_cycle_metrics.png")
+
+
+def plot_setpoint_average_reward(
+    setpoint_rewards: pd.DataFrame,
+    output_dir: Path,
+) -> Path:
+    fig, ax = plt.subplots(figsize=(10.5, 4.8))
+    x = setpoint_rewards["cycle"].to_numpy(int)
+    y = setpoint_rewards["mean_reward"].to_numpy(float)
+    is_test = setpoint_rewards["is_test"].astype(bool).to_numpy()
+
+    train_mask = ~is_test
+    if train_mask.any():
+        ax.bar(
+            x[train_mask],
+            y[train_mask],
+            color="#228833",
+            alpha=0.82,
+            label="training setpoint hold",
+        )
+    if is_test.any():
+        ax.bar(
+            x[is_test],
+            y[is_test],
+            color="#E69F00",
+            alpha=0.9,
+            label="evaluation setpoint hold",
+        )
+    ax.axhline(0.0, color="#222222", linewidth=0.8)
+    ax.set_xlabel("setpoint cycle")
+    ax.set_ylabel("average reward per step")
+    ax.set_title("Average Reward Per Setpoint Hold")
+    ax.grid(axis="y", alpha=0.28)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    return save_figure(fig, output_dir, "fig_setpoint_average_reward.png")
+
+
+def select_last_setpoint_cycles(
+    trajectory: pd.DataFrame,
+    n_cycles: int = 5,
+) -> pd.DataFrame:
+    cycles = np.sort(trajectory["cycle"].unique())
+    keep = set(cycles[-max(1, int(n_cycles)) :])
+    return trajectory[trajectory["cycle"].isin(keep)].copy()
+
+
+def plot_last_setpoint_tracking(
+    trajectory: pd.DataFrame,
+    output_dir: Path,
+    n_cycles: int = 5,
+) -> Path:
+    subset = select_last_setpoint_cycles(trajectory, n_cycles=n_cycles)
+    steps = subset["step"]
+    fig, axs = plt.subplots(5, 1, figsize=(10.8, 12.4), sharex=True)
+
+    axs[0].plot(steps, subset["ph"], color="#1F77B4", linewidth=1.8, label="pH")
+    axs[0].step(
+        steps,
+        subset["target_ph"],
+        where="post",
+        color="#222222",
+        linestyle="--",
+        linewidth=1.3,
+        label="target",
+    )
+    axs[0].set_ylabel("pH")
+    axs[0].set_title(f"Last {subset['cycle'].nunique()} Setpoint Holds")
+    axs[0].grid(alpha=0.28)
+    axs[0].legend(loc="best")
+
+    axs[1].plot(steps, subset["ph_error"], color="#D55E00", linewidth=1.3)
+    axs[1].axhline(0.0, color="#222222", linewidth=0.8)
+    axs[1].axhline(0.02, color="#777777", linestyle=":", linewidth=0.9)
+    axs[1].axhline(-0.02, color="#777777", linestyle=":", linewidth=0.9)
+    axs[1].set_ylabel("pH error")
+    axs[1].grid(alpha=0.28)
+
+    axs[2].plot(steps, subset["reward"], color="#009E73", linewidth=1.3)
+    axs[2].axhline(0.0, color="#222222", linewidth=0.8)
+    axs[2].set_ylabel("reward")
+    axs[2].grid(alpha=0.28)
+
+    axs[3].plot(steps, subset["acid_flow"], color="#CC6677", linewidth=1.3, label="acid")
+    axs[3].plot(
+        steps,
+        subset["acetate_flow"],
+        color="#4477AA",
+        linewidth=1.3,
+        label="acetate",
+    )
+    axs[3].plot(steps, subset["water_flow"], color="#228833", linewidth=1.2, label="water")
+    axs[3].set_ylabel("flow (mL/min)")
+    axs[3].grid(alpha=0.28)
+    axs[3].legend(loc="best")
+
+    if "action_ratio" in subset:
+        axs[4].plot(
+            steps,
+            subset["action_ratio"],
+            color="#AA4499",
+            linewidth=1.3,
+            label="ratio action",
+        )
+        axs[4].axhline(1.0, color="#777777", linestyle=":", linewidth=0.8)
+        axs[4].axhline(-1.0, color="#777777", linestyle=":", linewidth=0.8)
+        axs[4].set_ylabel("action")
+    else:
+        axs[4].plot(
+            steps,
+            subset["log10_flow_ratio"],
+            color="#AA4499",
+            linewidth=1.3,
+            label="log10(acetate/acid)",
+        )
+        axs[4].set_ylabel("log ratio")
+    if "exploration_sigma" in subset:
+        axs[4].plot(
+            steps,
+            subset["exploration_sigma"],
+            color="#0072B2",
+            linewidth=1.0,
+            alpha=0.75,
+            label="noise sigma",
+        )
+    axs[4].set_xlabel("step")
+    axs[4].grid(alpha=0.28)
+    axs[4].legend(loc="best")
+
+    for ax in axs:
+        mark_setpoint_boundaries(ax, subset)
+        shade_protocol_regions(ax, subset)
+    fig.tight_layout()
+    return save_figure(fig, output_dir, "fig_last_5_setpoint_tracking.png")
 
 
 def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
@@ -609,23 +772,28 @@ def save_offline_ph_td3_result_artifacts(
     summary_metrics = compute_summary_metrics(diagnostic_trajectory)
     flow_diagnostics = compute_flow_diagnostics(diagnostic_trajectory, config)
     hh_consistency = compute_hh_consistency(diagnostic_trajectory)
+    setpoint_reward_metrics = compute_setpoint_reward_metrics(diagnostic_trajectory)
 
     diagnostic_trajectory_path = tables_dir / "trajectory_diagnostics.csv"
     summary_metrics_path = tables_dir / "summary_metrics.csv"
     flow_diagnostics_path = tables_dir / "flow_diagnostics.csv"
     hh_consistency_path = tables_dir / "hh_consistency.csv"
+    setpoint_reward_metrics_path = tables_dir / "setpoint_reward_metrics.csv"
     source_training_summary_path = tables_dir / "source_training_summary.csv"
 
     diagnostic_trajectory.to_csv(diagnostic_trajectory_path, index=False)
     summary_metrics.to_csv(summary_metrics_path, index=False)
     flow_diagnostics.to_csv(flow_diagnostics_path, index=False)
     hh_consistency.to_csv(hh_consistency_path, index=False)
+    setpoint_reward_metrics.to_csv(setpoint_reward_metrics_path, index=False)
     training_summary.to_csv(source_training_summary_path, index=False)
 
     figures = [
         plot_tracking_reward(diagnostic_trajectory, figures_dir),
         plot_flow_commands(diagnostic_trajectory, figures_dir, config),
         plot_cycle_metrics(episode_metrics, figures_dir),
+        plot_setpoint_average_reward(setpoint_reward_metrics, figures_dir),
+        plot_last_setpoint_tracking(diagnostic_trajectory, figures_dir),
         plot_action_diagnostics(diagnostic_trajectory, figures_dir),
         plot_hh_ratio_consistency(diagnostic_trajectory, figures_dir, config),
     ]
@@ -638,6 +806,7 @@ def save_offline_ph_td3_result_artifacts(
         summary_metrics_path,
         flow_diagnostics_path,
         hh_consistency_path,
+        setpoint_reward_metrics_path,
         source_training_summary_path,
     ]
     manifest_path = write_result_artifact_manifest(output_dir, figures, tables)
@@ -652,4 +821,5 @@ def save_offline_ph_td3_result_artifacts(
         "summary_metrics": summary_metrics,
         "flow_diagnostics": flow_diagnostics,
         "hh_consistency": hh_consistency,
+        "setpoint_reward_metrics": setpoint_reward_metrics,
     }
