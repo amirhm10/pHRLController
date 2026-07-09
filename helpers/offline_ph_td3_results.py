@@ -480,7 +480,16 @@ def plot_cycle_metrics(episode_metrics: pd.DataFrame, output_dir: Path) -> Path:
     axs[0].grid(axis="y", alpha=0.28)
     axs[0].legend(loc="best")
 
-    axs[1].bar(x, mean_reward, color="#228833", alpha=0.9)
+    axs[1].plot(
+        x,
+        mean_reward,
+        color="#228833",
+        linewidth=1.4,
+        marker="o",
+        markersize=3.2,
+        markerfacecolor="#FFFFFF",
+        markeredgewidth=0.8,
+    )
     axs[1].axhline(0.0, color="#222222", linewidth=0.8)
     axs[1].set_xlabel("setpoint cycle")
     axs[1].set_ylabel("mean reward")
@@ -499,21 +508,35 @@ def plot_setpoint_average_reward(
     is_test = setpoint_rewards["is_test"].astype(bool).to_numpy()
 
     train_mask = ~is_test
+    ax.plot(
+        x,
+        y,
+        color="#444444",
+        linewidth=1.1,
+        alpha=0.75,
+        zorder=1,
+    )
     if train_mask.any():
-        ax.bar(
+        ax.scatter(
             x[train_mask],
             y[train_mask],
+            s=28,
             color="#228833",
-            alpha=0.82,
+            edgecolor="#222222",
+            linewidth=0.25,
             label="training setpoint hold",
+            zorder=2,
         )
     if is_test.any():
-        ax.bar(
+        ax.scatter(
             x[is_test],
             y[is_test],
+            s=42,
             color="#E69F00",
-            alpha=0.9,
+            edgecolor="#222222",
+            linewidth=0.35,
             label="evaluation setpoint hold",
+            zorder=3,
         )
     ax.axhline(0.0, color="#222222", linewidth=0.8)
     ax.set_xlabel("setpoint cycle")
@@ -872,34 +895,66 @@ def plot_reward_shape_comparison(output_dir: Path, config: dict) -> Path:
         ),
     ]
 
-    fig, ax = plt.subplots(figsize=(8.8, 5.4))
+    fig, axs = plt.subplots(
+        2,
+        1,
+        figsize=(8.8, 7.4),
+        sharex=True,
+        gridspec_kw={"height_ratios": [2.0, 1.0]},
+    )
+    reward_curves: dict[str, np.ndarray] = {}
     for label, cfg, color in curves:
-        rewards = [
-            compute_ph_reward(
-                target_ph=target_ph,
-                ph=target_ph + float(error),
-                action=action,
-                previous_action=previous_action,
-                config=cfg,
-                hold_progress=1.0,
-                buffer_sum=fixed_sum,
-                previous_buffer_sum=fixed_sum,
-                buffer_sum_min=buffer_sum_min,
-                buffer_sum_max=buffer_sum_max,
-            ).reward
-            for error in errors
-        ]
-        ax.plot(errors, rewards, color=color, linewidth=1.8, label=label)
+        rewards = np.array(
+            [
+                compute_ph_reward(
+                    target_ph=target_ph,
+                    ph=target_ph + float(error),
+                    action=action,
+                    previous_action=previous_action,
+                    config=cfg,
+                    hold_progress=1.0,
+                    buffer_sum=fixed_sum,
+                    previous_buffer_sum=fixed_sum,
+                    buffer_sum_min=buffer_sum_min,
+                    buffer_sum_max=buffer_sum_max,
+                ).reward
+                for error in errors
+            ],
+            dtype=float,
+        )
+        reward_curves[label] = rewards
+        axs[0].plot(errors, rewards, color=color, linewidth=1.8, label=label)
 
     band = base_cfg.band_floor_ph
-    ax.axvline(0.0, color="#222222", linewidth=0.8)
-    ax.axvline(band, color="#777777", linestyle=":", linewidth=0.9)
-    ax.axvline(-band, color="#777777", linestyle=":", linewidth=0.9)
-    ax.set_xlabel("logged pH error, pH - target")
-    ax.set_ylabel("instantaneous reward")
-    ax.set_title("Shaped Reward Components Around Setpoint")
-    ax.grid(alpha=0.28)
-    ax.legend(loc="best")
+    for ax in axs:
+        ax.axvline(0.0, color="#222222", linewidth=0.8)
+        ax.axvline(band, color="#777777", linestyle=":", linewidth=0.9)
+        ax.axvline(-band, color="#777777", linestyle=":", linewidth=0.9)
+        ax.grid(alpha=0.28)
+    axs[0].set_ylabel("instantaneous reward")
+    axs[0].set_title("Shaped Reward Components Around Setpoint")
+    axs[0].legend(loc="best")
+
+    full = reward_curves["full shaped"]
+    delta_specs = [
+        ("bonus contribution", full - reward_curves["no bonus"], "#D55E00"),
+        (
+            "linear contribution",
+            full - reward_curves["no linear terms"],
+            "#009E73",
+        ),
+        (
+            "bonus + linear contribution",
+            full - reward_curves["no bonus or linear"],
+            "#AA4499",
+        ),
+    ]
+    for label, delta, color in delta_specs:
+        axs[1].plot(errors, delta, color=color, linewidth=1.5, label=label)
+    axs[1].axhline(0.0, color="#222222", linewidth=0.8)
+    axs[1].set_xlabel("logged pH error, pH - target")
+    axs[1].set_ylabel("reward delta")
+    axs[1].legend(loc="best")
     fig.tight_layout()
     return save_figure(fig, output_dir, "fig_reward_shape_comparison.png")
 

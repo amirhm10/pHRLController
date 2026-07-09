@@ -2,6 +2,105 @@
 
 Generated on 2026-07-02 00:40:05 from saved result files only. Rewritten on 2026-07-02 after inspecting the latest requested 50,000-step run and the neighboring result folders.
 
+## Latest Variable-Sum Reward Analysis, 2026-07-08
+
+This update analyzes the newer variable-sum TD3 run:
+
+`results/offline_ph_td3_training_20260708_230047`
+
+This run uses the updated state and action definitions:
+
+$$
+s_t =
+[\mathrm{pH}_t,\ \mathrm{pH}_{sp,t},\
+\mathrm{pH}_t-\mathrm{pH}_{sp,t},\
+a^{\rho}_{t-1},\ a^{S}_{t-1}],
+$$
+
+and
+
+$$
+a_t=[a^{\rho}_t,\ a^{S}_t],
+$$
+
+where \(a^{\rho}_t\) controls the acetate/acid ratio and \(a^{S}_t\)
+controls the acid+acetate total flow over \(S_t \in [2,20]\) mL/min. The old
+`t/T` state is no longer used.
+
+### Latest Quantitative Summary
+
+| Scope | Steps | MAE | RMSE | Max \|e\| | Mean reward |
+|---|---:|---:|---:|---:|---:|
+| all steps | 100000 | 0.03978 | 0.08747 | 1.4598 | -0.07218 |
+| TD3 training steps | 99800 | 0.03982 | 0.08756 | 1.4598 | -0.07226 |
+| final eval cycle | 200 | 0.01953 | 0.02025 | 0.09194 | -0.03222 |
+
+The final deterministic evaluation cycle is close to the `0.02` pH success
+tolerance in MAE, but the overall run is still affected by early exploration
+and occasional later bad setpoints. The connected setpoint-average reward plot
+is now a better diagnostic than the previous bar chart because it shows both
+learning trend and isolated setpoint failures:
+
+![latest average reward trend](../results/offline_ph_td3_training_20260708_230047/figures/fig_setpoint_average_reward.png)
+
+### Reward Magnitude Diagnosis
+
+The current reward component sums over the 100000-step run are:
+
+| Component | Sum | Share of total cost |
+|---|---:|---:|
+| squared-error cost | 765.16 | 10.60% |
+| absolute-error cost | 3977.92 | 55.11% |
+| late-hold tail offset cost | 2433.30 | 33.71% |
+| normalized total-flow move penalty | 13.52 | 0.19% |
+| outside linear term | 30.34 | 0.42% |
+| inside linear term | 1.75 | 0.02% |
+| bonus term | 4.08 | 0.06% negative cost |
+
+This explains why the full shaped reward curve appears almost identical to the
+curves without bonus and linear terms. With `band_floor_ph = 0.01`, the bonus
+is proportional to \(b^2=10^{-4}\), so even `beta = 25` gives a maximum visible
+bonus of only about `0.002` reward. In contrast, the late-hold offset penalty
+has an effective slope of about \(1 + 5 = 6\) reward units per pH error, so a
+`0.05` pH error costs about `0.30` before the quadratic and linear terms are
+even considered.
+
+The regenerated reward-shape figure now includes a lower panel that shows the
+small shaping deltas directly:
+
+![latest reward shape comparison](../results/offline_ph_td3_training_20260708_230047/figures/fig_reward_shape_comparison.png)
+
+### Interpretation
+
+The current reward is not really being shaped by the bonus or the linear
+inside/outside terms. It is primarily an absolute-error plus late-hold
+absolute-error reward. The total-flow move penalty is also small relative to
+tracking penalties. It regularizes large total-flow jumps, but it is not a
+dominant training signal.
+
+The next reward experiment should make the offset-focused reward simpler and
+better scaled:
+
+$$
+r_t =
+-w_e |e_t|
+-w_{tail}h_t |e_t|
+-w_S
+\left(
+\frac{S_t-S_{t-1}}{S_{\max}-S_{\min}}
+\right)^2
++w_b \exp\left(-\frac{|e_t|}{b}\right).
+$$
+
+Use `b = 0.01`, keep `w_e = 1`, reduce `w_tail` from `5` to about `2`, increase
+the total-flow move weight from `0.1` to about `1.0`, and set the bonus in
+absolute reward units, for example `w_b = 0.05`, instead of scaling it by
+`b^2`. This would make the bonus visible enough to shape near-zero offset while
+keeping large errors strongly penalized.
+
+The older sections below describe the previous one-action fixed-sum run and
+are retained as historical context.
+
 ## Scope
 
 This report analyzes the current offline pH TD3 simulation output. It does not launch BioSMB, an OPC emulator, hardware, MPC, valves, or pumps. The source result folder is:
