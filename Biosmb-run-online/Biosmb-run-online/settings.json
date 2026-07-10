@@ -1,0 +1,54 @@
+{
+    "YV_AD_1": "ns=4;s=.Discrete_Out.YV_AD_1",
+    "YV_EH_1": "ns=4;s=.Discrete_Out.YV_EH_1",
+    "YV_IL_1": "ns=4;s=.Discrete_Out.YV_IL_1",
+    "YV_MP_1": "ns=4;s=.Discrete_Out.YV_MP_1",
+    "FLOW": "ns=4;s=.PUMP.FLOW",
+    "EN": "ns=4;s=.PUMP.EN",
+    "PRESSURE":
+    [
+        "ns=4;s=TBIOSMB2DELTAV.P_1",
+        "ns=4;s=TBIOSMB2DELTAV.P_2",
+        "ns=4;s=TBIOSMB2DELTAV.P_3",
+        "ns=4;s=TBIOSMB2DELTAV.P_4",
+        "ns=4;s=TBIOSMB2DELTAV.P_5",
+        "ns=4;s=TBIOSMB2DELTAV.P_6",
+        "ns=4;s=TBIOSMB2DELTAV.P_7"
+    ],
+    "PH":
+    [
+        "ns=4;s=TBIOSMB2DELTAV.PH_1",
+        "ns=4;s=TBIOSMB2DELTAV.PH_2"
+    ],
+    "CONDUCTIVITY":
+    [
+        "ns=4;s=TBIOSMB2DELTAV.COND_1",
+        "ns=4;s=TBIOSMB2DELTAV.COND_2",
+        "ns=4;s=TBIOSMB2DELTAV.COND_3",
+        "ns=4;s=TBIOSMB2DELTAV.COND_4"
+    ],
+    "UV":
+    [
+        {
+            "A": "ns=4;s=TBIOSMB2DELTAV.UA_1A",
+            "B": "ns=4;s=TBIOSMB2DELTAV.UA_1B",
+            "C": "ns=4;s=TBIOSMB2DELTAV.UA_1C"
+        },
+        {
+            "A": "ns=4;s=TBIOSMB2DELTAV.UA_2A",
+            "B": "ns=4;s=TBIOSMB2DELTAV.UA_2B",
+            "C": "ns=4;s=TBIOSMB2DELTAV.UA_2C"
+        },
+        {
+            "A": "ns=4;s=TBIOSMB2DELTAV.UA_3A",
+            "B": "ns=4;s=TBIOSMB2DELTAV.UA_3B",
+            "C": "ns=4;s=TBIOSMB2DELTAV.UA_3C"
+        },
+        {
+            "A": "ns=4;s=TBIOSMB2DELTAV.UA_4A",
+            "B": "ns=4;s=TBIOSMB2DELTAV.UA_4B",
+            "C": "ns=4;s=TBIOSMB2DELTAV.UA_4C"
+        }
+    ]
+
+}

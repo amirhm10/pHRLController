@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +12,10 @@ import torch
 
 from TD3Agent.agent import TD3Agent, set_global_seeds
 from helpers.offline_ph_td3_results import save_offline_ph_td3_result_artifacts
+from helpers.td3_deployment_export import (
+    export_td3_actor_bundle,
+    sha256_file,
+)
 from simulation.config import PHProcessConfig
 from simulation.ph_environment import (
     PHEnvironment,
@@ -665,11 +670,81 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         config=config_snapshot,
     )
 
+    deployment_bundle = None
     if args.save_checkpoint:
-        agent.save(str(output_dir / "checkpoints"), prefix="offline_ph_td3")
+        checkpoint_path = Path(
+            agent.save(str(output_dir / "checkpoints"), prefix="offline_ph_td3")
+        )
+
+        # The lab runtime consumes an actor-only, weights-only bundle rather
+        # than the training checkpoint with critics, replay, and optimizers.
+        if args.action_mode == "ratio_buffer_sum":
+            deployment_bundle = export_td3_actor_bundle(
+                actor=agent.actor,
+                output_dir=output_dir / "deployment_bundle",
+                actor_config={
+                    "state_dim": int(env.observation_space.shape[0]),
+                    "action_dim": int(env.action_space.shape[0]),
+                    "hidden_dims": [int(value) for value in args.actor_hidden],
+                    "activation": "relu",
+                    "use_layernorm": False,
+                    "dropout": 0.0,
+                    "max_action": 1.0,
+                    "squash": "tanh",
+                },
+                action_mapping={
+                    "mapping_version": "ratio_buffer_sum_v1",
+                    "acid_flow_min": float(process_config.acid_flow_min),
+                    "acid_flow_max": float(process_config.acid_flow_max),
+                    "acetate_flow_min": float(process_config.acetate_flow_min),
+                    "acetate_flow_max": float(process_config.acetate_flow_max),
+                    "water_flow_min": float(process_config.water_flow_min),
+                    "water_flow_max": float(process_config.water_flow_max),
+                    "buffer_flow_sum_min": float(args.buffer_flow_sum_min),
+                    "buffer_flow_sum_max": float(args.buffer_flow_sum_max),
+                    "fixed_water_flow": float(env.fixed_water_flow),
+                },
+                current_ph_bounds=(
+                    float(env.observation_space.low[0]),
+                    float(env.observation_space.high[0]),
+                ),
+                target_ph_bounds=(target_ph_min, target_ph_max),
+                nominal_ph=float(process_config.pKa),
+                source_metadata={
+                    "simulation_only": True,
+                    "lab_validated": False,
+                    "dynamic_model_validated": False,
+                    "frozen_policy_validated": False,
+                    "training_runner": "run_offline_ph_td3_training.py",
+                    "training_result_directory": str(output_dir),
+                    "training_checkpoint": str(checkpoint_path),
+                    "training_checkpoint_sha256": sha256_file(checkpoint_path),
+                    "config_snapshot": str(
+                        output_dir / "tables" / "config_snapshot.json"
+                    ),
+                    "config_snapshot_sha256": sha256_file(
+                        output_dir / "tables" / "config_snapshot.json"
+                    ),
+                    "seed": int(args.seed),
+                    "total_steps": int(total_steps),
+                    "python_version": platform.python_version(),
+                    "torch_version": str(torch.__version__),
+                    "numpy_version": str(np.__version__),
+                },
+            )
+        else:
+            print(
+                "Deployment bundle not exported: the live BioSMB contract "
+                "requires --action-mode ratio_buffer_sum."
+            )
 
     print(f"Saved offline pH TD3 results to: {output_dir}")
     print(f"Saved TD3 pH figures to: {artifacts['figures_dir']}")
+    if deployment_bundle is not None:
+        print(
+            "Saved frozen TD3 deployment bundle to: "
+            f"{deployment_bundle['manifest_path'].parent}"
+        )
     print(summary.to_string(index=False))
     return {
         "output_dir": output_dir,
@@ -678,6 +753,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         "summary": summary,
         "flow_constraint_check": flow_constraint_check,
         "artifacts": artifacts,
+        "deployment_bundle": deployment_bundle,
     }
 
 

@@ -1,0 +1,39 @@
+services:
+  biosmb-td3-shadow:
+    profiles: ["shadow"]
+    build:
+      context: ../..
+      dockerfile: Biosmb-run-online/Biosmb-run-online/dockerfile
+    container_name: biosmb-custom-td3-shadow
+    command:
+      - python
+      - ./main.py
+      - --control-mode
+      - suggest_only
+    environment:
+      BIOSMB_MONGO_URL: ${BIOSMB_MONGO_URL:?Set BIOSMB_MONGO_URL outside source}
+    volumes:
+      - ./models:/app/models:ro
+    restart: "no"
+
+  # This profile remains opt-in. The Python preflight also requires verified
+  # physical mappings, a lab-validated manifest, a finite session, and the
+  # nonpersistent BIOSMB_ALLOW_ACTIVE_CONTROL arming value.
+  biosmb-td3-active:
+    profiles: ["active"]
+    build:
+      context: ../..
+      dockerfile: Biosmb-run-online/Biosmb-run-online/dockerfile
+    container_name: biosmb-custom-td3-active
+    command:
+      - python
+      - ./main.py
+      - --control-mode
+      - active_control
+    environment:
+      BIOSMB_MONGO_URL: ${BIOSMB_MONGO_URL:?Set BIOSMB_MONGO_URL outside source}
+      BIOSMB_ALLOW_ACTIVE_CONTROL: ${BIOSMB_ALLOW_ACTIVE_CONTROL:-NOT_ARMED}
+    volumes:
+      - ./models:/app/models:ro
+    restart: "no"
+    stop_grace_period: 30s

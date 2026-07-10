@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "algorithm": "custom_td3",
+  "policy_id": "custom_td3_REPLACE_WITH_HASH_PREFIX",
+  "weights_file": "td3_actor_weights.pt",
+  "weights_format": "pytorch_state_dict_weights_only",
+  "weights_sha256": "REPLACE_WITH_EXPORTED_SHA256",
+  "state_dim": 5,
+  "state_dtype": "float32",
+  "state_scaling": "none",
+  "controlled_measurement": "PH_2",
+  "error_definition": "current_ph_minus_target_ph",
+  "state_variables": [
+    "current_ph",
+    "target_ph",
+    "current_ph_minus_target_ph",
+    "normalized_ratio_action",
+    "normalized_buffer_sum_action"
+  ],
+  "state_bounds": [
+    [3.76, 5.76],
+    [3.76, 5.7],
+    [-1.94, 2.0],
+    [-1.0, 1.0],
+    [-1.0, 1.0]
+  ],
+  "action_dim": 2,
+  "action_dtype": "float32",
+  "action_semantics": "normalized_ratio_and_buffer_flow_sum",
+  "action_variables": [
+    "normalized_acetate_acid_ratio",
+    "normalized_acid_acetate_total_flow"
+  ],
+  "action_bounds": [
+    [-1.0, 1.0],
+    [-1.0, 1.0]
+  ],
+  "actor": {
+    "state_dim": 5,
+    "action_dim": 2,
+    "hidden_dims": [128, 128],
+    "activation": "relu",
+    "use_layernorm": false,
+    "dropout": 0.0,
+    "max_action": 1.0,
+    "squash": "tanh"
+  },
+  "action_mapping": {
+    "mapping_version": "ratio_buffer_sum_v1",
+    "acid_flow_min": 1.0,
+    "acid_flow_max": 10.0,
+    "acetate_flow_min": 1.0,
+    "acetate_flow_max": 10.0,
+    "water_flow_min": 1.0,
+    "water_flow_max": 10.0,
+    "buffer_flow_sum_min": 2.0,
+    "buffer_flow_sum_max": 20.0,
+    "fixed_water_flow": 5.0
+  },
+  "target_ph_bounds": [3.76, 5.7],
+  "golden_tolerance": 1e-6,
+  "golden_cases": [],
+  "source": {
+    "simulation_only": true,
+    "lab_validated": false,
+    "dynamic_model_validated": false,
+    "frozen_policy_validated": false
+  }
+}
