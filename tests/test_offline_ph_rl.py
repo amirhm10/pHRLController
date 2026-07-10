@@ -278,7 +278,8 @@ def test_runner_default_reward_is_offset_focused_shaped() -> None:
     assert args.buffer_size == 60_000
     assert args.actor_hidden == [128, 128]
     assert args.critic_hidden == [128, 128]
-    assert np.isclose(args.std_end, 0.01)
+    assert np.isclose(args.std_end, 0.02)
+    assert args.save_checkpoint is True
     assert cfg.mode == "relative_band_offset"
     assert np.isclose(cfg.band_floor_ph, 0.01)
     assert np.isclose(cfg.q_band, 1.0)
@@ -289,6 +290,12 @@ def test_runner_default_reward_is_offset_focused_shaped() -> None:
     assert np.isclose(cfg.bonus_k, 6.0)
     assert np.isclose(cfg.absolute_error_weight, 1.0)
     assert np.isclose(cfg.tail_offset_weight, 0.0)
+
+
+def test_runner_checkpoint_saving_can_be_disabled_explicitly() -> None:
+    args = build_parser().parse_args(["--no-save-checkpoint"])
+
+    assert args.save_checkpoint is False
 
 
 def test_lab_data_setpoint_range_is_used_by_default() -> None:

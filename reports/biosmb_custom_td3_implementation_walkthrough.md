@@ -171,7 +171,7 @@ The implemented mapping is tested for parity against `PHEnvironment.action_to_fl
   - restores the actor's original train/eval state after export.
 
 - `run_offline_ph_td3_training.py`
-  - retains the complete research checkpoint when `--save-checkpoint` is used;
+  - retains the complete research checkpoint by default;
   - additionally creates `deployment_bundle/td3_actor_weights.pt` and `deployment_bundle/td3_actor_manifest.json` for `ratio_buffer_sum` mode;
   - marks new exports as simulation-only and not lab validated;
   - records checkpoint/config hashes and Python, PyTorch, and NumPy versions.
@@ -308,7 +308,7 @@ Validates the actor before loading laboratory communication packages. It creates
 
 ### Step 1: produce a new research checkpoint
 
-The existing 500,000-step run cannot be deployed because its configuration recorded `save_checkpoint: false`. A new training run must include:
+The existing 500,000-step run cannot be deployed because its configuration recorded `save_checkpoint: false`. New runs now save by default. The explicit `--save-checkpoint` flag remains accepted, while `--no-save-checkpoint` opts out for a disposable run:
 
 ```powershell
 & 'C:\Users\HAMEDI\miniconda3\envs\rl\python.exe' `

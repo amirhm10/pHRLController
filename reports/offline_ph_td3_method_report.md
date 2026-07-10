@@ -340,13 +340,15 @@ The current default runner settings are:
 | Target critic combine rule | min |
 | Warm-start cycles | 0 |
 | Evaluation cycle | final setpoint cycle |
+| Save training checkpoint | yes, enabled by default |
+| Save actor-only deployment bundle | yes in `ratio_buffer_sum` mode |
 
 The default exploration mode is Gaussian action noise:
 
 | Exploration parameter | Value |
 |---|---:|
 | Initial standard deviation | 0.35 |
-| Final standard deviation | 0.01 |
+| Final standard deviation | 0.02 |
 | Decay mode | linear |
 | Decay steps | 5000 |
 | Exponential decay rate option | 0.99 |

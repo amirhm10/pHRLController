@@ -1042,7 +1042,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--critic-lr", type=float, default=1e-3)
     parser.add_argument("--gamma", type=float, default=0.97)
     parser.add_argument("--std-start", type=float, default=0.35)
-    parser.add_argument("--std-end", type=float, default=0.01)
+    parser.add_argument("--std-end", type=float, default=0.02)
     parser.add_argument("--std-decay-steps", type=int, default=5000)
     parser.add_argument(
         "--std-decay-mode",
@@ -1115,7 +1115,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--buffer-flow-sum-max", type=float, default=20.0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output-dir", type=Path, default=None)
-    parser.add_argument("--save-checkpoint", action="store_true")
+    parser.add_argument(
+        "--save-checkpoint",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Save the trained agent checkpoint and, for ratio_buffer_sum mode, "
+            "the actor-only deployment bundle. Enabled by default; use "
+            "--no-save-checkpoint for a disposable run."
+        ),
+    )
     return parser
 
 
