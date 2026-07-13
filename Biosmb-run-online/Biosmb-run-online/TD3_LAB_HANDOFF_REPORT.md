@@ -2,7 +2,7 @@
 
 **Report date:** July 13, 2026  
 **Software status:** custom TD3 integration completed and locally tested  
-**Model status:** the replacement offline model must be trained with the revised defaults<br>
+**Model status:** the bundled 500000-step checkpoint is the selected shipment default<br>
 **Lab status:** live BioSMB control and online learning have not yet been validated
 
 ## 1. Purpose
@@ -320,23 +320,23 @@ samples, and 20 uniform samples. The recent pool is limited to the newest 200
 transitions after that many observations exist. With one transition per minute,
 this corresponds to approximately 3 hours 20 minutes of recent operation.
 
-## 9. Current model versus the incoming model
+## 9. Selected shipment model
 
-At the time of this report, `models/` still contains the previous successful
-offline export. It should remain internally consistent until the new offline
-run finishes.
+The four matching files currently in `models/` are the model set selected for
+the lab shipment. `main.py` already loads these filenames by default.
 
-| Setting | Currently bundled model | Next replacement model |
-|---|---:|---:|
-| Total offline steps | `500000` | `100000` |
-| Actor hidden layers | `[128, 128]` | `[128, 128]` |
-| Critic hidden layers | `[128, 128]` | `[128, 128]` |
-| Discount factor $\gamma$ | `0.97` | `0.99` |
-| Offline batch size | `64` | `64` |
-| Final offline exploration noise | `0.02` | `0.02` |
+| Setting | Selected value |
+|---|---:|
+| Source run | `offline_ph_td3_training_20260710_183129` |
+| Total offline steps | `500000` |
+| Actor hidden layers | `[128, 128]` |
+| Critic hidden layers | `[128, 128]` |
+| Discount factor $\gamma$ | `0.97` |
+| Offline batch size | `64` |
+| Final offline exploration noise | `0.02` |
+| Policy ID | `custom_td3_0c10ce7b8602bd5c` |
 
-After the new run succeeds, copy these four files from its
-`deployment_bundle` into `models/` **as one matched set**:
+The selected matched set is:
 
 ```text
 td3_actor_manifest.json
@@ -345,11 +345,10 @@ td3_training_checkpoint.pkl
 td3_training_config.json
 ```
 
-Do not mix a manifest, actor, or checkpoint from different runs. The startup
-actor-matching check is designed to catch this error. For clear traceability,
-also update the source-run label and duplicated architecture/discount values in
-`td3_online_training_config.json`; the new-format checkpoint remains the
-runtime authority for architecture and $\gamma$.
+Their SHA-256 values are recorded in [models/README.md](models/README.md) and
+were rechecked during the final handoff audit. Do not replace or mix these files
+before shipment. The startup actor-matching check is designed to catch an
+inconsistent actor and training checkpoint.
 
 ## 10. Docker and dependency status
 
@@ -361,17 +360,26 @@ The container configuration remains close to the earlier setup:
   `dockerfile`, forwards `SIGINT`, uses Docker's small init process, and allows
   a 30-second shutdown period;
 - [dockerfile](dockerfile) now uses unbuffered Python output and runs
-  `pip check` during the build.
+  `pip check` during the build; and
+- [.dockerignore](.dockerignore) excludes Python caches, logs, and generated
+  online checkpoints while retaining the selected offline model files.
 
-[requirements.txt](requirements.txt) has not yet been finalized against the
-new offline run. It currently contains both Stable-Baselines3 and a Torch pin,
-although the custom online TD3 package does not import Stable-Baselines3. The
-lab image should be rebuilt only after the new model's Python, NumPy, and Torch
-versions are reconciled with this file.
+[requirements.txt](requirements.txt) now contains only the direct runtime
+packages imported by the BioSMB program. Stable-Baselines3 is not installed
+because the online controller uses only the custom TD3 package. The Docker build
+installs CPU-only PyTorch `2.8.0`, matching the selected checkpoint's PyTorch
+release, and NumPy `2.3.1`, matching the saved actor information. Python
+`3.11-slim` is retained from the reference container. Actor hashes and saved
+inference cases are checked at startup to detect an incompatible runtime.
 
 Because `restart: unless-stopped` is retained, Docker may restart the container
 after an internal process exit. The lab team should account for this behavior
 during supervised commissioning.
+
+The named `models` volume is populated from the image only when that Docker
+volume is first created. On a computer with an existing `models` volume, verify
+its four model files and hashes before starting because an older volume can hide
+the selected files stored in the image.
 
 ## 11. Verification evidence
 
@@ -400,11 +408,18 @@ A model-only preflight successfully:
 - verified its saved inference cases;
 - loaded the online learner;
 - verified deployment/training actor equality; and
-- confirmed batch size `64`, replay capacity `10000`, and initial online noise
-  `0.02`.
+- confirmed the 500000-step source, `[128, 128]` networks, `gamma = 0.97`, batch
+  size `64`, replay capacity `10000`, recent window `200`, and online noise
+  `0.02 -> 0.01`.
 
 The current actor identifies itself as
 `custom_td3_0c10ce7b8602bd5c`.
+
+The final audit also confirmed that the current `biosmb_interface` modules,
+`settings.json`, and the five lab-interaction functions in `main.py` are
+structurally identical to the Desktop reference. A Linux Python 3.11 dependency
+dry-run resolved every runtime package and the official CPU-only PyTorch 2.8.0
+wheel without installing them.
 
 ### Evidence not yet available
 
@@ -431,8 +446,8 @@ states that it was not lab validated when exported.
 
 The following items should remain visible during handoff:
 
-1. The new 100000-step, `[128, 128]`, $\gamma=0.99$ offline model is not yet
-   installed.
+1. The selected model was trained in simulation and has not been validated on
+   the physical BioSMB process.
 2. The simulation used for offline training does not fully represent real
    mixing delay, residence-time behavior, sensor response, pump error, or
    disturbances.
@@ -459,6 +474,12 @@ The following items should remain visible during handoff:
 12. `suggest_only` must be paired with `online_training_enabled = False`.
     Otherwise, the program would store the suggested action as though it had
     been applied, creating an incorrect online-training transition.
+13. An existing Docker `models` volume can hide the selected model files from
+    the newly built image. Its contents and hashes must be checked before use.
+14. The selected checkpoint was exported with Python `3.13.7`, while the
+    reference Docker base remains Python `3.11`. The model loads locally and
+    dependency resolution passes, but the final container preflight still must
+    be run after Docker is available.
 
 No literature comparison was needed for this software handoff. The controller's
 scientific performance should be assessed from supervised lab data rather than
@@ -468,28 +489,28 @@ from code inspection alone.
 
 The next experiment should be a staged, supervised lab commissioning run:
 
-1. Let the new offline training finish and review its result report.
-2. Copy the four matching deployment files together and verify their source
+1. Keep the selected four model files together and verify their source
    information and hashes.
-3. Reconcile `requirements.txt` with the saved model environment.
-4. Run the complete local tests again using the replacement files.
-5. Run `docker compose config`, build the image, and confirm `pip check` passes.
-6. Confirm Redis, MongoDB, MFCS, and BioSMB OPC connectivity without sending an
+2. Run the complete local tests using the shipment files.
+3. Run `docker compose config`, build the image, and confirm `pip check` passes.
+4. Load the actor and online trainer inside the built container and confirm the
+   policy ID, `gamma`, network sizes, replay settings, and saved inference cases.
+5. Confirm Redis, MongoDB, MFCS, and BioSMB OPC connectivity without sending an
    RL command.
-7. Confirm the three physical pump mappings and the meaning of flow readback.
-8. Confirm `PH_2`, mass-node values, engineering units, target range, and
+6. Confirm the three physical pump mappings and the meaning of flow readback.
+7. Confirm `PH_2`, mass-node values, engineering units, target range, and
    shutdown commands.
-9. Begin with `control_mode = "suggest_only"` and
+8. Begin with `control_mode = "suggest_only"` and
    `online_training_enabled = False` under operator supervision. Compare the
    suggested flows against expected safe values. Disabling learning is
    required because a suggested action is not physically applied and therefore
    must not be stored as the cause of the next measurement.
-10. Perform a manual Docker stop test and verify zero flows, disabled pumps, a
+9. Perform a manual Docker stop test and verify zero flows, disabled pumps, a
     final checkpoint, and clean logs.
-11. Enable active control only after the above checks pass. Start with a fixed
+10. Enable active control only after the above checks pass. Start with a fixed
     in-range target and closely monitor pH, actions, water warnings, masses, and
     MongoDB records.
-12. Use a run shorter than 64 control transitions if the first objective is to
+11. Use a run shorter than 64 control transitions if the first objective is to
     validate deployment without any gradient update. A later approved run can
     explicitly test online learning.
 
@@ -497,7 +518,7 @@ The next experiment should be a staged, supervised lab commissioning run:
 
 | Check | Result / initials |
 |---|---|
-| New four-file model set copied together | |
+| Selected four-file model set present and hashes verified | |
 | Model source and hashes reviewed | |
 | Python, NumPy, and Torch versions reconciled | |
 | Docker configuration and image build passed | |

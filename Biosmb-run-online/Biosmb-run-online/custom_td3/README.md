@@ -59,8 +59,9 @@ alternative critic losses, plain replay, and inactive reward modes.
 The public imports include `TD3Agent`, `GaussianNoiseSchedule`,
 `PERRecentReplayBuffer`, `PHRewardConfig`, and `compute_ph_reward`.
 
-The existing offline checkpoint was trained with:
+The selected shipment checkpoint was trained with:
 
+- total rollout length `500000` steps
 - actor and critic layers `[128, 128]`
 - gamma `0.97`
 - batch size `64`
@@ -75,17 +76,20 @@ The next offline training run now defaults to:
 
 - total rollout length `100000` steps
 - actor and critic layers `[128, 128]`
-- gamma `0.99`
+- gamma `0.97`
 - batch size `64`
 
-These new defaults do not change the existing checkpoint. Replace its saved
-model files only after the new offline run finishes successfully.
+These future offline defaults do not change the selected 500000-step shipment
+checkpoint. `main.py` continues to load that existing four-file model set from
+`models/`.
 
-The new offline runner writes a ready-to-copy `deployment_bundle` containing
+For a future deliberate replacement, the offline runner writes a ready-to-copy
+`deployment_bundle` containing
 `td3_actor_manifest.json`, `td3_actor_weights.pt`,
 `td3_training_checkpoint.pkl`, and `td3_training_config.json`. Copy those four
-files together into the BioSMB `models` folder; do not mix files from different
-offline runs.
+files together into the BioSMB `models` folder and do not mix files from
+different offline runs. The selected 500000-step shipment set should remain in
+place for the current handoff.
 
 The immutable offline values are stored in `models/td3_training_config.json`.
 The active online continuation settings are separate in
@@ -106,13 +110,13 @@ with the full reward breakdown and actor/critic update diagnostics.
 
 ## Important checkpoint limitation
 
-The current `models/td3_training_checkpoint.pkl` is the original trusted local
+The current `models/td3_training_checkpoint.pkl` is the selected trusted local
 checkpoint. It contains actor and critic weights, target weights, and selected
 hyperparameters, but no replay or optimizer state.
 
-The next offline checkpoint format also records actor/critic architecture and
+The future offline checkpoint format also records actor/critic architecture and
 optimizer states. The online loader reads the architecture and `gamma` from
-that checkpoint, so a new `[128, 128]`, `gamma = 0.99` model does not depend on
+that checkpoint, so a new `[128, 128]`, `gamma = 0.97` model does not depend on
 stale duplicated values in the online JSON. It restores the offline optimizer
 state but intentionally starts with an empty online replay buffer.
 

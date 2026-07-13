@@ -299,7 +299,7 @@ class OriginalReferenceTests(unittest.TestCase):
         self.assertIn("model.format_action(raw_action)", main_text)
         self.assertIn("model.action_from_observation(observation_after)", main_text)
         self.assertIn("next_state = model.build_state(", main_text)
-        self.assertIn('CMD ["python", "./main.py"]', docker_text)
+        self.assertIn('CMD ["python", "-u", "./main.py"]', docker_text)
         self.assertIn("COPY . .", docker_text)
 
     def test_custom_package_is_self_contained(self) -> None:

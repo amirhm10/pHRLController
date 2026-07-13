@@ -326,7 +326,7 @@ The current default runner settings are:
 | Resolved default training setpoint range | 3.76 to 5.7 pH |
 | Batch size | 64 |
 | Replay buffer capacity | 60000 |
-| Discount factor `gamma` | 0.99 |
+| Discount factor `gamma` | 0.97 |
 | Actor learning rate | 1e-4 |
 | Critic learning rate | 1e-3 |
 | Optimizer | AdamW |
@@ -343,7 +343,7 @@ The current default runner settings are:
 | Save training checkpoint | yes, enabled by default |
 | Save actor-only deployment bundle | yes in `ratio_buffer_sum` mode |
 
-The next offline run defaults to `100000` rollout steps, `gamma = 0.99`, actor
+The next offline run defaults to `100000` rollout steps, `gamma = 0.97`, actor
 layers `[128, 128]`, critic layers `[128, 128]`, and batch size `64`. The
 previously completed checkpoint used `500000` rollout steps and `gamma = 0.97`.
 Its saved configuration must remain unchanged so that it truthfully records how

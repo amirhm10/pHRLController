@@ -1,15 +1,21 @@
 FROM python:3.11-slim
 
-WORKDIR /app 
+WORKDIR /app
+
+# I changed this line: use the same PyTorch release as the selected 500000-step checkpoint.
+ARG PYTORCH_VERSION=2.8.0
 
 # I changed this line: show Python logs immediately and avoid copying runtime bytecode into the shared project folder.
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-COPY requirements.txt ./ 
+COPY requirements.txt ./
 
-# I changed this line: install the pinned packages and fail the image build if their dependencies are inconsistent.
-RUN python -m pip install --no-cache-dir -r requirements.txt \
+# I changed this line: install CPU-only PyTorch because online BioSMB training runs on the CPU.
+RUN python -m pip install --no-cache-dir \
+        "torch==${PYTORCH_VERSION}" \
+        --index-url https://download.pytorch.org/whl/cpu \
+    && python -m pip install --no-cache-dir -r requirements.txt \
     && python -m pip check
 
 COPY . .

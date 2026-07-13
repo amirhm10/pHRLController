@@ -1,6 +1,7 @@
-# Custom TD3 model artifacts
+# Selected custom TD3 model artifacts
 
-These files replace the historical Stable-Baselines3 SAC artifacts.
+These files replace the historical Stable-Baselines3 SAC artifacts and are the
+default model set selected for the lab shipment.
 
 | File | Purpose |
 |---|---|
@@ -15,6 +16,15 @@ Source run:
 ```text
 results/offline_ph_td3_training_20260710_183129/
 ```
+
+Selected model settings:
+
+- `500000` offline rollout steps
+- actor and critic layers `[128, 128]`
+- `gamma = 0.97`
+- batch size `64`
+- final offline exploration noise `0.02`
+- policy ID `custom_td3_0c10ce7b8602bd5c`
 
 Verified SHA-256 values:
 
@@ -35,11 +45,15 @@ td3_training_config.json
 The `.pkl` is not a full replay/optimizer/RNG resume checkpoint and must never
 be loaded from an untrusted source.
 
-For the next offline run, copy all four files from its generated
-`deployment_bundle` into this folder together. New-format offline checkpoints
-include the network architecture, `gamma`, and optimizer states; the online
-loader uses that checkpoint metadata to reconstruct the correct learner. The
-online replay buffer still starts empty. Keep
+`main.py` loads this actor description, actor weights, and training checkpoint
+by their fixed names. The online loader verifies that the checkpoint actor
+matches the deployment actor before control begins.
+
+If the selected model is deliberately replaced later, copy all four files from
+one generated `deployment_bundle` into this folder together. Never mix files
+from different offline runs. New-format offline checkpoints include the network
+architecture, `gamma`, and optimizer states. The online replay buffer still
+starts empty. Keep
 `td3_online_training_config.json` for online-only choices such as replay capacity
 `10000`, batch size `64`, recent window `200`, update frequency, and exploration
 `0.02 -> 0.01`.
