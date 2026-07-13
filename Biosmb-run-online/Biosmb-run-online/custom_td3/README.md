@@ -1,107 +1,102 @@
-# Additive custom TD3 module
+# Custom TD3 package for BioSMB
 
-This package contains only the custom TD3 pieces that can later be imported by
-the original BioSMB `main.py`. The original main file, BioSMB interface,
-Dockerfile, Compose file, settings, and Stable-Baselines3 example are unchanged.
+This package contains two deliberately separated parts:
 
-## Public API
+1. A verified deterministic deployment facade used by `main.py`.
+2. A reduced copy of only the learning path active in the latest offline run,
+   prepared for later online-training work.
 
-The intended compatibility facade is:
+It does not depend on Stable-Baselines3.
 
-```python
-from custom_td3 import BioSMBTD3Policy
-```
-
-It provides:
-
-```python
-BioSMBTD3Policy.load(...)
-model.build_state(...)
-model.predict(...)
-model.format_action(...)
-model.default_action()
-```
-
-The `predict` method returns `(action, None)`, matching the call shape already
-used by the Stable-Baselines3 SAC example.
-
-## Latest saved actor
-
-The latest verified deployment bundle is currently:
-
-```text
-results/offline_ph_td3_training_20260710_183129/deployment_bundle/
-  td3_actor_manifest.json
-  td3_actor_weights.pt
-```
-
-Use those two files for inference. Do not load or distribute the training
-checkpoint `.pkl` in the online runtime.
-
-The saved actor contract is:
-
-```text
-state  = [PH_2, target, PH_2-target,
-          previous normalized ratio action,
-          previous normalized buffer-sum action]
-
-action = [normalized acetate/acid ratio,
-          normalized acid+acetate total flow]
-```
-
-The action mapper produces physical acid and acetate flows within 1-10 mL/min,
-an acid-plus-acetate sum within 2-20 mL/min, and fixed Arium water at 5 mL/min.
-
-The manifest marks this actor as simulation-only and not lab validated. It is
-for loader testing and future `suggest_only` evaluation, not active lab control.
-
-## Hardware-free example
-
-Run from `Biosmb-run-online/Biosmb-run-online`:
+## Deployment API
 
 ```python
 from custom_td3 import BioSMBTD3Policy
 
-model = BioSMBTD3Policy.load(
-    "../../results/offline_ph_td3_training_20260710_183129/"
-    "deployment_bundle/td3_actor_manifest.json",
-    controlled_flow_indices=[0, 1, 2],
-    controlled_stream_names={
-        0: "acetic-acid",
-        1: "sodium-acetate",
-        2: "di-water",
-    },
-)
-
-observation = {
-    "biosmb-sensors": {"PH_2": 4.6},
-    "biosmb-flows": [5.0, 5.0, 5.0, 0.0, 0.0, 0.0, 0.0],
-}
-state = model.build_state(observation, target_ph=4.7)
+model = BioSMBTD3Policy.load("models/td3_actor_manifest.json")
+state = model.build_state(observation, target_ph)
 normalized_action, _ = model.predict(state, deterministic=True)
 formatted_action = model.format_action(normalized_action)
 ```
 
-The pump indices in this example reproduce the original online code. They are
-not a statement that the physical lab mapping has been verified.
+The five-element state is:
 
-## Future minimal changes to `main.py`
+```text
+[PH_2, target pH, PH_2 - target pH,
+ previous normalized ratio action,
+ previous normalized buffer-sum action]
+```
 
-When the package has been reviewed, only four policy-specific seams need to be
-changed in the original main file:
+The two actor outputs are:
 
-1. Replace the SAC import/load call with `BioSMBTD3Policy.load`.
-2. Use `model.default_action()` for the initial action representation.
-3. Use `model.build_state(...)` instead of the SAC state builder.
-4. Use `model.format_action(raw_action)` instead of the SAC action formatter.
+```text
+[normalized log acetate/acid ratio,
+ normalized acid+acetate total flow]
+```
 
-The BioSMB manager, Redis/Mongo clients, logging, safety functions, and loop
-structure can remain owned by the original application.
+The mapper enforces acid and acetate bounds of 1-10 mL/min, a buffer-flow sum
+of 2-20 mL/min, and fixed Arium water at 5 mL/min.
 
-## Containerization later
+## Active training modules
 
-The original Dockerfile already uses `COPY . .`, so this package will be copied
-into the image without modifying the Dockerfile. Its original requirements file
-already contains NumPy and PyTorch. In the containerization step, place or mount
-the two deployment-bundle files under `models/` and then make the four small
-main-file changes listed above.
+Only the components used by the latest run are included:
+
+```text
+actor.py
+critic.py
+agent.py
+replay_buffer.py
+helpers_net.py
+reward.py
+```
+
+The active replay path samples one-step transitions directly. The package
+excludes n-step returns,
+lambda returns, parameter noise, behavioral cloning, hard target updates,
+alternative critic losses, plain replay, and inactive reward modes.
+
+The public imports include `TD3Agent`, `GaussianNoiseSchedule`,
+`PERRecentReplayBuffer`, `PHRewardConfig`, and `compute_ph_reward`.
+
+The latest offline run used:
+
+- actor and critic layers `[128, 128]`
+- gamma `0.97`
+- batch size `64`
+- replay capacity `60000`
+- Gaussian exploration `0.35 -> 0.02`, linearly over 5000 actions
+- actor and critic learning rates `1e-4` and `1e-3`
+- target smoothing standard deviation `0.2`, clipped at `0.5`
+- policy delay `2` and soft target coefficient `0.005`
+- mixed replay: 50% prioritized, 20% recent, and 30% uniform
+
+The immutable offline values are stored in `models/td3_training_config.json`.
+The proposed online continuation settings are separate in
+`models/td3_online_training_config.json`.
+
+Offline exploration ended at standard deviation `0.02`. Online adaptation is
+configured to begin at `0.02` and decay to `0.01`, preserving continuity while
+reducing random action variation. Exploratory actions and online updates remain
+disabled until the laboratory safety protocol is validated.
+
+## Important checkpoint limitation
+
+`models/td3_training_checkpoint.pkl` is the original trusted local checkpoint.
+It contains actor and critic weights, target weights, selected hyperparameters,
+and no saved replay contents. The original loader restores actor and critic,
+hard-synchronizes targets, and creates new optimizers. It does not restore the
+replay buffer, optimizer states, counters, or random-number-generator states.
+
+Therefore the actor deployment is numerically reproducible, but later online
+training cannot resume bit-for-bit from offline step 500000 with this checkpoint.
+That requires a separate complete-resume checkpoint design.
+
+Never load an untrusted `.pkl` file. The deployment path uses the safer
+weights-only `.pt` file with a manifest hash and golden-vector checks.
+
+## Current safety status
+
+The latest manifest says the policy is simulation-only and not lab validated.
+`main.py` therefore uses `suggest_only`. Do not enable `active_control` until
+the pump mapping, PH_2 dynamics, action timing, safety behavior, and frozen
+policy performance have been validated in the laboratory.

@@ -161,11 +161,11 @@ class BioSMBTD3Policy:
         )
 
     def default_action(self) -> dict[str, Any]:
-        """Return a manifest-compatible 5/5/5 mL/min startup representation."""
+        """Return the offline environment's 7.5/7.5/5 startup flows."""
 
         flows = LogicalFlows(
-            acid_flow=5.0,
-            acetate_flow=5.0,
+            acid_flow=7.5,
+            acetate_flow=7.5,
             water_flow=self.policy.flow_mapping.fixed_water_flow,
         )
         self.policy.mapper.validate_flows(flows)

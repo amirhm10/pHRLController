@@ -2,8 +2,9 @@
 
 **Date:** 2026-07-12
 
-**Current status:** original BioSMB application restored, custom TD3 code added
-separately, and `main.py` intentionally not integrated yet.
+**Current status:** this report records the earlier additive, inference-only
+stage. The subsequent active-path integration and verification are documented
+in `biosmb_custom_td3_active_path_report.md`.
 
 ## 1. Objective
 

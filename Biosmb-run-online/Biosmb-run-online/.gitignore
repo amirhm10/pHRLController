@@ -1,8 +1,14 @@
 __pycache__/
 *.py[cod]
 
-# Model binaries remain local deployment artifacts.
+# Historical or ad-hoc model binaries remain local artifacts.
 models/*.zip
 models/*.pkl
 models/*.pt
 models/td3_actor_manifest.json
+
+# Track the reviewed custom TD3 artifacts required for deployment and later
+# online-training work.
+!models/td3_actor_manifest.json
+!models/td3_actor_weights.pt
+!models/td3_training_checkpoint.pkl

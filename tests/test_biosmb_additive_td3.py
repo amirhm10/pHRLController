@@ -188,12 +188,12 @@ class AdditivePolicyTests(unittest.TestCase):
         action = self.facade.default_action()
         np.testing.assert_allclose(
             action["controlled_flow_rates"],
-            [5.0, 5.0, 5.0],
+            [7.5, 7.5, 5.0],
             atol=1.0e-12,
         )
         np.testing.assert_allclose(
             action["raw_action"],
-            [0.0, -0.1111111111],
+            [0.0, 0.4444444444],
             atol=1.0e-6,
         )
 
@@ -212,6 +212,11 @@ class OriginalReferenceTests(unittest.TestCase):
         docker_text = (ONLINE_DIR / "dockerfile").read_text(encoding="utf-8")
         self.assertIn("from custom_td3 import BioSMBTD3Policy", main_text)
         self.assertNotIn("from stable_baselines3 import SAC", main_text)
+        self.assertNotIn("SAC.load", main_text)
+        self.assertNotIn("sac_biosmb_mixing_online", main_text)
+        self.assertIn('control_mode = "suggest_only"', main_text)
+        self.assertIn("model.build_state(", main_text)
+        self.assertIn("model.format_action(raw_action)", main_text)
         self.assertIn('CMD ["python", "./main.py"]', docker_text)
         self.assertIn("COPY . .", docker_text)
 

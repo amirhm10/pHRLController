@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "purpose": "pretrained_custom_td3_online_adaptation",
+  "source_offline_run": "offline_ph_td3_training_20260710_183129",
+  "state_dim": 5,
+  "action_dim": 2,
+  "actor_hidden": [128, 128],
+  "critic_hidden": [128, 128],
+  "gamma": 0.97,
+  "batch_size": 64,
+  "buffer_size": 60000,
+  "actor_lr": 0.0001,
+  "critic_lr": 0.001,
+  "policy_delay": 2,
+  "tau": 0.005,
+  "target_policy_smoothing_noise_std": 0.2,
+  "noise_clip": 0.5,
+  "replay": {
+    "prioritized_fraction": 0.5,
+    "recent_fraction": 0.2,
+    "uniform_fraction": 0.3,
+    "recent_window": 1000,
+    "alpha": 0.6,
+    "beta_start": 0.4,
+    "beta_end": 1.0,
+    "beta_steps": 50000
+  },
+  "exploration": {
+    "mode": "gaussian_action_noise",
+    "std_start": 0.02,
+    "std_end": 0.01,
+    "decay_steps": 5000
+  },
+  "reward": {
+    "mode": "relative_band_offset",
+    "band_floor_ph": 0.01,
+    "q_band": 1.0,
+    "sum_move_weight": 5.0,
+    "bonus_weight_abs": 0.05,
+    "bonus_k": 6.0,
+    "absolute_error_weight": 1.0,
+    "tail_offset_weight": 0.0
+  },
+  "safety_status": {
+    "control_mode": "suggest_only",
+    "online_updates_enabled": false,
+    "exploratory_actions_enabled": false
+  }
+}

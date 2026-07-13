@@ -6,7 +6,11 @@
 
 **Change type:** review and planning only
 
-**Implementation status:** no controller, hardware, configuration, or runtime code was changed
+**Implementation status:** the original review was planning-only. As of
+2026-07-12, the custom frozen actor has been connected in `suggest_only`, the
+historical SAC artifacts have been replaced, and active-only TD3 learning
+components have been copied for later work. Online learning and exploratory
+hardware actions remain disabled. See `biosmb_custom_td3_active_path_report.md`.
 
 ## Executive Decision
 
