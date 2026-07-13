@@ -7,10 +7,14 @@
 **Change type:** review and planning only
 
 **Implementation status:** the original review was planning-only. As of
-2026-07-12, the custom frozen actor has been connected in `suggest_only`, the
-historical SAC artifacts have been replaced, and active-only TD3 learning
-components have been copied for later work. Online learning and exploratory
-hardware actions remain disabled. See `biosmb_custom_td3_active_path_report.md`.
+2026-07-12, the historical SAC path has been replaced by the custom TD3 actor,
+and `main.py` now contains an active online continuation loop. The loop uses
+Gaussian exploration from `0.02` to `0.01`, the shaped reward from
+`custom_td3/reward.py`, batch size `64`, replay capacity `10000`, one update per
+completed transition, reward and loss logging, and complete online checkpoint
+saving. This implementation status does not remove the physical-validation and
+go/no-go concerns documented below. See
+`biosmb_custom_td3_active_path_report.md`.
 
 ## Executive Decision
 
@@ -139,27 +143,36 @@ be assumed equivalent.
 
 ### 3.2 `Biosmb-run-online`
 
-The online service is a monolithic frozen-SAC inference loop. It currently:
+The online service is now a custom TD3 deployment and online-training loop. It
+currently:
 
-1. Loads an SB3 SAC checkpoint.
+1. Loads the verified custom TD3 actor bundle and trusted actor/critic training
+   checkpoint.
 2. Connects to Redis, MongoDB, BioSMB OPC-UA, and MFCS OPC-UA.
 3. Samples observations for a nominal 60-second warm-up.
 4. Reads a target from Redis or uses `4.7` pH.
-5. Builds a five-element SAC state.
-6. Predicts three direct physical flowrates.
-7. checks finite values, individual bounds, and total flow.
+5. Builds the trained five-element TD3 state.
+6. Predicts two normalized ratio/sum actions with online Gaussian exploration.
+7. Maps the action to acid, acetate, and fixed-water commands and checks the
+   physical bounds.
 8. Repeats the previous action when the proposal is invalid.
 9. Writes three pump values sequentially.
 10. Samples and checks vessel masses for a nominal 60-second interval.
-11. Logs the completed interval to MongoDB.
-12. Repeats indefinitely.
+11. Computes the shaped reward from measured `PH_2`, stores the transition,
+    and performs one TD3 update after replay reaches batch size `64`.
+12. Logs the reward breakdown, replay state, exploration, losses, and completed
+    interval to MongoDB.
+13. Saves a complete online-resume checkpoint every 10 steps and at shutdown.
+14. Repeats indefinitely.
 
 The code correctly selects `PH_2` as the controller measurement at lines
 49 and 230-233. `PH_1` is present only in the raw sensor dictionary and must
 remain diagnostic-only.
 
-Despite names containing `online`, the runner does not update the actor or
-critic. It performs frozen inference. The supplied replay buffer is not loaded.
+The online replay starts empty and has capacity `10000`. The first gradient
+update occurs after 64 completed transitions. The original offline checkpoint
+does not contain replay or optimizer state, while new online checkpoints save
+both for later resume.
 
 ### 3.3 The current pH TD3 workflow
 

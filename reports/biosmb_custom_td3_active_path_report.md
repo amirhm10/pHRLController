@@ -2,9 +2,9 @@
 
 **Date:** 2026-07-12
 
-**Status:** `active_control` and `online_training_enabled` are now selected in
-the settings. Pump commands are active, but the replay, reward, update, and
-online-save calls are not connected to `main.py` yet.
+**Status:** `active_control` and `online_training_enabled` are selected. The
+online action-noise, shaped-reward, replay, TD3-update, logging, periodic-save,
+and final-save paths are now connected to `main.py`.
 
 ## 1. Objective
 
@@ -158,9 +158,14 @@ offline run. Its configured nonzero terms include the pH error cost, normalized
 buffer-sum movement penalty with weight 5, and absolute pH error penalty with
 weight 1. The near-zero exponential bonus has weight 0.05 and sharpness 6.
 
-For future online transitions, reward must use measured `PH_2` after the hold
-interval and the action actually executed by the safety logic. It must not use
-a rejected raw actor proposal.
+For each completed online transition, reward now uses measured `PH_2` after the
+hold interval and the action actually executed by the safety logic. A rejected
+raw actor proposal is not placed in replay as the executed action.
+
+The online batch size is `64`, replay capacity is `10000`, and one TD3 update is
+requested per completed control transition. Learning begins when replay reaches
+64 transitions. The exact scalar stored in replay is also logged as `reward` in
+MongoDB, with all shaped-reward components under `reward_info`.
 
 ## 7. Online exploration continuation
 
@@ -175,27 +180,32 @@ $$
 
 This preserves continuity at the offline-to-online boundary. It does not by
 itself establish that a 0.02 normalized perturbation is safe for the laboratory.
-The online config explicitly keeps both online updates and exploratory actions
-disabled until those behaviors are reviewed.
+At the user's direction, online updates and exploratory actions are now active
+in the configuration and deployment loop.
 
 ## 8. Main-file integration
 
-The original loop now changes only the necessary policy seams:
+The original loop now changes the necessary policy and training seams:
 
 1. Load `BioSMBTD3Policy` from the local package.
 2. Load and verify `models/td3_actor_manifest.json`.
 3. Use the TD3 startup action representation.
 4. Build the exact trained five-element state.
-5. Predict the two normalized TD3 coordinates.
-6. Map them to the original BioSMB action dictionary.
-7. Log the TD3 manifest path.
+5. Load the matching pretrained actor and critic into the active TD3 agent.
+6. Predict the two normalized TD3 coordinates with online exploration.
+7. Map them to the original BioSMB action dictionary.
+8. Compute the exact shaped reward from the completed transition.
+9. Store the executed action and reward in the 10000-transition replay buffer.
+10. Run one TD3 update after replay contains 64 transitions.
+11. Log reward, exploration, replay, and loss diagnostics.
+12. Save complete online-resume checkpoints every 10 steps and at exit.
 
 The old helper definitions remain in the supplied main file for traceability,
 but their SAC-specific call sites are no longer used.
 
 ## 9. Verification evidence
 
-Twenty-two hardware-free tests pass. They verify:
+The earlier 22 hardware-free deployment tests verified:
 
 - deployment actor hash and golden vectors
 - actor output parity between the `.pkl` checkpoint and `.pt` deployment file
@@ -211,15 +221,25 @@ Twenty-two hardware-free tests pass. They verify:
 - measured-flow round-trip back to the normalized TD3 action
 - rejection of wrong water flow and malformed TD3 actions
 
+The active online-path test additionally verifies:
+
+- offline training-checkpoint actor parity with the deployed actor
+- batch size `64` and replay capacity `10000`
+- exploration inside the configured `0.02` to `0.01` range
+- shaped reward calculation and finite replay storage
+- the first real critic and actor update at transition 64
+- complete checkpoint save and restoration of replay, optimizer, counter, and
+  random states
+- equality between the logged reward and the reward stored for training
+
 No OPC-UA, Redis, MongoDB, or pump connection is opened by these tests.
 
 ## 10. Limitations and risks
 
-The actor inference path is reproducible. Exact training resume is not. The
-existing offline `.pkl` does not restore replay contents, optimizer states,
-target-network states through its loader, counters, or random-number states.
-Future online learning therefore starts with the pretrained actor and critic
-but a new replay history and new optimizers.
+The actor inference path is reproducible. The existing offline `.pkl` starts
+online learning with the pretrained actor and critic but a new replay history
+and new optimizers. New online checkpoints save and restore the actor, critics,
+target networks, optimizers, replay contents, counters, and random states.
 
 Other unresolved risks are:
 
@@ -233,20 +253,18 @@ Other unresolved risks are:
 
 ## 11. Recommended next step
 
-Do not run the current active setting on the lab system yet. The next
-implementation step should add reward calculation and a reviewed transition
-collector before enabling `train_step()`.
-
-Only after those logged transitions are scientifically reviewed should the
-online replay push and TD3 update cadence be enabled.
+Before an unattended run, execute a supervised short session and review the
+logged reward, pH response, exploration magnitude, action saturation, replay
+growth, critic loss, and actor updates. Confirm the physical pump mapping and
+whether the BioSMB `FLOW` node is actual flow measurement or command readback.
 
 ## 12. Data collection and target review
 
 No code was changed in these two sections during the active-mode setting edit.
 
-The Data collection section can remain as the starting structure because it
-already reads BioSMB sensors, seven flow values, three MFCS masses, and logs the
-raw observation. Before running online learning, it should later add:
+The Data collection section remains the starting structure because it already
+reads BioSMB sensors, seven flow values, three MFCS masses, and logs the raw
+observation. During active online development, it should still add:
 
 - timezone-aware measurement times
 - command time and before/after measurement times
@@ -255,7 +273,7 @@ raw observation. Before running online learning, it should later add:
 - stale-data, timeout, and OPC quality checks
 
 The Target pH section can also keep its Redis-first and fixed-target fallback
-structure. Before active online learning, it should later add:
+structure. During active online development, it should still add:
 
 - finite numeric validation
 - enforcement of the saved model range, currently 3.76 to 5.70 pH
@@ -280,12 +298,12 @@ After every decision interval, the loop now:
 3. builds `next_state` from the new PH2 measurement and measured flows
 4. logs `state`, `next_state`, the proposed action, the selected command, and
    the measured action
-5. uses the measured action as the fallback reference for the following step
+5. keeps the last validated command as the fallback command for the following
+   step
+6. computes and logs reward and online-training diagnostics
 
-The checked TD3 flow rules are acid and acetate from 1 to 10 mL/min, their sum
-from 2 to 20 mL/min, water fixed at 5 mL/min within 0.001 mL/min, and total
-controlled flow no greater than 25 mL/min.
-
-No reward, replay push, TD3 update, or online model save was added in this step.
-An immediate command-readback check and a hard maximum flow change still need
-reviewed tolerances before implementation.
+The checked TD3 command rules are acid and acetate from 1 to 10 mL/min, their
+sum from 2 to 20 mL/min, water commanded at 5 mL/min within 0.1 mL/min, and
+total controlled flow no greater than 25 mL/min. A measured water deviation
+outside 0.1 mL/min is logged as a warning rather than used alone to stop the
+process.

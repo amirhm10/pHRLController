@@ -6,9 +6,9 @@ These files replace the historical Stable-Baselines3 SAC artifacts.
 |---|---|
 | `td3_actor_manifest.json` | Deployment contract, provenance, hashes, and golden vectors |
 | `td3_actor_weights.pt` | CPU-loadable actor state dictionary for deterministic deployment |
-| `td3_training_checkpoint.pkl` | Trusted local actor/critic research checkpoint for future training work |
+| `td3_training_checkpoint.pkl` | Trusted pretrained actor/critic starting point for active online training |
 | `td3_training_config.json` | Exact configuration snapshot from the latest offline run |
-| `td3_online_training_config.json` | Proposed active-only online continuation settings, including noise `0.02 -> 0.01` |
+| `td3_online_training_config.json` | Active online continuation settings, including batch size `64`, replay capacity `10000`, and noise `0.02 -> 0.01` |
 
 Source run:
 
@@ -34,3 +34,11 @@ td3_training_config.json
 
 The `.pkl` is not a full replay/optimizer/RNG resume checkpoint and must never
 be loaded from an untrusted source.
+
+For the next offline run, copy all four files from its generated
+`deployment_bundle` into this folder together. New-format offline checkpoints
+include the network architecture, `gamma`, and optimizer states; the online
+loader uses that checkpoint metadata to reconstruct the correct learner. The
+online replay buffer still starts empty. Keep
+`td3_online_training_config.json` for online-only choices such as replay capacity
+`10000`, batch size `64`, update frequency, and exploration `0.02 -> 0.01`.

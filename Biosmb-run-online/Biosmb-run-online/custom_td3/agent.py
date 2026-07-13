@@ -85,7 +85,7 @@ class TD3Agent(nn.Module):
         std_start: float = 0.02,
         std_end: float = 0.01,
         std_decay_steps: int = 5_000,
-        buffer_size: int = 60_000,
+        buffer_size: int = 10_000,
         replay_frac_per: float = 0.5,
         replay_frac_recent: float = 0.2,
         replay_recent_window: int = 1_000,
@@ -104,6 +104,10 @@ class TD3Agent(nn.Module):
 
         actor_hidden = [128, 128] if actor_hidden is None else actor_hidden
         critic_hidden = [128, 128] if critic_hidden is None else critic_hidden
+        self.state_dim = int(state_dim)
+        self.action_dim = int(action_dim)
+        self.actor_hidden = [int(value) for value in actor_hidden]
+        self.critic_hidden = [int(value) for value in critic_hidden]
         self.gamma = float(gamma)
         self.actor_lr = float(actor_lr)
         self.critic_lr = float(critic_lr)
@@ -304,14 +308,21 @@ class TD3Agent(nn.Module):
         }
 
     def load(self, path: str) -> None:
-        """Load the trusted original actor/critic checkpoint."""
+        """Load a trusted offline checkpoint or complete online checkpoint."""
 
         with open(path, "rb") as stream:
             payload = pickle.load(stream)
         self.actor.load_state_dict(payload["actor_state_dict"])
         self.critic.load_state_dict(payload["critic_state_dict"])
-        hard_update(self.actor_target, self.actor)
-        hard_update(self.critic_target, self.critic)
+        is_online_resume = (
+            payload.get("checkpoint_kind") == "custom_td3_online_resume_v1"
+        )
+        if is_online_resume:
+            self.actor_target.load_state_dict(payload["actor_target_state_dict"])
+            self.critic_target.load_state_dict(payload["critic_target_state_dict"])
+        else:
+            hard_update(self.actor_target, self.actor)
+            hard_update(self.critic_target, self.critic)
         self.actor_optimizer = optim.AdamW(
             self.actor.parameters(),
             lr=self.actor_lr,
@@ -323,15 +334,67 @@ class TD3Agent(nn.Module):
             weight_decay=0.0,
         )
 
+        if is_online_resume:
+            self.actor_optimizer.load_state_dict(
+                payload["actor_optimizer_state_dict"]
+            )
+            self.critic_optimizer.load_state_dict(
+                payload["critic_optimizer_state_dict"]
+            )
+            self.buffer.load_state_dict(payload["replay_buffer_state"])
+            counters = payload["online_counters"]
+            self.steps = int(counters["steps"])
+            self.train_steps = int(counters["train_steps"])
+            self.total_it = int(counters["total_it"])
+            random.setstate(payload["python_random_state"])
+            np.random.set_state(payload["numpy_random_state"])
+            torch.set_rng_state(payload["torch_random_state"])
+            if torch.cuda.is_available() and "cuda_random_state" in payload:
+                torch.cuda.set_rng_state_all(payload["cuda_random_state"])
+        elif (
+            "actor_optimizer_state_dict" in payload
+            and "critic_optimizer_state_dict" in payload
+        ):
+            self.actor_optimizer.load_state_dict(
+                payload["actor_optimizer_state_dict"]
+            )
+            self.critic_optimizer.load_state_dict(
+                payload["critic_optimizer_state_dict"]
+            )
+
     def save(self, directory: str, prefix: str = "td3_online") -> str:
         os.makedirs(directory, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = os.path.join(directory, f"{prefix}_{timestamp}.pkl")
         payload = {
+            "checkpoint_kind": "custom_td3_online_resume_v1",
+            "schema_version": 1,
+            "architecture": {
+                "state_dim": self.state_dim,
+                "action_dim": self.action_dim,
+                "actor_hidden": self.actor_hidden,
+                "critic_hidden": self.critic_hidden,
+                "activation": "relu",
+                "use_layernorm": False,
+                "dropout": 0.0,
+                "squash": "tanh",
+                "max_action": self.max_action,
+            },
             "actor_state_dict": self.actor.state_dict(),
             "critic_state_dict": self.critic.state_dict(),
             "actor_target_state_dict": self.actor_target.state_dict(),
             "critic_target_state_dict": self.critic_target.state_dict(),
+            "actor_optimizer_state_dict": self.actor_optimizer.state_dict(),
+            "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
+            "replay_buffer_state": self.buffer.state_dict(),
+            "online_counters": {
+                "steps": self.steps,
+                "train_steps": self.train_steps,
+                "total_it": self.total_it,
+            },
+            "python_random_state": random.getstate(),
+            "numpy_random_state": np.random.get_state(),
+            "torch_random_state": torch.get_rng_state(),
             "hparams": {
                 "gamma": self.gamma,
                 "actor_lr": self.actor_lr,
@@ -347,6 +410,8 @@ class TD3Agent(nn.Module):
                 "total_it": self.total_it,
             },
         }
+        if torch.cuda.is_available():
+            payload["cuda_random_state"] = torch.cuda.get_rng_state_all()
         with open(path, "wb") as stream:
             pickle.dump(payload, stream)
         return path

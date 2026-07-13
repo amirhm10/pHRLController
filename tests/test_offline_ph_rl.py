@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import pickle
 import sys
 
 import numpy as np
@@ -276,8 +277,9 @@ def test_runner_default_reward_is_offset_focused_shaped() -> None:
     assert args.action_mode == "ratio_buffer_sum"
     assert args.batch_size == 64
     assert args.buffer_size == 60_000
-    assert args.actor_hidden == [128, 128]
-    assert args.critic_hidden == [128, 128]
+    assert args.actor_hidden == [64, 64]
+    assert args.critic_hidden == [64, 64]
+    assert np.isclose(args.gamma, 0.99)
     assert np.isclose(args.std_end, 0.02)
     assert args.save_checkpoint is True
     assert cfg.mode == "relative_band_offset"
@@ -488,6 +490,42 @@ def test_td3_import_and_train_step_smoke() -> None:
 
     assert isinstance(meta, dict)
     assert meta["critic_updated"] is True
+
+
+def test_offline_checkpoint_is_self_describing_for_biosmb() -> None:
+    agent = TD3Agent(
+        state_dim=5,
+        action_dim=2,
+        actor_hidden=[64, 64],
+        critic_hidden=[64, 64],
+        gamma=0.99,
+        batch_size=64,
+        buffer_size=100,
+        device=torch.device("cpu"),
+        seed=7,
+    )
+    checkpoint_path = pathlib.Path(
+        agent.save(
+            str(ROOT / "results"),
+            prefix="test_offline_ph_td3",
+            include_optim=True,
+        )
+    )
+    try:
+        with checkpoint_path.open("rb") as stream:
+            payload = pickle.load(stream)
+    finally:
+        checkpoint_path.unlink(missing_ok=True)
+
+    assert payload["checkpoint_kind"] == "custom_td3_offline_training_v2"
+    assert payload["schema_version"] == 2
+    assert payload["architecture"]["state_dim"] == 5
+    assert payload["architecture"]["action_dim"] == 2
+    assert payload["architecture"]["actor_hidden"] == [64, 64]
+    assert payload["architecture"]["critic_hidden"] == [64, 64]
+    assert np.isclose(payload["hparams"]["gamma"], 0.99)
+    assert "actor_optimizer_state_dict" in payload
+    assert "critic_optimizer_state_dict" in payload
 
 
 def test_result_artifact_helper_smoke() -> None:

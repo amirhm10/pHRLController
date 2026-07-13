@@ -285,7 +285,8 @@ class OriginalReferenceTests(unittest.TestCase):
     def test_original_main_and_docker_entrypoint_are_restored(self) -> None:
         main_text = (ONLINE_DIR / "main.py").read_text(encoding="utf-8")
         docker_text = (ONLINE_DIR / "dockerfile").read_text(encoding="utf-8")
-        self.assertIn("from custom_td3 import BioSMBTD3Policy", main_text)
+        self.assertIn("BioSMBOnlineTD3Trainer", main_text)
+        self.assertIn("BioSMBTD3Policy", main_text)
         self.assertNotIn("from stable_baselines3 import SAC", main_text)
         self.assertNotIn("SAC.load", main_text)
         self.assertNotIn("sac_biosmb_mixing_online", main_text)

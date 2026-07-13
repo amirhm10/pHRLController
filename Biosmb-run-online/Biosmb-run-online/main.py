@@ -8,8 +8,8 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 
-# I changed this line: import our custom TD3 model helper instead of Stable-Baselines3 SAC.
-from custom_td3 import BioSMBTD3Policy
+# I changed this line: import our custom TD3 deployment and active online-training helpers.
+from custom_td3 import BioSMBOnlineTD3Trainer, BioSMBTD3Policy
 
 from redis import Redis
 from pymongo import MongoClient
@@ -24,7 +24,7 @@ from biosmb_interface.manager import BioSMBManager
 # I changed this line: allow checked TD3 flow commands to be sent to the pumps.
 control_mode = "active_control"   # "suggest_only" or "active_control"
 
-# I changed this line: mark this run for online TD3 learning when the learning loop is added.
+# I changed this line: enable active TD3 exploration, replay storage, and gradient updates.
 online_training_enabled = True
 
 deployment_target_ph = 4.7
@@ -88,6 +88,18 @@ deployment_collection_name = "biosmb-rl-controller-deployment"
 model_dir = "models"
 # I changed this line: point to our TD3 model information file and remove the old SAC model names.
 td3_manifest_path = os.path.join(model_dir, "td3_actor_manifest.json")
+# I changed this line: load the exact active online TD3 settings from the model folder.
+td3_online_training_config_path = os.path.join(
+    model_dir,
+    "td3_online_training_config.json",
+)
+# I changed this line: begin online learning from the latest trusted offline actor and critic.
+td3_training_checkpoint_path = os.path.join(
+    model_dir,
+    "td3_training_checkpoint.pkl",
+)
+# I changed this line: save complete online-resume checkpoints in a separate folder.
+td3_online_checkpoint_dir = os.path.join(model_dir, "online_checkpoints")
 
 
 # ============================================================
@@ -517,6 +529,9 @@ def log_deployment_step(
     action_valid: bool,
     action_failure_reason: str,
     water_flow_warning: Dict,
+    reward_info: Dict,
+    exploration_info: Dict,
+    online_training_info: Dict,
     mass_safe: bool,
     mass_safety_reason: str,
     observation_before: Dict,
@@ -557,6 +572,13 @@ def log_deployment_step(
         # I changed this line: log water readback deviations as warnings instead of shutdown reasons.
         "water_flow_warning": water_flow_warning,
 
+        # I changed this line: log the exact shaped reward used in the replay transition.
+        "reward": reward_info.get("reward"),
+        "reward_info": reward_info,
+        # I changed this line: log exploration noise and every online TD3 update diagnostic.
+        "exploration_info": exploration_info,
+        "online_training_info": online_training_info,
+
         "mass_safe": mass_safe,
         "mass_safety_reason": mass_safety_reason,
         "minimum_mass_grams": minimum_mass_grams,
@@ -582,6 +604,11 @@ def log_deployment_step(
             # I changed this line: log the shared fixed-water tolerance used by safety and TD3 conversion.
             "water_flow_tolerance": water_flow_tolerance,
             "state_sensor_key": state_sensor_key,
+            # I changed this line: record the active online-training settings and source checkpoint.
+            "online_training_enabled": online_training_enabled,
+            "td3_online_training_config_path": td3_online_training_config_path,
+            "td3_training_checkpoint_path": td3_training_checkpoint_path,
+            "td3_online_checkpoint_dir": td3_online_checkpoint_dir,
             # I changed this line: log our TD3 model file instead of an SAC checkpoint.
             "td3_manifest_path": td3_manifest_path,
         },
@@ -613,8 +640,32 @@ def load_trained_model():
     )
 
 
+# I changed this line: create the active TD3 learner from our offline actor and critic checkpoint.
+def load_online_trainer(model):
+    """Loads and verifies the active online TD3 continuation helper."""
+
+    if not online_training_enabled:
+        return None
+
+    print("Loading custom TD3 agent for active online training...")
+    trainer = BioSMBOnlineTD3Trainer.load(
+        config_path=td3_online_training_config_path,
+        source_checkpoint=td3_training_checkpoint_path,
+        checkpoint_directory=td3_online_checkpoint_dir,
+        device="cpu",
+    )
+    trainer.verify_initial_actor(model)
+    print(
+        "Online TD3 ready | "
+        f"batch size={trainer.agent.batch_size} | "
+        f"buffer capacity={trainer.agent.buffer.capacity}"
+    )
+    return trainer
+
+
 def run_deployment_loop(
     model,
+    online_trainer,
     biosmb,
     redis_client,
     raw_observation_collection,
@@ -688,10 +739,23 @@ def run_deployment_loop(
             previous_executed_action=previous_executed_action,
         )
 
-        raw_action, _ = model.predict(
-            state,
-            deterministic=True,
-        )
+        # I changed this line: use the trainable actor with 0.02-to-0.01 exploration during online learning.
+        if online_trainer is not None:
+            raw_action, exploration_info = online_trainer.take_action(state)
+        else:
+            raw_action, _ = model.predict(
+                state,
+                deterministic=True,
+            )
+            exploration_info = {
+                "action_source": "frozen_td3_deterministic",
+                "exploration_sigma": 0.0,
+                "exploration_magnitude": 0.0,
+                "action_saturation_fraction": float(
+                    np.mean(np.abs(raw_action) >= 1.0 - 1.0e-6)
+                ),
+                "online_action_step": None,
+            }
 
         # I changed this line: map the two normalized TD3 outputs into BioSMB flows.
         proposed_action = model.format_action(raw_action)
@@ -770,6 +834,45 @@ def run_deployment_loop(
             previous_executed_action=executed_action,
         )
 
+        # I changed this line: compute our shaped reward, store the transition, and update TD3 online.
+        if online_trainer is not None:
+            executed_controlled_flows = np.asarray(
+                executed_action["controlled_flow_rates"],
+                dtype=float,
+            )
+            previous_controlled_flows = np.asarray(
+                previous_executed_action["controlled_flow_rates"],
+                dtype=float,
+            )
+            reward_info, online_training_info = online_trainer.record_transition(
+                state=state,
+                action=executed_action["raw_action"],
+                reward_target_ph=target_ph,
+                measured_ph_after=measured_ph_after,
+                previous_action=previous_executed_action["raw_action"],
+                default_action=model.default_action()["raw_action"],
+                next_state=next_state,
+                buffer_sum=float(np.sum(executed_controlled_flows[:2])),
+                previous_buffer_sum=float(
+                    np.sum(previous_controlled_flows[:2])
+                ),
+                buffer_sum_min=min_buffer_flow_sum,
+                buffer_sum_max=max_buffer_flow_sum,
+                done=False,
+            )
+            online_training_info["checkpoint_saved"] = False
+            if online_trainer.should_save(step_number + 1):
+                checkpoint_path = online_trainer.save()
+                online_training_info["checkpoint_saved"] = True
+                online_training_info["last_checkpoint_path"] = checkpoint_path
+        else:
+            reward_info = {"reward_mode": None, "reward": None}
+            online_training_info = {
+                "enabled": False,
+                "transition_stored": False,
+                "train_updated": False,
+            }
+
         log_deployment_step(
             deployment_collection=deployment_collection,
             target_ph=target_ph,
@@ -785,6 +888,10 @@ def run_deployment_loop(
             action_failure_reason=action_failure_reason,
             # I changed this line: include the non-blocking water warning in the MongoDB step log.
             water_flow_warning=water_flow_warning,
+            # I changed this line: save the reward and online-learning values used at this step.
+            reward_info=reward_info,
+            exploration_info=exploration_info,
+            online_training_info=online_training_info,
             mass_safe=mass_safe,
             mass_safety_reason=mass_safety_reason,
             observation_before=observation_before,
@@ -799,17 +906,21 @@ def run_deployment_loop(
             f"Step {step_number} complete | "
             f"Target pH={target_ph} | "
             f"PH after={measured_ph_after} | "
-            f"Error={ph_error_after}"
+            f"Error={ph_error_after} | "
+            f"Reward={reward_info.get('reward')} | "
+            f"Replay size={online_training_info.get('buffer_size', 0)}"
         )
 
-        # I changed this line: use measured flows as the previous action for the next step.
-        previous_executed_action = measured_action
+        # I changed this line: keep the last validated command as fallback instead of re-commanding imperfect readback.
+        previous_executed_action = executed_action
         step_number += 1
 
 
 if __name__ == "__main__":
 
     biosmb = None
+    # I changed this line: keep the learner available for a final checkpoint on every controlled exit.
+    online_trainer = None
 
     try:
         print("Starting BioSMB RL deployment script...")
@@ -818,6 +929,8 @@ if __name__ == "__main__":
         redis_client = Redis(redis_url, decode_responses=True)
 
         model = load_trained_model()
+        # I changed this line: start the verified active online TD3 learner when enabled.
+        online_trainer = load_online_trainer(model)
 
         with MongoClient(mongo_url) as mongoclient:
             database = mongoclient.get_database("dsp_db")
@@ -838,6 +951,7 @@ if __name__ == "__main__":
 
                 run_deployment_loop(
                     model=model,
+                    online_trainer=online_trainer,
                     biosmb=biosmb,
                     redis_client=redis_client,
                     raw_observation_collection=raw_observation_collection,
@@ -864,3 +978,15 @@ if __name__ == "__main__":
 
         if control_mode == "active_control":
             stop_biosmb_safely(biosmb)
+
+    finally:
+        # I changed this line: save the learned actor, critics, optimizers, replay, and RNG state after the run.
+        if online_trainer is not None:
+            try:
+                final_checkpoint = online_trainer.save(
+                    prefix="td3_online_final"
+                )
+                print(f"Saved final online TD3 checkpoint: {final_checkpoint}")
+            except Exception:
+                print("Could not save the final online TD3 checkpoint.")
+                traceback.print_exc()

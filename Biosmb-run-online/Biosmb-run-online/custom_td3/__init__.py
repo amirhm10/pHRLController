@@ -1,4 +1,4 @@
-"""Custom TD3 deployment and future online-training components."""
+"""Custom TD3 deployment and active online-training components."""
 
 from .agent import GaussianNoiseSchedule, TD3Agent, set_global_seeds
 from .critic import Critic
@@ -14,6 +14,7 @@ from .contracts import (
     format_biosmb_action,
 )
 from .controller import BioSMBTD3Policy
+from .online_training import BioSMBOnlineTD3Trainer
 from .policy import TD3Policy, TD3PolicyLoadError, sha256_file
 from .replay_buffer import PERRecentReplayBuffer
 from .reward import (
@@ -27,6 +28,7 @@ __all__ = [
     "ACTION_VARIABLES",
     "STATE_VARIABLES",
     "BioSMBTD3Policy",
+    "BioSMBOnlineTD3Trainer",
     "Critic",
     "FlowMapping",
     "GaussianNoiseSchedule",

@@ -171,6 +171,14 @@ class TD3Agent(nn.Module):
             set_global_seeds(self.seed)
 
         # --- hparams ---
+        self.state_dim = int(state_dim)
+        self.action_dim = int(action_dim)
+        self.actor_hidden = [int(value) for value in actor_hidden]
+        self.critic_hidden = [int(value) for value in critic_hidden]
+        self.activation = str(activation)
+        self.use_layernorm = bool(use_layernorm)
+        self.dropout = float(dropout)
+        self.squash = str(squash)
         self.gamma = gamma
         self.batch_size = batch_size
         self.n_step = int(n_step)
@@ -625,6 +633,19 @@ class TD3Agent(nn.Module):
         path = os.path.join(directory, f"{prefix}_{timestamp}.pkl")
 
         payload = {
+            "checkpoint_kind": "custom_td3_offline_training_v2",
+            "schema_version": 2,
+            "architecture": {
+                "state_dim": self.state_dim,
+                "action_dim": self.action_dim,
+                "actor_hidden": self.actor_hidden,
+                "critic_hidden": self.critic_hidden,
+                "activation": self.activation,
+                "use_layernorm": self.use_layernorm,
+                "dropout": self.dropout,
+                "squash": self.squash,
+                "max_action": self.max_action,
+            },
             # what your current `load(...)` expects:
             "actor_state_dict": self.actor.state_dict(),
             "critic_state_dict": self.critic.state_dict(),

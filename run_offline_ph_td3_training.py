@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -673,15 +674,28 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
     deployment_bundle = None
     if args.save_checkpoint:
         checkpoint_path = Path(
-            agent.save(str(output_dir / "checkpoints"), prefix="offline_ph_td3")
+            agent.save(
+                str(output_dir / "checkpoints"),
+                prefix="offline_ph_td3",
+                include_optim=True,
+            )
         )
 
-        # The lab runtime consumes an actor-only, weights-only bundle rather
-        # than the training checkpoint with critics, replay, and optimizers.
+        # Package the frozen actor and the trusted training checkpoint together
+        # so the BioSMB runtime receives one internally consistent model set.
         if args.action_mode == "ratio_buffer_sum":
+            deployment_dir = output_dir / "deployment_bundle"
+            deployment_dir.mkdir(parents=True, exist_ok=True)
+            packaged_checkpoint_path = deployment_dir / "td3_training_checkpoint.pkl"
+            packaged_config_path = deployment_dir / "td3_training_config.json"
+            shutil.copy2(checkpoint_path, packaged_checkpoint_path)
+            shutil.copy2(
+                output_dir / "tables" / "config_snapshot.json",
+                packaged_config_path,
+            )
             deployment_bundle = export_td3_actor_bundle(
                 actor=agent.actor,
-                output_dir=output_dir / "deployment_bundle",
+                output_dir=deployment_dir,
                 actor_config={
                     "state_dim": int(env.observation_space.shape[0]),
                     "action_dim": int(env.action_space.shape[0]),
@@ -717,14 +731,12 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
                     "frozen_policy_validated": False,
                     "training_runner": "run_offline_ph_td3_training.py",
                     "training_result_directory": str(output_dir),
-                    "training_checkpoint": str(checkpoint_path),
-                    "training_checkpoint_sha256": sha256_file(checkpoint_path),
-                    "config_snapshot": str(
-                        output_dir / "tables" / "config_snapshot.json"
+                    "training_checkpoint": str(packaged_checkpoint_path),
+                    "training_checkpoint_sha256": sha256_file(
+                        packaged_checkpoint_path
                     ),
-                    "config_snapshot_sha256": sha256_file(
-                        output_dir / "tables" / "config_snapshot.json"
-                    ),
+                    "config_snapshot": str(packaged_config_path),
+                    "config_snapshot_sha256": sha256_file(packaged_config_path),
                     "seed": int(args.seed),
                     "total_steps": int(total_steps),
                     "python_version": platform.python_version(),
@@ -732,6 +744,10 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
                     "numpy_version": str(np.__version__),
                 },
             )
+            deployment_bundle["training_checkpoint_path"] = (
+                packaged_checkpoint_path
+            )
+            deployment_bundle["training_config_path"] = packaged_config_path
         else:
             print(
                 "Deployment bundle not exported: the live BioSMB contract "
@@ -1036,11 +1052,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--warm-start-cycles", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--buffer-size", type=int, default=60_000)
-    parser.add_argument("--actor-hidden", type=parse_hidden_layers, default=[128, 128])
-    parser.add_argument("--critic-hidden", type=parse_hidden_layers, default=[128, 128])
+    parser.add_argument("--actor-hidden", type=parse_hidden_layers, default=[64, 64])
+    parser.add_argument("--critic-hidden", type=parse_hidden_layers, default=[64, 64])
     parser.add_argument("--actor-lr", type=float, default=1e-4)
     parser.add_argument("--critic-lr", type=float, default=1e-3)
-    parser.add_argument("--gamma", type=float, default=0.97)
+    parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--std-start", type=float, default=0.35)
     parser.add_argument("--std-end", type=float, default=0.02)
     parser.add_argument("--std-decay-steps", type=int, default=5000)

@@ -148,5 +148,70 @@ class PERRecentReplayBuffer:
         self.priorities[indices] = priorities.astype(np.float32)
         self._max_priority = max(self._max_priority, float(priorities.max()))
 
+    def state_dict(self) -> dict:
+        """Return the complete replay state for trusted local checkpoints."""
+
+        return {
+            "capacity": self.capacity,
+            "state_dim": self.state_dim,
+            "action_dim": self.action_dim,
+            "default_discount": self.default_discount,
+            "ptr": self.ptr,
+            "size": self.size,
+            "step_counter": self.step_counter,
+            "current_episode_id": self.current_episode_id,
+            "beta_t": self.beta_t,
+            "max_priority": self._max_priority,
+            "states": self.states.copy(),
+            "actions": self.actions.copy(),
+            "rewards": self.rewards.copy(),
+            "next_states": self.next_states.copy(),
+            "dones": self.dones.copy(),
+            "discounts": self.discounts.copy(),
+            "birth_step": self.birth_step.copy(),
+            "priorities": self.priorities.copy(),
+        }
+
+    def load_state_dict(self, state: dict) -> None:
+        """Restore replay state created by :meth:`state_dict`."""
+
+        expected = (self.capacity, self.state_dim, self.action_dim)
+        received = (
+            int(state["capacity"]),
+            int(state["state_dim"]),
+            int(state["action_dim"]),
+        )
+        if received != expected:
+            raise ValueError(
+                f"Replay dimensions {received} do not match {expected}."
+            )
+
+        for name in (
+            "states",
+            "actions",
+            "rewards",
+            "next_states",
+            "dones",
+            "discounts",
+            "birth_step",
+            "priorities",
+        ):
+            source = np.asarray(state[name])
+            destination = getattr(self, name)
+            if source.shape != destination.shape:
+                raise ValueError(f"Replay array {name} has the wrong shape.")
+            destination[...] = source.astype(destination.dtype, copy=False)
+
+        ptr = int(state["ptr"])
+        size = int(state["size"])
+        if not 0 <= ptr < self.capacity or not 0 <= size <= self.capacity:
+            raise ValueError("Replay pointer or size is invalid.")
+        self.ptr = ptr
+        self.size = size
+        self.step_counter = int(state["step_counter"])
+        self.current_episode_id = int(state["current_episode_id"])
+        self.beta_t = int(state["beta_t"])
+        self._max_priority = float(state["max_priority"])
+
     def __len__(self) -> int:
         return self.size

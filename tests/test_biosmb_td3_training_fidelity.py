@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -21,6 +22,7 @@ for path in [ROOT, ONLINE_DIR]:
         sys.path.insert(0, str(path))
 
 from custom_td3 import (  # noqa: E402
+    BioSMBOnlineTD3Trainer,
     BioSMBTD3Policy,
     GaussianNoiseSchedule,
     PHRewardConfig as CopiedRewardConfig,
@@ -255,7 +257,7 @@ class ModelArtifactTests(unittest.TestCase):
             ).exists()
         )
 
-    def test_online_configuration_starts_at_offline_final_noise(self) -> None:
+    def test_online_configuration_is_active_and_starts_at_offline_noise(self) -> None:
         import json
 
         config = json.loads(
@@ -265,8 +267,107 @@ class ModelArtifactTests(unittest.TestCase):
         )
         self.assertEqual(config["exploration"]["std_start"], 0.02)
         self.assertEqual(config["exploration"]["std_end"], 0.01)
-        self.assertFalse(config["safety_status"]["online_updates_enabled"])
-        self.assertFalse(config["safety_status"]["exploratory_actions_enabled"])
+        self.assertEqual(config["batch_size"], 64)
+        self.assertEqual(config["buffer_size"], 10_000)
+        self.assertTrue(config["safety_status"]["online_updates_enabled"])
+        self.assertTrue(config["safety_status"]["exploratory_actions_enabled"])
+
+
+class OnlineTrainingIntegrationTests(unittest.TestCase):
+    def test_new_offline_checkpoint_overrides_stale_network_config(self) -> None:
+        root_agent = RootTD3Agent(
+            state_dim=5,
+            action_dim=2,
+            actor_hidden=[64, 64],
+            critic_hidden=[64, 64],
+            gamma=0.99,
+            batch_size=64,
+            buffer_size=100,
+            device=torch.device("cpu"),
+            seed=7,
+        )
+        temp_dir = ROOT / "results"
+        checkpoint_path = None
+        config_path = temp_dir / "_test_td3_online_training_config.json"
+        try:
+            checkpoint_path = root_agent.save(
+                str(temp_dir),
+                prefix="offline_ph_td3_test",
+                include_optim=True,
+            )
+            config = json.loads(
+                (MODELS_DIR / "td3_online_training_config.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            config["actor_hidden"] = [128, 128]
+            config["critic_hidden"] = [128, 128]
+            config["gamma"] = 0.97
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+
+            trainer = BioSMBOnlineTD3Trainer.load(
+                config_path=config_path,
+                source_checkpoint=checkpoint_path,
+                checkpoint_directory=temp_dir / "online_checkpoints",
+                device="cpu",
+            )
+        finally:
+            config_path.unlink(missing_ok=True)
+            if checkpoint_path is not None:
+                Path(checkpoint_path).unlink(missing_ok=True)
+
+        self.assertEqual(trainer.agent.actor_hidden, [64, 64])
+        self.assertEqual(trainer.agent.critic_hidden, [64, 64])
+        self.assertEqual(trainer.agent.gamma, 0.99)
+        self.assertEqual(
+            trainer.config["resolved_source_checkpoint"]["checkpoint_kind"],
+            "custom_td3_offline_training_v2",
+        )
+
+    def test_reward_replay_and_first_batch_update_are_connected(self) -> None:
+        policy = BioSMBTD3Policy.load(MODELS_DIR / "td3_actor_manifest.json")
+        trainer = BioSMBOnlineTD3Trainer.load(
+            config_path=MODELS_DIR / "td3_online_training_config.json",
+            source_checkpoint=MODELS_DIR / "td3_training_checkpoint.pkl",
+            checkpoint_directory=MODELS_DIR / "_unused_test_checkpoints",
+            device="cpu",
+        )
+        trainer.verify_initial_actor(policy)
+        self.assertEqual(trainer.agent.batch_size, 64)
+        self.assertEqual(trainer.agent.buffer.capacity, 10_000)
+
+        state = np.asarray(
+            policy.manifest["golden_cases"][0]["state"],
+            dtype=np.float32,
+        )
+        action, exploration = trainer.take_action(state)
+        default_action = policy.default_action()["raw_action"]
+        self.assertGreaterEqual(exploration["exploration_sigma"], 0.01)
+        self.assertLessEqual(exploration["exploration_sigma"], 0.02)
+
+        reward_info = None
+        training_info = None
+        for _ in range(64):
+            reward_info, training_info = trainer.record_transition(
+                state=state,
+                action=action,
+                reward_target_ph=4.76,
+                measured_ph_after=4.75,
+                previous_action=action,
+                default_action=default_action,
+                next_state=state,
+                buffer_sum=15.0,
+                previous_buffer_sum=15.0,
+                buffer_sum_min=2.0,
+                buffer_sum_max=20.0,
+                done=False,
+            )
+
+        self.assertIsNotNone(reward_info)
+        self.assertTrue(np.isfinite(reward_info["reward"]))
+        self.assertEqual(training_info["buffer_size"], 64)
+        self.assertTrue(training_info["train_updated"])
+        self.assertEqual(training_info["train_steps"], 1)
 
 
 if __name__ == "__main__":

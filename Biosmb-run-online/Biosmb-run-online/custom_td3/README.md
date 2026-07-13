@@ -2,9 +2,9 @@
 
 This package contains two deliberately separated parts:
 
-1. A verified deterministic deployment facade used by `main.py`.
-2. A reduced copy of only the learning path active in the latest offline run,
-   prepared for later online-training work.
+1. A verified deployment helper used by `main.py`.
+2. A reduced copy of the learning path active in the latest offline run, now
+   connected to online BioSMB transitions.
 
 It does not depend on Stable-Baselines3.
 
@@ -59,7 +59,7 @@ alternative critic losses, plain replay, and inactive reward modes.
 The public imports include `TD3Agent`, `GaussianNoiseSchedule`,
 `PERRecentReplayBuffer`, `PHRewardConfig`, and `compute_ph_reward`.
 
-The latest offline run used:
+The existing offline checkpoint was trained with:
 
 - actor and critic layers `[128, 128]`
 - gamma `0.97`
@@ -71,33 +71,58 @@ The latest offline run used:
 - policy delay `2` and soft target coefficient `0.005`
 - mixed replay: 50% prioritized, 20% recent, and 30% uniform
 
+The next offline training run now defaults to:
+
+- actor and critic layers `[64, 64]`
+- gamma `0.99`
+- batch size `64`
+
+These new defaults do not change the existing checkpoint. Replace its saved
+model files only after the new offline run finishes successfully.
+
+The new offline runner writes a ready-to-copy `deployment_bundle` containing
+`td3_actor_manifest.json`, `td3_actor_weights.pt`,
+`td3_training_checkpoint.pkl`, and `td3_training_config.json`. Copy those four
+files together into the BioSMB `models` folder; do not mix files from different
+offline runs.
+
 The immutable offline values are stored in `models/td3_training_config.json`.
-The proposed online continuation settings are separate in
+The active online continuation settings are separate in
 `models/td3_online_training_config.json`.
 
 Offline exploration ended at standard deviation `0.02`. Online adaptation is
 configured to begin at `0.02` and decay to `0.01`, preserving continuity while
-reducing random action variation. Exploratory actions and online updates remain
-disabled until the laboratory safety protocol is validated.
+reducing random action variation. The online run uses batch size `64`, replay
+capacity `10000`, and one gradient update per completed control transition once
+the replay buffer contains 64 transitions.
+
+The exact active shaped reward is implemented in `reward.py`. `main.py` stores
+the same reward value in replay and in the MongoDB deployment record, together
+with the full reward breakdown and actor/critic update diagnostics.
 
 ## Important checkpoint limitation
 
-`models/td3_training_checkpoint.pkl` is the original trusted local checkpoint.
-It contains actor and critic weights, target weights, selected hyperparameters,
-and no saved replay contents. The original loader restores actor and critic,
-hard-synchronizes targets, and creates new optimizers. It does not restore the
-replay buffer, optimizer states, counters, or random-number-generator states.
+The current `models/td3_training_checkpoint.pkl` is the original trusted local
+checkpoint. It contains actor and critic weights, target weights, and selected
+hyperparameters, but no replay or optimizer state.
 
-Therefore the actor deployment is numerically reproducible, but later online
-training cannot resume bit-for-bit from offline step 500000 with this checkpoint.
-That requires a separate complete-resume checkpoint design.
+The next offline checkpoint format also records actor/critic architecture and
+optimizer states. The online loader reads the architecture and `gamma` from
+that checkpoint, so a new `[64, 64]`, `gamma = 0.99` model does not depend on
+stale duplicated values in the online JSON. It restores the offline optimizer
+state but intentionally starts with an empty online replay buffer.
+
+New `td3_online_*.pkl` checkpoints contain actor, critics, target networks,
+optimizers, the 10000-transition replay buffer, update counters, and random
+states. These trusted local files can resume an online run completely.
 
 Never load an untrusted `.pkl` file. The deployment path uses the safer
 weights-only `.pt` file with a manifest hash and golden-vector checks.
 
 ## Current safety status
 
-The latest manifest says the policy is simulation-only and not lab validated.
-`main.py` therefore uses `suggest_only`. Do not enable `active_control` until
-the pump mapping, PH_2 dynamics, action timing, safety behavior, and frozen
-policy performance have been validated in the laboratory.
+The latest actor manifest still records that the starting policy was trained in
+simulation and was not lab validated at export time. `main.py` is now configured
+for active control and active online updates at the user's direction. Laboratory
+supervision, verified pump mapping, and reviewed shutdown behavior remain
+necessary.

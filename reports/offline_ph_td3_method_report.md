@@ -258,8 +258,8 @@ The current runner constructs a TD3 agent with:
 |---|---:|
 | State dimension | 5 |
 | Action dimension | 2 |
-| Actor hidden layers | `[128, 128]` |
-| Critic hidden layers | `[128, 128]` |
+| Actor hidden layers | `[64, 64]` |
+| Critic hidden layers | `[64, 64]` |
 | Activation | ReLU |
 | Actor output squash | tanh |
 | Maximum action magnitude | 1.0 |
@@ -326,7 +326,7 @@ The current default runner settings are:
 | Resolved default training setpoint range | 3.76 to 5.7 pH |
 | Batch size | 64 |
 | Replay buffer capacity | 60000 |
-| Discount factor `gamma` | 0.97 |
+| Discount factor `gamma` | 0.99 |
 | Actor learning rate | 1e-4 |
 | Critic learning rate | 1e-3 |
 | Optimizer | AdamW |
@@ -342,6 +342,19 @@ The current default runner settings are:
 | Evaluation cycle | final setpoint cycle |
 | Save training checkpoint | yes, enabled by default |
 | Save actor-only deployment bundle | yes in `ratio_buffer_sum` mode |
+
+The next offline run defaults to `gamma = 0.99`, actor layers `[64, 64]`, critic
+layers `[64, 64]`, and batch size `64`. The previously completed checkpoint used
+`gamma = 0.97` and `[128, 128]` actor and critic layers; its saved configuration
+must remain unchanged so that it truthfully records how those existing weights
+were trained. Its batch size was already `64`.
+
+The next run also writes a BioSMB-ready `deployment_bundle` containing the actor
+manifest, actor weights, training checkpoint, and exact offline configuration.
+The new checkpoint stores the actor/critic architecture, `gamma`, and optimizer
+states. `Biosmb-run-online` reads the architecture and `gamma` from the trusted
+checkpoint, restores the optimizer state, and starts a new empty 10000-sample
+online replay buffer. All four generated model files must be copied together.
 
 The default exploration mode is Gaussian action noise:
 
