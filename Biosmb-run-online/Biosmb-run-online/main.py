@@ -21,8 +21,11 @@ from biosmb_interface.manager import BioSMBManager
 # Deployment settings
 # ============================================================
 
-# I changed this line: keep the simulation-only TD3 actor in non-actuating shadow mode.
-control_mode = "suggest_only"   # "suggest_only" or "active_control"
+# I changed this line: allow checked TD3 flow commands to be sent to the pumps.
+control_mode = "active_control"   # "suggest_only" or "active_control"
+
+# I changed this line: mark this run for online TD3 learning when the learning loop is added.
+online_training_enabled = True
 
 deployment_target_ph = 4.7
 

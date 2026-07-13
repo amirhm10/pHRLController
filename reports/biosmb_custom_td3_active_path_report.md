@@ -2,8 +2,9 @@
 
 **Date:** 2026-07-12
 
-**Status:** software integration completed in `suggest_only`. Online updates and
-exploratory hardware actions remain disabled.
+**Status:** `active_control` and `online_training_enabled` are now selected in
+the settings. Pump commands are active, but the replay, reward, update, and
+online-save calls are not connected to `main.py` yet.
 
 ## 1. Objective
 
@@ -27,9 +28,10 @@ owned by the supplied BioSMB application.
 | TD3 contract | `PH_2`, manifest path, normalized ratio/sum state and action mapping | Must match the trained actor | Connected through `BioSMBTD3Policy` |
 | Historical SAC | two `sac_*` model paths and `SAC.load()` | Specific to the supplied SB3 example | Removed |
 
-The deployment target of 4.7 pH lies inside the saved manifest target interval
-of 3.76 to 5.70. The latest actor remains simulation-only, so the main setting
-is `suggest_only`.
+The deployment target of 4.7 pH lies inside the saved model target interval of
+3.76 to 5.70. The latest actor remains simulation-only. The user selected
+`active_control` for the planned online-training workflow, so this incomplete
+intermediate version must not be run on the lab system yet.
 
 Every changed area in `main.py` has a nearby comment beginning with
 `# I changed this line:` as requested.
@@ -237,3 +239,28 @@ state, reward components, and terminal reason without calling `train_step()`.
 
 Only after those logged transitions are scientifically reviewed should the
 online replay push and TD3 update cadence be enabled.
+
+## 12. Data collection and target review
+
+No code was changed in these two sections during the active-mode setting edit.
+
+The Data collection section can remain as the starting structure because it
+already reads BioSMB sensors, seven flow values, three MFCS masses, and logs the
+raw observation. Before running online learning, it should later add:
+
+- timezone-aware measurement times
+- command time and before/after measurement times
+- flow-array shape and finite-value validation
+- confirmation that flow values are measured readback rather than commands
+- stale-data, timeout, and OPC quality checks
+
+The Target pH section can also keep its Redis-first and fixed-target fallback
+structure. Before active online learning, it should later add:
+
+- finite numeric validation
+- enforcement of the saved model range, currently 3.76 to 5.70 pH
+- target freshness and a minimum target hold time
+- logging of whether Redis or the fixed fallback supplied the target
+
+An invalid target should be rejected or replaced by the reviewed fallback. It
+should not reach the actor and fail indirectly during state validation.
