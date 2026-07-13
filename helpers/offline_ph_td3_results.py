@@ -1061,14 +1061,20 @@ def save_offline_ph_td3_result_artifacts(
     hh_consistency = compute_hh_consistency(diagnostic_trajectory)
     setpoint_reward_metrics = compute_setpoint_reward_metrics(diagnostic_trajectory)
 
-    diagnostic_trajectory_path = tables_dir / "trajectory_diagnostics.csv"
+    trajectory_path = tables_dir / "trajectory.csv.gz"
     summary_metrics_path = tables_dir / "summary_metrics.csv"
     flow_diagnostics_path = tables_dir / "flow_diagnostics.csv"
     hh_consistency_path = tables_dir / "hh_consistency.csv"
     setpoint_reward_metrics_path = tables_dir / "setpoint_reward_metrics.csv"
     source_training_summary_path = tables_dir / "source_training_summary.csv"
 
-    diagnostic_trajectory.to_csv(diagnostic_trajectory_path, index=False)
+    # Store one complete trajectory instead of separate raw and diagnostic CSVs.
+    # Gzip preserves every row and column while substantially reducing disk use.
+    diagnostic_trajectory.to_csv(
+        trajectory_path,
+        index=False,
+        compression={"method": "gzip", "compresslevel": 6, "mtime": 1},
+    )
     summary_metrics.to_csv(summary_metrics_path, index=False)
     flow_diagnostics.to_csv(flow_diagnostics_path, index=False)
     hh_consistency.to_csv(hh_consistency_path, index=False)
@@ -1090,7 +1096,7 @@ def save_offline_ph_td3_result_artifacts(
         figures.append(loss_figure)
 
     tables = [
-        diagnostic_trajectory_path,
+        trajectory_path,
         summary_metrics_path,
         flow_diagnostics_path,
         hh_consistency_path,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import pathlib
 import pickle
 import sys
@@ -712,9 +713,21 @@ def test_result_artifact_helper_smoke() -> None:
         config=config,
     )
     assert (output_dir / "tables" / "summary_metrics.csv").exists()
-    assert (output_dir / "tables" / "trajectory_diagnostics.csv").exists()
+    trajectory_path = output_dir / "tables" / "trajectory.csv.gz"
+    assert trajectory_path.exists()
+    saved_trajectory = pd.read_csv(trajectory_path)
+    assert len(saved_trajectory) == len(trajectory)
+    assert "hh_ph_from_ratio" in saved_trajectory
+    assert not (output_dir / "tables" / "trajectory_diagnostics.csv").exists()
     assert (output_dir / "tables" / "setpoint_reward_metrics.csv").exists()
     assert (output_dir / "tables" / "result_artifact_manifest.json").exists()
+    manifest = json.loads(
+        (output_dir / "tables" / "result_artifact_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest_tables = [path.replace("\\", "/") for path in manifest["tables"]]
+    assert "tables/trajectory.csv.gz" in manifest_tables
     figure_names = {path.name for path in artifacts["figures"]}
     assert "fig_setpoint_average_reward.png" in figure_names
     assert "fig_last_25_setpoint_tracking.png" in figure_names

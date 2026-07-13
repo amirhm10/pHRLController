@@ -653,7 +653,6 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
     )
 
     output_dir = make_output_dir(args.output_dir)
-    trajectory.to_csv(output_dir / "tables" / "trajectory.csv", index=False)
     episode_metrics.to_csv(output_dir / "tables" / "episode_metrics.csv", index=False)
     setpoint_schedule.to_csv(
         output_dir / "tables" / "setpoint_schedule.csv",
@@ -962,6 +961,13 @@ def write_config_snapshot(
         "runner": "run_offline_ph_td3_training.py",
         "simulation_only": True,
         "uses_biosmb_or_emulator": False,
+        "result_storage": {
+            "trajectory_filename": "trajectory.csv.gz",
+            "trajectory_compression": "gzip",
+            "trajectory_compression_level": 6,
+            "includes_diagnostic_columns": True,
+            "writes_duplicate_diagnostic_trajectory": False,
+        },
         "process_config": process_config.__dict__,
         "resolved_rollout": {
             "total_steps": int(total_steps),

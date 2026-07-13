@@ -21,11 +21,32 @@ REPORTS_ROOT = ROOT / "reports"
 DEFAULT_REPORT_PATH = REPORTS_ROOT / "offline_ph_td3_training_result_analysis.md"
 
 
+def find_trajectory_path(tables_dir: Path) -> Path | None:
+    """Return the compressed trajectory, with legacy CSV fallback."""
+    for filename in ("trajectory.csv.gz", "trajectory.csv"):
+        candidate = tables_dir / filename
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def require_trajectory_path(tables_dir: Path) -> Path:
+    """Return a saved trajectory path or raise a format-aware error."""
+    path = find_trajectory_path(tables_dir)
+    if path is None:
+        raise FileNotFoundError(
+            "Missing expected trajectory table. Looked for "
+            f"{tables_dir / 'trajectory.csv.gz'} and "
+            f"{tables_dir / 'trajectory.csv'}."
+        )
+    return path
+
+
 def find_latest_result_dir() -> Path:
     candidates = sorted(
         path
         for path in RESULTS_ROOT.glob("offline_ph_td3_training_*")
-        if (path / "tables" / "trajectory.csv").exists()
+        if find_trajectory_path(path / "tables") is not None
     )
     if not candidates:
         raise FileNotFoundError(
@@ -37,14 +58,14 @@ def find_latest_result_dir() -> Path:
 
 def load_result_tables(result_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     tables_dir = result_dir / "tables"
-    trajectory_path = tables_dir / "trajectory.csv"
+    trajectory_path = require_trajectory_path(tables_dir)
     episode_path = tables_dir / "episode_metrics.csv"
     summary_path = tables_dir / "training_summary.csv"
     config_path = tables_dir / "config_snapshot.json"
 
     missing = [
         path
-        for path in [trajectory_path, episode_path, summary_path, config_path]
+        for path in [episode_path, summary_path, config_path]
         if not path.exists()
     ]
     if missing:
@@ -1241,7 +1262,7 @@ def build_report(
         "simulation/henderson_hasselbalch_model.py",
         "reports/overview.md",
         "reports/offline_ph_rl_environment_report.md",
-        repo_rel(result_dir / "tables" / "trajectory.csv"),
+        repo_rel(require_trajectory_path(result_dir / "tables")),
         repo_rel(result_dir / "tables" / "episode_metrics.csv"),
         repo_rel(result_dir / "tables" / "training_summary.csv"),
         repo_rel(result_dir / "tables" / "config_snapshot.json"),
@@ -1367,7 +1388,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--result-dir",
         type=Path,
         default=None,
-        help="Result folder containing tables/trajectory.csv. Defaults to latest offline_ph_td3_training_* run.",
+        help=(
+            "Result folder containing tables/trajectory.csv.gz or the legacy "
+            "tables/trajectory.csv. Defaults to the latest offline_ph_td3_training_* run."
+        ),
     )
     parser.add_argument(
         "--output-dir",
