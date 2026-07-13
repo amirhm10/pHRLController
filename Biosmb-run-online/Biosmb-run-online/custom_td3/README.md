@@ -73,7 +73,8 @@ The existing offline checkpoint was trained with:
 
 The next offline training run now defaults to:
 
-- actor and critic layers `[64, 64]`
+- total rollout length `100000` steps
+- actor and critic layers `[128, 128]`
 - gamma `0.99`
 - batch size `64`
 
@@ -108,7 +109,7 @@ hyperparameters, but no replay or optimizer state.
 
 The next offline checkpoint format also records actor/critic architecture and
 optimizer states. The online loader reads the architecture and `gamma` from
-that checkpoint, so a new `[64, 64]`, `gamma = 0.99` model does not depend on
+that checkpoint, so a new `[128, 128]`, `gamma = 0.99` model does not depend on
 stale duplicated values in the online JSON. It restores the offline optimizer
 state but intentionally starts with an empty online replay buffer.
 

@@ -2,7 +2,7 @@
 
 **Report date:** July 13, 2026  
 **Software status:** custom TD3 integration completed and locally tested  
-**Model status:** the replacement offline model is still training  
+**Model status:** the replacement offline model must be trained with the revised defaults<br>
 **Lab status:** live BioSMB control and online learning have not yet been validated
 
 ## 1. Purpose
@@ -321,10 +321,11 @@ At the time of this report, `models/` still contains the previous successful
 offline export. It should remain internally consistent until the new offline
 run finishes.
 
-| Setting | Currently bundled model | Replacement model being trained |
+| Setting | Currently bundled model | Next replacement model |
 |---|---:|---:|
-| Actor hidden layers | `[128, 128]` | `[64, 64]` |
-| Critic hidden layers | `[128, 128]` | `[64, 64]` |
+| Total offline steps | `500000` | `100000` |
+| Actor hidden layers | `[128, 128]` | `[128, 128]` |
+| Critic hidden layers | `[128, 128]` | `[128, 128]` |
 | Discount factor $\gamma$ | `0.97` | `0.99` |
 | Offline batch size | `64` | `64` |
 | Final offline exploration noise | `0.02` | `0.02` |
@@ -425,7 +426,8 @@ states that it was not lab validated when exported.
 
 The following items should remain visible during handoff:
 
-1. The new `[64, 64]`, $\gamma=0.99$ offline model is not yet installed.
+1. The new 100000-step, `[128, 128]`, $\gamma=0.99$ offline model is not yet
+   installed.
 2. The simulation used for offline training does not fully represent real
    mixing delay, residence-time behavior, sensor response, pump error, or
    disturbances.

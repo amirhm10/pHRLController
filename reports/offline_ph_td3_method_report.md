@@ -258,8 +258,8 @@ The current runner constructs a TD3 agent with:
 |---|---:|
 | State dimension | 5 |
 | Action dimension | 2 |
-| Actor hidden layers | `[64, 64]` |
-| Critic hidden layers | `[64, 64]` |
+| Actor hidden layers | `[128, 128]` |
+| Critic hidden layers | `[128, 128]` |
 | Activation | ReLU |
 | Actor output squash | tanh |
 | Maximum action magnitude | 1.0 |
@@ -318,9 +318,9 @@ The current default runner settings are:
 
 | Parameter | Value |
 |---|---:|
-| Total rollout steps | 500000 |
+| Total rollout steps | 100000 |
 | Default setpoint hold length | 200 steps |
-| Default number of setpoint cycles | 2500 |
+| Default number of setpoint cycles | 500 |
 | Default setpoint range source | lab-data `target_ph` range |
 | Lab-data desired setpoint range | 3.7 to 5.7 pH |
 | Resolved default training setpoint range | 3.76 to 5.7 pH |
@@ -343,11 +343,12 @@ The current default runner settings are:
 | Save training checkpoint | yes, enabled by default |
 | Save actor-only deployment bundle | yes in `ratio_buffer_sum` mode |
 
-The next offline run defaults to `gamma = 0.99`, actor layers `[64, 64]`, critic
-layers `[64, 64]`, and batch size `64`. The previously completed checkpoint used
-`gamma = 0.97` and `[128, 128]` actor and critic layers; its saved configuration
-must remain unchanged so that it truthfully records how those existing weights
-were trained. Its batch size was already `64`.
+The next offline run defaults to `100000` rollout steps, `gamma = 0.99`, actor
+layers `[128, 128]`, critic layers `[128, 128]`, and batch size `64`. The
+previously completed checkpoint used `500000` rollout steps and `gamma = 0.97`.
+Its saved configuration must remain unchanged so that it truthfully records how
+those existing weights were trained. Its network layers and batch size were
+already `[128, 128]` and `64`.
 
 The next run also writes a BioSMB-ready `deployment_bundle` containing the actor
 manifest, actor weights, training checkpoint, and exact offline configuration.
@@ -838,6 +839,6 @@ training-loss figures. Critic loss is plotted on a log axis when positive, and
 actor loss is plotted on a signed-log axis because TD3 actor loss can be
 negative.
 
-The next addition to this report should be a quantitative interpretation of a full
-500000-step run plus a frozen-policy evaluation sweep across the reachable pH
-range.
+The next addition to this report should be a quantitative interpretation of the
+revised 100000-step run plus a frozen-policy evaluation sweep across the
+reachable pH range.
