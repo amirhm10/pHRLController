@@ -54,8 +54,8 @@ min_buffer_flow_sum = 2.0
 max_buffer_flow_sum = 20.0
 # I changed this line: keep water at the fixed value used in TD3 training.
 fixed_water_flow_rate = 5.0
-# I changed this line: use the same water comparison tolerance as the TD3 flow converter.
-water_flow_tolerance = 1.0e-3
+# I changed this line: allow fixed-water readback to vary by 0.1 mL/min around 5 mL/min.
+water_flow_tolerance = 0.1
 
 minimum_mass_grams = 200.0 + 1000   # bottle mass + safety liquid amount
 
@@ -545,6 +545,8 @@ def log_deployment_step(
             "min_buffer_flow_sum": min_buffer_flow_sum,
             "max_buffer_flow_sum": max_buffer_flow_sum,
             "fixed_water_flow_rate": fixed_water_flow_rate,
+            # I changed this line: log the shared fixed-water tolerance used by safety and TD3 conversion.
+            "water_flow_tolerance": water_flow_tolerance,
             "state_sensor_key": state_sensor_key,
             # I changed this line: log our TD3 model file instead of an SAC checkpoint.
             "td3_manifest_path": td3_manifest_path,
@@ -571,6 +573,8 @@ def load_trained_model():
         controlled_flow_indices=controlled_flow_indices,
         controlled_stream_names=controlled_stream_names,
         state_sensor_key=state_sensor_key,
+        # I changed this line: use the same 0.1 mL/min tolerance inside the TD3 model helper.
+        water_flow_tolerance=water_flow_tolerance,
         device="cpu",
     )
 

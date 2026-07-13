@@ -34,6 +34,7 @@ class BioSMBTD3Policy:
         controlled_flow_indices: Sequence[int] = (0, 1, 2),
         controlled_stream_names: Mapping[int, str] | None = None,
         state_sensor_key: str = "PH_2",
+        water_flow_tolerance: float = 0.1,
         pump_count: int = 7,
     ) -> None:
         indices = tuple(int(value) for value in controlled_flow_indices)
@@ -51,6 +52,11 @@ class BioSMBTD3Policy:
             indices[2]: "di-water",
         }
         self.state_sensor_key = str(state_sensor_key)
+        self.water_flow_tolerance = float(water_flow_tolerance)
+        if not np.isfinite(self.water_flow_tolerance) or self.water_flow_tolerance < 0.0:
+            raise TD3ContractError(
+                "Water-flow tolerance must be a finite, nonnegative value."
+            )
         self.pump_count = int(pump_count)
 
     @classmethod
@@ -61,6 +67,7 @@ class BioSMBTD3Policy:
         controlled_flow_indices: Sequence[int] = (0, 1, 2),
         controlled_stream_names: Mapping[int, str] | None = None,
         state_sensor_key: str = "PH_2",
+        water_flow_tolerance: float = 0.1,
         pump_count: int = 7,
         device: str = "cpu",
     ) -> "BioSMBTD3Policy":
@@ -71,6 +78,7 @@ class BioSMBTD3Policy:
             controlled_flow_indices=controlled_flow_indices,
             controlled_stream_names=controlled_stream_names,
             state_sensor_key=state_sensor_key,
+            water_flow_tolerance=water_flow_tolerance,
             pump_count=pump_count,
         )
 
@@ -136,6 +144,7 @@ class BioSMBTD3Policy:
             target_ph,
             previous_flows,
             self.policy.mapper,
+            water_tolerance=self.water_flow_tolerance,
         )
         return self.policy.validate_state(state)
 
@@ -167,7 +176,10 @@ class BioSMBTD3Policy:
         """Convert measured pump flows back to the normalized TD3 action."""
 
         flows = self._flows_from_observation(observation)
-        normalized_action = self.policy.mapper.flows_to_action(flows)
+        normalized_action = self.policy.mapper.flows_to_action(
+            flows,
+            water_tolerance=self.water_flow_tolerance,
+        )
         return format_logical_flows(
             flows,
             raw_action=normalized_action,
@@ -187,7 +199,10 @@ class BioSMBTD3Policy:
         self.policy.mapper.validate_flows(flows)
         return format_logical_flows(
             flows,
-            raw_action=self.policy.mapper.flows_to_action(flows),
+            raw_action=self.policy.mapper.flows_to_action(
+                flows,
+                water_tolerance=self.water_flow_tolerance,
+            ),
             controlled_flow_indices=self.controlled_flow_indices,
             controlled_stream_names=self.controlled_stream_names,
             pump_count=self.pump_count,

@@ -218,7 +218,7 @@ class RatioSumActionMapper:
         self,
         flows: LogicalFlows,
         *,
-        water_tolerance: float = 1.0e-3,
+        water_tolerance: float = 0.1,
     ) -> np.ndarray:
         """Recover the previous normalized action from physical flow values."""
 
@@ -296,6 +296,8 @@ def build_td3_state(
     target_ph: float,
     previous_flows: LogicalFlows,
     mapper: RatioSumActionMapper,
+    *,
+    water_tolerance: float = 0.1,
 ) -> np.ndarray:
     """Build the exact five-element state used during offline TD3 training."""
 
@@ -303,7 +305,10 @@ def build_td3_state(
     target = float(target_ph)
     if not np.all(np.isfinite([ph, target])):
         raise TD3ContractError("Measured and target pH must be finite.")
-    previous_action = mapper.flows_to_action(previous_flows)
+    previous_action = mapper.flows_to_action(
+        previous_flows,
+        water_tolerance=water_tolerance,
+    )
     return np.asarray(
         [ph, target, ph - target, previous_action[0], previous_action[1]],
         dtype=np.float32,
