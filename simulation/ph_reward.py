@@ -24,6 +24,7 @@ class PHRewardConfig:
     q_band: float = 1.0
     r_move: float = 0.0
     sum_move_weight: float = 0.0
+    economic_flow_weight: float = 0.0
     tau_frac: float = 0.7
     gamma_out: float = 0.5
     gamma_in: float = 0.5
@@ -56,6 +57,7 @@ class PHRewardConfig:
             "q_band",
             "r_move",
             "sum_move_weight",
+            "economic_flow_weight",
             "tau_frac",
             "gamma_out",
             "gamma_in",
@@ -96,11 +98,13 @@ class PHRewardBreakdown:
     move_cost: float
     default_flow_cost: float
     sum_move_cost: float
+    economic_flow_cost: float
     squared_error_term: float
     absolute_error_term: float
     move_penalty_term: float
     default_flow_term: float
     sum_move_penalty_term: float
+    economic_flow_penalty_term: float
     total_cost: float
     band_ph: float = float("nan")
     normalized_error: float = float("nan")
@@ -126,11 +130,15 @@ class PHRewardBreakdown:
             "reward_move_cost": float(self.move_cost),
             "reward_default_flow_cost": float(self.default_flow_cost),
             "reward_sum_move_cost": float(self.sum_move_cost),
+            "reward_economic_flow_cost": float(self.economic_flow_cost),
             "reward_squared_error_term": float(self.squared_error_term),
             "reward_absolute_error_term": float(self.absolute_error_term),
             "reward_move_penalty_term": float(self.move_penalty_term),
             "reward_default_flow_term": float(self.default_flow_term),
             "reward_sum_move_penalty_term": float(self.sum_move_penalty_term),
+            "reward_economic_flow_penalty_term": float(
+                self.economic_flow_penalty_term
+            ),
             "reward_total_cost": float(self.total_cost),
             "reward_band_ph": float(self.band_ph),
             "reward_normalized_error": float(self.normalized_error),
@@ -160,6 +168,7 @@ def compute_three_term_ph_reward(
     previous_buffer_sum: float | None = None,
     buffer_sum_min: float | None = None,
     buffer_sum_max: float | None = None,
+    economic_flow_fraction: float | None = None,
 ) -> PHRewardBreakdown:
     """Compute the existing squared, absolute, and move-penalty pH reward."""
     cfg = config or PHRewardConfig(mode="three_term")
@@ -178,18 +187,21 @@ def compute_three_term_ph_reward(
         buffer_sum_min,
         buffer_sum_max,
     )
+    economic_flow_cost = _economic_flow_cost(economic_flow_fraction)
 
     squared_error_term = cfg.q_squared * squared_error_cost
     absolute_error_term = cfg.q_absolute * absolute_error_cost
     move_penalty_term = cfg.move_weight * move_cost
     default_flow_term = cfg.default_flow_weight * default_flow_cost
     sum_move_penalty_term = cfg.sum_move_weight * sum_move_cost
+    economic_flow_penalty_term = cfg.economic_flow_weight * economic_flow_cost
     unscaled_cost = (
         squared_error_term
         + absolute_error_term
         + move_penalty_term
         + default_flow_term
         + sum_move_penalty_term
+        + economic_flow_penalty_term
     )
     reward = -unscaled_cost * cfg.reward_scale
 
@@ -202,11 +214,13 @@ def compute_three_term_ph_reward(
         move_cost=move_cost,
         default_flow_cost=default_flow_cost,
         sum_move_cost=sum_move_cost,
+        economic_flow_cost=economic_flow_cost,
         squared_error_term=squared_error_term,
         absolute_error_term=absolute_error_term,
         move_penalty_term=move_penalty_term,
         default_flow_term=default_flow_term,
         sum_move_penalty_term=sum_move_penalty_term,
+        economic_flow_penalty_term=economic_flow_penalty_term,
         total_cost=float(-reward),
         hold_progress=_safe_hold_progress(hold_progress),
         reward_scale=cfg.reward_scale,
@@ -226,6 +240,7 @@ def compute_relative_band_ph_reward(
     previous_buffer_sum: float | None = None,
     buffer_sum_min: float | None = None,
     buffer_sum_max: float | None = None,
+    economic_flow_fraction: float | None = None,
 ) -> PHRewardBreakdown:
     """Compute an RL-assisted-MPC-style relative-band pH reward."""
     cfg = config or PHRewardConfig(mode="relative_band")
@@ -244,6 +259,7 @@ def compute_relative_band_ph_reward(
         buffer_sum_min,
         buffer_sum_max,
     )
+    economic_flow_cost = _economic_flow_cost(economic_flow_fraction)
 
     band_ph = max(cfg.k_rel * abs(float(target_ph)), cfg.band_floor_ph, 1.0e-12)
     tau_ph = max(cfg.tau_frac * band_ph, 1.0e-12)
@@ -258,6 +274,7 @@ def compute_relative_band_ph_reward(
     move_penalty_term = cfg.r_move * move_cost
     default_flow_term = cfg.default_flow_weight * default_flow_cost
     sum_move_penalty_term = cfg.sum_move_weight * sum_move_cost
+    economic_flow_penalty_term = cfg.economic_flow_weight * economic_flow_cost
 
     slope_at_edge = 2.0 * cfg.q_band * band_ph
     overflow = max(abs_error - band_ph, 0.0)
@@ -277,6 +294,7 @@ def compute_relative_band_ph_reward(
         + move_penalty_term
         + default_flow_term
         + sum_move_penalty_term
+        + economic_flow_penalty_term
         + linear_out_term
         + linear_in_term
         - bonus_term
@@ -292,11 +310,13 @@ def compute_relative_band_ph_reward(
         move_cost=move_cost,
         default_flow_cost=default_flow_cost,
         sum_move_cost=sum_move_cost,
+        economic_flow_cost=economic_flow_cost,
         squared_error_term=error_quad,
         absolute_error_term=0.0,
         move_penalty_term=move_penalty_term,
         default_flow_term=default_flow_term,
         sum_move_penalty_term=sum_move_penalty_term,
+        economic_flow_penalty_term=economic_flow_penalty_term,
         total_cost=float(-reward),
         band_ph=band_ph,
         normalized_error=normalized_error,
@@ -323,6 +343,7 @@ def compute_relative_band_offset_ph_reward(
     previous_buffer_sum: float | None = None,
     buffer_sum_min: float | None = None,
     buffer_sum_max: float | None = None,
+    economic_flow_fraction: float | None = None,
 ) -> PHRewardBreakdown:
     """Compute the relative-band reward with explicit offset-reduction terms."""
     cfg = config or PHRewardConfig(mode="relative_band_offset")
@@ -338,6 +359,7 @@ def compute_relative_band_offset_ph_reward(
         previous_buffer_sum=previous_buffer_sum,
         buffer_sum_min=buffer_sum_min,
         buffer_sum_max=buffer_sum_max,
+        economic_flow_fraction=economic_flow_fraction,
     )
     hold_weight = _hold_weight(hold_progress, cfg.tail_start_fraction)
     tail_offset_cost = hold_weight * breakdown.absolute_error_cost
@@ -369,6 +391,7 @@ def compute_ph_reward(
     previous_buffer_sum: float | None = None,
     buffer_sum_min: float | None = None,
     buffer_sum_max: float | None = None,
+    economic_flow_fraction: float | None = None,
 ) -> PHRewardBreakdown:
     """Dispatch to the selected pH reward mode."""
     cfg = config or PHRewardConfig()
@@ -385,6 +408,7 @@ def compute_ph_reward(
             previous_buffer_sum=previous_buffer_sum,
             buffer_sum_min=buffer_sum_min,
             buffer_sum_max=buffer_sum_max,
+            economic_flow_fraction=economic_flow_fraction,
         )
     if cfg.mode == "relative_band":
         return compute_relative_band_ph_reward(
@@ -399,6 +423,7 @@ def compute_ph_reward(
             previous_buffer_sum=previous_buffer_sum,
             buffer_sum_min=buffer_sum_min,
             buffer_sum_max=buffer_sum_max,
+            economic_flow_fraction=economic_flow_fraction,
         )
     if cfg.mode == "relative_band_offset":
         return compute_relative_band_offset_ph_reward(
@@ -413,6 +438,7 @@ def compute_ph_reward(
             previous_buffer_sum=previous_buffer_sum,
             buffer_sum_min=buffer_sum_min,
             buffer_sum_max=buffer_sum_max,
+            economic_flow_fraction=economic_flow_fraction,
         )
     raise ValueError(
         "reward mode must be 'three_term', 'relative_band', or 'relative_band_offset'."
@@ -426,16 +452,17 @@ def reward_definition_text(config: PHRewardConfig | None = None) -> str:
         return (
             "-(q2*(target_pH - pH)^2 + q1*abs(target_pH - pH) + "
             "r_move*mean((action_t - action_t_minus_1)^2) + "
-            "r_sum*((S_t - S_t_minus_1)/(S_max - S_min))^2)"
+            "r_sum*((S_t - S_t_minus_1)/(S_max - S_min))^2 + "
+            "r_econ*z_flow^2)"
         )
     if cfg.mode == "relative_band":
         return (
-            "[-(J_eff + J_move + J_delta_sum + J_lin_out + J_lin_in) + "
+            "[-(J_eff + J_move + J_delta_sum + J_economic + J_lin_out + J_lin_in) + "
             "J_bonus_abs] * reward_scale"
         )
     return (
         "relative_band reward minus absolute-error penalty, with optional "
-        "late-hold offset and normalized total-flow move penalties"
+        "late-hold offset, total-flow move penalties, and optional excess-flow cost"
     )
 
 
@@ -472,6 +499,17 @@ def _normalized_scalar_delta(
     if span <= 0.0:
         raise ValueError("buffer_sum_max must be greater than buffer_sum_min.")
     return float(((value - reference) / span) ** 2)
+
+
+def _economic_flow_cost(fraction: float | None) -> float:
+    """Return squared optional-flow use on a normalized zero-to-one scale."""
+    if fraction is None:
+        return 0.0
+    fraction = float(fraction)
+    if not isfinite(fraction):
+        raise ValueError("economic_flow_fraction must be finite.")
+    fraction = float(np.clip(fraction, 0.0, 1.0))
+    return fraction**2
 
 
 def _sigmoid(value: float) -> float:

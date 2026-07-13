@@ -30,6 +30,7 @@ from simulation.config import PHProcessConfig
 from simulation.ph_environment import (
     PHEnvironment,
     PHEnvironmentConfig,
+    buffer_sum_bounds_for_ratio,
     fixed_buffer_target_ph_bounds,
     variable_buffer_target_ph_bounds,
 )
@@ -65,6 +66,8 @@ def test_environment_reset_and_step() -> None:
     assert "reward_absolute_error_cost" in step_info
     assert "reward_move_cost" in step_info
     assert "reward_sum_move_cost" in step_info
+    assert "reward_economic_flow_cost" in step_info
+    assert "economic_flow_fraction" in step_info
 
 
 def test_ratio_only_mode_removes_time_fraction_state() -> None:
@@ -274,19 +277,20 @@ def test_runner_default_reward_is_offset_focused_shaped() -> None:
 
     assert args.total_steps == 500_000
     assert args.setpoint_range_source == "lab_data"
-    assert args.action_mode == "ratio_buffer_sum"
+    assert args.action_mode == "ratio_preserving_flow"
     assert args.batch_size == 64
     assert args.buffer_size == 60_000
     assert args.actor_hidden == [128, 128]
     assert args.critic_hidden == [128, 128]
-    assert np.isclose(args.gamma, 0.99)
-    assert np.isclose(args.std_end, 0.04)
+    assert np.isclose(args.gamma, 0.97)
+    assert np.isclose(args.std_end, 0.02)
     assert args.save_checkpoint is True
     assert cfg.mode == "relative_band_offset"
     assert np.isclose(cfg.band_floor_ph, 0.01)
     assert np.isclose(cfg.q_band, 1.0)
     assert np.isclose(cfg.r_move, 0.0)
     assert np.isclose(cfg.sum_move_weight, 5.0)
+    assert np.isclose(cfg.economic_flow_weight, 0.01)
     assert np.isclose(cfg.beta, 0.0)
     assert np.isclose(cfg.bonus_weight_abs, 0.05)
     assert np.isclose(cfg.bonus_k, 6.0)
@@ -334,14 +338,14 @@ def test_action_bounds_and_ratio_direction() -> None:
     _, _, _, _, high_info = env.step(high_action)
     _, _, _, _, low_info = env.step(low_action)
 
-    assert high_info["acid_flow"] == 5.0
-    assert high_info["acetate_flow"] == 10.0
-    assert high_info["water_flow"] == 5.0
-    assert low_info["acid_flow"] == 10.0
-    assert low_info["acetate_flow"] == 5.0
-    assert low_info["water_flow"] == 5.0
-    assert high_info["buffer_flow_sum"] == 15.0
-    assert low_info["buffer_flow_sum"] == 15.0
+    assert np.isclose(high_info["acid_flow"], 5.0)
+    assert np.isclose(high_info["acetate_flow"], 10.0)
+    assert np.isclose(high_info["water_flow"], 5.0)
+    assert np.isclose(low_info["acid_flow"], 10.0)
+    assert np.isclose(low_info["acetate_flow"], 5.0)
+    assert np.isclose(low_info["water_flow"], 5.0)
+    assert np.isclose(high_info["buffer_flow_sum"], 15.0)
+    assert np.isclose(low_info["buffer_flow_sum"], 15.0)
     assert high_info["ph"] > low_info["ph"]
 
     min_sum_flows = env.action_to_flows(np.array([0.0, -1.0], dtype=np.float32))
@@ -359,6 +363,82 @@ def test_action_bounds_and_ratio_direction() -> None:
         assert np.isclose(flows[2], 5.0)
         env.step(raw_action.astype(np.float32))
         env.assert_current_flow_constraints()
+
+
+def test_ratio_preserving_flow_preserves_ratio_authority() -> None:
+    env = PHEnvironment(
+        PHEnvironmentConfig(
+            target_ph=4.76,
+            action_mode="ratio_preserving_flow",
+            buffer_flow_sum_min=2.0,
+            buffer_flow_sum_max=20.0,
+        )
+    )
+    for ratio_action in np.linspace(-1.0, 1.0, 9):
+        realized_ratios = []
+        sums = []
+        for economic_action in [-1.0, 0.0, 1.0]:
+            flows = env.action_to_flows(
+                np.array([ratio_action, economic_action], dtype=np.float32)
+            )
+            realized_ratios.append(float(flows[1] / flows[0]))
+            sums.append(float(flows[0] + flows[1]))
+            assert np.all(flows >= env.flow_low - 1e-6)
+            assert np.all(flows <= env.flow_high + 1e-6)
+        assert np.allclose(realized_ratios, realized_ratios[0], rtol=1e-6)
+        assert sums[0] <= sums[1] <= sums[2]
+
+
+def test_ratio_preserving_flow_uses_ratio_specific_feasible_interval() -> None:
+    process_config = PHProcessConfig()
+    ratio = 2.0
+    sum_low, sum_high = buffer_sum_bounds_for_ratio(
+        process_config=process_config,
+        flow_ratio=ratio,
+        buffer_flow_sum_min=2.0,
+        buffer_flow_sum_max=20.0,
+    )
+    assert np.isclose(sum_low, 3.0)
+    assert np.isclose(sum_high, 15.0)
+
+    env = PHEnvironment(
+        PHEnvironmentConfig(
+            target_ph=4.76 + np.log10(ratio),
+            action_mode="ratio_preserving_flow",
+        )
+    )
+    ratio_action = np.log10(ratio)
+    minimum_flows = env.action_to_flows(
+        np.array([ratio_action, -1.0], dtype=np.float32)
+    )
+    maximum_flows = env.action_to_flows(
+        np.array([ratio_action, 1.0], dtype=np.float32)
+    )
+    assert np.allclose(minimum_flows[:2], [1.0, 2.0], atol=1e-6)
+    assert np.allclose(maximum_flows[:2], [5.0, 10.0], atol=1e-6)
+    assert np.isclose(minimum_flows[1] / minimum_flows[0], ratio)
+    assert np.isclose(maximum_flows[1] / maximum_flows[0], ratio)
+
+
+def test_economic_flow_penalty_prefers_minimum_optional_flow() -> None:
+    cfg = PHRewardConfig(
+        mode="relative_band_offset",
+        economic_flow_weight=0.01,
+    )
+    kwargs = {
+        "target_ph": 4.76,
+        "ph": 4.76,
+        "action": np.array([0.0, 0.0]),
+        "previous_action": np.array([0.0, 0.0]),
+        "config": cfg,
+    }
+    minimum = compute_ph_reward(**kwargs, economic_flow_fraction=0.0)
+    maximum = compute_ph_reward(**kwargs, economic_flow_fraction=1.0)
+
+    assert np.isclose(minimum.economic_flow_cost, 0.0)
+    assert np.isclose(maximum.economic_flow_cost, 1.0)
+    assert np.isclose(maximum.economic_flow_penalty_term, 0.01)
+    assert maximum.reward < minimum.reward
 
 
 def test_runner_flow_constraint_validation() -> None:
@@ -382,6 +462,18 @@ def test_runner_flow_constraint_validation() -> None:
     )
     assert int(check["above_bound_count"].sum()) == 0
     assert int(check["below_bound_count"].sum()) == 0
+
+    safe_check = validate_trajectory_flow_constraints(
+        trajectory=valid,
+        process_config=process_config,
+        action_mode="ratio_preserving_flow",
+        fixed_buffer_flow_sum=15.0,
+        buffer_flow_sum_min=2.0,
+        buffer_flow_sum_max=20.0,
+        fixed_water_flow=5.0,
+    )
+    assert int(safe_check["above_bound_count"].sum()) == 0
+    assert int(safe_check["below_bound_count"].sum()) == 0
 
     invalid = valid.copy()
     invalid.loc[1, "acetate_flow"] = 10.1
@@ -710,6 +802,9 @@ def run_direct() -> None:
     test_runner_default_reward_is_offset_focused_shaped()
     test_lab_data_setpoint_range_is_used_by_default()
     test_action_bounds_and_ratio_direction()
+    test_ratio_preserving_flow_preserves_ratio_authority()
+    test_ratio_preserving_flow_uses_ratio_specific_feasible_interval()
+    test_economic_flow_penalty_prefers_minimum_optional_flow()
     test_runner_flow_constraint_validation()
     test_water_is_fixed_and_not_direct_hh_ratio_input()
     test_public_flow_helpers_and_target_update()

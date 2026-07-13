@@ -102,12 +102,14 @@ class NumericalFidelityTests(unittest.TestCase):
             config=CopiedRewardConfig(**copied_kwargs),
             **inputs,
         ).to_info_dict()
-        self.assertEqual(set(actual), set(expected))
+        self.assertTrue(set(actual).issubset(expected))
         for name in actual:
             if isinstance(actual[name], str):
                 self.assertEqual(actual[name], expected[name])
             else:
                 self.assertAlmostEqual(actual[name], expected[name], places=14)
+        self.assertEqual(expected["reward_economic_flow_cost"], 0.0)
+        self.assertEqual(expected["reward_economic_flow_penalty_term"], 0.0)
 
     def test_active_one_step_update_matches_original_agent(self) -> None:
         common = {

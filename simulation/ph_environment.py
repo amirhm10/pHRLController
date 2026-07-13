@@ -15,7 +15,7 @@ from simulation.ph_reward import (
     compute_ph_reward,
 )
 
-PHActionMode = Literal["ratio", "ratio_buffer_sum"]
+PHActionMode = Literal["ratio", "ratio_buffer_sum", "ratio_preserving_flow"]
 
 
 @dataclass
@@ -33,7 +33,7 @@ class PHEnvironmentConfig:
     default_flow_penalty_weight: float = 0.0
     reward_config: PHRewardConfig | None = None
     setpoint_hold_steps: int | None = None
-    action_mode: PHActionMode = "ratio_buffer_sum"
+    action_mode: PHActionMode = "ratio_preserving_flow"
     fixed_buffer_flow_sum: float = 15.0
     buffer_flow_sum_min: float | None = None
     buffer_flow_sum_max: float | None = None
@@ -41,8 +41,15 @@ class PHEnvironmentConfig:
 
     def __post_init__(self) -> None:
         self.action_mode = str(self.action_mode)
-        if self.action_mode not in {"ratio", "ratio_buffer_sum"}:
-            raise ValueError("action_mode must be 'ratio' or 'ratio_buffer_sum'.")
+        if self.action_mode not in {
+            "ratio",
+            "ratio_buffer_sum",
+            "ratio_preserving_flow",
+        }:
+            raise ValueError(
+                "action_mode must be 'ratio', 'ratio_buffer_sum', or "
+                "'ratio_preserving_flow'."
+            )
 
     def resolved_reward_config(self) -> PHRewardConfig:
         """Return an explicit reward config while preserving legacy fields."""
@@ -99,6 +106,48 @@ def flow_ratio_bounds_for_sum(
     if ratio_low <= 0.0 or ratio_high <= 0.0:
         raise ValueError("flow-ratio bounds must be positive.")
     return float(ratio_low), float(ratio_high)
+
+
+def global_flow_ratio_bounds(
+    process_config: PHProcessConfig,
+) -> tuple[float, float]:
+    """Return the global acetate/acid ratio bounds from individual pumps."""
+    ratio_low = process_config.acetate_flow_min / process_config.acid_flow_max
+    ratio_high = process_config.acetate_flow_max / process_config.acid_flow_min
+    if ratio_low <= 0.0 or ratio_high <= ratio_low:
+        raise ValueError("global flow-ratio bounds must be positive and increasing.")
+    return float(ratio_low), float(ratio_high)
+
+
+def buffer_sum_bounds_for_ratio(
+    process_config: PHProcessConfig,
+    flow_ratio: float,
+    buffer_flow_sum_min: float,
+    buffer_flow_sum_max: float,
+) -> tuple[float, float]:
+    """Return total-flow bounds that preserve one acetate/acid ratio."""
+    ratio = float(flow_ratio)
+    if not np.isfinite(ratio) or ratio <= 0.0:
+        raise ValueError("flow_ratio must be finite and positive.")
+    one_plus_ratio = 1.0 + ratio
+    feasible_min = max(
+        float(buffer_flow_sum_min),
+        process_config.acid_flow_min * one_plus_ratio,
+        process_config.acetate_flow_min * one_plus_ratio / ratio,
+    )
+    feasible_max = min(
+        float(buffer_flow_sum_max),
+        process_config.acid_flow_max * one_plus_ratio,
+        process_config.acetate_flow_max * one_plus_ratio / ratio,
+    )
+    tolerance = 1.0e-10
+    if feasible_min > feasible_max + tolerance:
+        raise ValueError("flow ratio has no feasible total flow inside pump bounds.")
+    if feasible_min > feasible_max:
+        midpoint = 0.5 * (feasible_min + feasible_max)
+        feasible_min = midpoint
+        feasible_max = midpoint
+    return float(feasible_min), float(feasible_max)
 
 
 def fixed_buffer_target_ph_bounds(
@@ -165,11 +214,11 @@ def variable_buffer_target_ph_bounds(
 class PHEnvironment(gym.Env):
     """Gymnasium-style offline pH environment using ideal Henderson-Hasselbalch.
 
-    The default action is a normalized acid/acetate ratio command plus a
-    normalized acid+acetate total-flow command. A legacy ratio-only mode is
-    retained for ablations. Water is fixed at the configured default flow.
-    The static pH calculation uses only the accepted ideal Henderson-Hasselbalch
-    acid/acetate ratio.
+    The default action chooses a normalized acid/acetate ratio first, then an
+    optional-flow fraction inside the total-flow interval that preserves that
+    ratio. Legacy fixed-sum and sum-first modes are retained for ablations.
+    Water is fixed at the configured default flow. The static pH calculation
+    uses only the accepted ideal Henderson-Hasselbalch acid/acetate ratio.
     """
 
     metadata = {"render_modes": []}
@@ -228,6 +277,12 @@ class PHEnvironment(gym.Env):
         )
         self.log_ratio_low = float(np.log10(self.flow_ratio_low))
         self.log_ratio_high = float(np.log10(self.flow_ratio_high))
+        (
+            self.global_flow_ratio_low,
+            self.global_flow_ratio_high,
+        ) = global_flow_ratio_bounds(self.process_config)
+        self.global_log_ratio_low = float(np.log10(self.global_flow_ratio_low))
+        self.global_log_ratio_high = float(np.log10(self.global_flow_ratio_high))
         self.fixed_water_flow = float(
             np.clip(
                 self.process_config.default_water_flow,
@@ -258,7 +313,7 @@ class PHEnvironment(gym.Env):
             error_span,
             1.0,
         ]
-        if self.action_mode == "ratio_buffer_sum":
+        if self.action_mode != "ratio":
             observation_low.append(-1.0)
             observation_high.append(1.0)
         self.observation_space = spaces.Box(
@@ -275,7 +330,7 @@ class PHEnvironment(gym.Env):
 
     @property
     def action_dim(self) -> int:
-        return 2 if self.action_mode == "ratio_buffer_sum" else 1
+        return 1 if self.action_mode == "ratio" else 2
 
     def reset(
         self,
@@ -317,6 +372,7 @@ class PHEnvironment(gym.Env):
         self.current_flows = self._action_to_flows(action_arr)
         self.current_ph = self._predict_ph_from_flows(self.current_flows)
         current_buffer_sum = float(self.current_flows[0] + self.current_flows[1])
+        economic_flow_fraction = self._economic_flow_fraction(self.current_flows)
         self.step_count += 1
         self.setpoint_hold_step += 1
 
@@ -331,6 +387,7 @@ class PHEnvironment(gym.Env):
             previous_buffer_sum=previous_buffer_sum,
             buffer_sum_min=self.buffer_flow_sum_min,
             buffer_sum_max=self.buffer_flow_sum_max,
+            economic_flow_fraction=economic_flow_fraction,
             config=self.reward_config,
         )
         reward = reward_breakdown.reward
@@ -531,6 +588,30 @@ class PHEnvironment(gym.Env):
         }
 
     def _action_to_flows(self, action: np.ndarray) -> np.ndarray:
+        if self.action_mode == "ratio_preserving_flow":
+            ratio_fraction = float(0.5 * (action[0] + 1.0))
+            log_ratio = self.global_log_ratio_low + ratio_fraction * (
+                self.global_log_ratio_high - self.global_log_ratio_low
+            )
+            flow_ratio = 10.0**log_ratio
+            sum_low, sum_high = buffer_sum_bounds_for_ratio(
+                process_config=self.process_config,
+                flow_ratio=flow_ratio,
+                buffer_flow_sum_min=self.buffer_flow_sum_min,
+                buffer_flow_sum_max=self.buffer_flow_sum_max,
+            )
+            economic_fraction = float(0.5 * (action[1] + 1.0))
+            buffer_sum = sum_low + economic_fraction * (sum_high - sum_low)
+            acid_flow = buffer_sum / (1.0 + flow_ratio)
+            acetate_flow = flow_ratio * acid_flow
+            return self._assert_flow_constraints(
+                np.array(
+                    [acid_flow, acetate_flow, self.fixed_water_flow],
+                    dtype=np.float32,
+                ),
+                context="ratio-priority action-mapped flows",
+            )
+
         buffer_sum = self._buffer_sum_from_action(action)
         ratio_low, ratio_high = flow_ratio_bounds_for_sum(
             process_config=self.process_config,
@@ -560,10 +641,14 @@ class PHEnvironment(gym.Env):
         flows = self._clip_flows(flows)
         ratio = float(flows[1] / flows[0])
         buffer_sum = float(flows[0] + flows[1])
-        ratio_low, ratio_high = flow_ratio_bounds_for_sum(
-            process_config=self.process_config,
-            buffer_flow_sum=buffer_sum,
-        )
+        if self.action_mode == "ratio_preserving_flow":
+            ratio_low = self.global_flow_ratio_low
+            ratio_high = self.global_flow_ratio_high
+        else:
+            ratio_low, ratio_high = flow_ratio_bounds_for_sum(
+                process_config=self.process_config,
+                buffer_flow_sum=buffer_sum,
+            )
         log_ratio_low = float(np.log10(ratio_low))
         log_ratio_high = float(np.log10(ratio_high))
         log_ratio = float(
@@ -576,6 +661,25 @@ class PHEnvironment(gym.Env):
             ratio_action = 2.0 * (log_ratio - log_ratio_low) / log_span - 1.0
         if self.action_mode == "ratio":
             return np.array([np.clip(ratio_action, -1.0, 1.0)], dtype=np.float32)
+        if self.action_mode == "ratio_preserving_flow":
+            sum_low, sum_high = buffer_sum_bounds_for_ratio(
+                process_config=self.process_config,
+                flow_ratio=ratio,
+                buffer_flow_sum_min=self.buffer_flow_sum_min,
+                buffer_flow_sum_max=self.buffer_flow_sum_max,
+            )
+            sum_span = sum_high - sum_low
+            if sum_span <= 1.0e-12:
+                safe_sum_action = -1.0
+            else:
+                safe_sum_action = 2.0 * (buffer_sum - sum_low) / sum_span - 1.0
+            return np.array(
+                [
+                    np.clip(ratio_action, -1.0, 1.0),
+                    np.clip(safe_sum_action, -1.0, 1.0),
+                ],
+                dtype=np.float32,
+            )
         sum_action = self._normalize_buffer_sum(buffer_sum)
         return np.array(
             [
@@ -601,6 +705,23 @@ class PHEnvironment(gym.Env):
         return float(
             2.0 * (float(buffer_sum) - self.buffer_flow_sum_min) / span - 1.0
         )
+
+    def _economic_flow_fraction(self, flows: np.ndarray) -> float | None:
+        if self.action_mode != "ratio_preserving_flow":
+            return None
+        flows = np.asarray(flows, dtype=np.float32).reshape(-1)
+        ratio = float(flows[1] / flows[0])
+        buffer_sum = float(flows[0] + flows[1])
+        sum_low, sum_high = buffer_sum_bounds_for_ratio(
+            process_config=self.process_config,
+            flow_ratio=ratio,
+            buffer_flow_sum_min=self.buffer_flow_sum_min,
+            buffer_flow_sum_max=self.buffer_flow_sum_max,
+        )
+        span = sum_high - sum_low
+        if span <= 1.0e-12:
+            return 0.0
+        return float(np.clip((buffer_sum - sum_low) / span, 0.0, 1.0))
 
     def _validate_buffer_sum_range(self) -> None:
         feasible_min = self.process_config.acid_flow_min + self.process_config.acetate_flow_min
@@ -645,6 +766,17 @@ class PHEnvironment(gym.Env):
         acid_flow, acetate_flow, water_flow = map(float, self.current_flows)
         error = float(self.current_ph - self.target_ph)
         normalized_action = self._normalize_flows(self.current_flows)
+        economic_flow_fraction = self._economic_flow_fraction(self.current_flows)
+        if self.action_mode == "ratio_preserving_flow":
+            feasible_sum_min, feasible_sum_max = buffer_sum_bounds_for_ratio(
+                process_config=self.process_config,
+                flow_ratio=acetate_flow / acid_flow,
+                buffer_flow_sum_min=self.buffer_flow_sum_min,
+                buffer_flow_sum_max=self.buffer_flow_sum_max,
+            )
+        else:
+            feasible_sum_min = float("nan")
+            feasible_sum_max = float("nan")
         info = {
             "action_mode": self.action_mode,
             "ph": float(self.current_ph),
@@ -660,8 +792,16 @@ class PHEnvironment(gym.Env):
             "log10_flow_ratio_acetate_acid": float(np.log10(acetate_flow / acid_flow)),
             "ratio_action": float(normalized_action[0]),
             "normalized_buffer_sum_action": float(normalized_action[1])
-            if normalized_action.size > 1
+            if self.action_mode == "ratio_buffer_sum"
             else float("nan"),
+            "normalized_optional_flow_action": float(normalized_action[1])
+            if self.action_mode == "ratio_preserving_flow"
+            else float("nan"),
+            "economic_flow_fraction": float(economic_flow_fraction)
+            if economic_flow_fraction is not None
+            else float("nan"),
+            "feasible_buffer_flow_sum_min": float(feasible_sum_min),
+            "feasible_buffer_flow_sum_max": float(feasible_sum_max),
             "molar_base_acid_ratio": float(
                 self.model.molar_base_acid_ratio(
                     acid_flow=acid_flow,

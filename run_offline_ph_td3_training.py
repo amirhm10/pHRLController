@@ -43,6 +43,8 @@ OPTIONAL_INFO_COLUMNS = [
     "reward_bonus_term",
     "reward_sum_move_cost",
     "reward_sum_move_penalty_term",
+    "reward_economic_flow_cost",
+    "reward_economic_flow_penalty_term",
     "reward_tail_offset_cost",
     "reward_tail_offset_term",
     "reward_hold_progress",
@@ -50,6 +52,10 @@ OPTIONAL_INFO_COLUMNS = [
     "reward_scale",
     "setpoint_hold_step",
     "setpoint_hold_progress",
+    "economic_flow_fraction",
+    "normalized_optional_flow_action",
+    "feasible_buffer_flow_sum_min",
+    "feasible_buffer_flow_sum_max",
 ]
 
 
@@ -281,6 +287,7 @@ def build_reward_config(args: argparse.Namespace) -> PHRewardConfig:
         q_band=args.reward_squared_weight,
         r_move=args.move_penalty_weight,
         sum_move_weight=args.sum_move_penalty_weight,
+        economic_flow_weight=args.flow_economy_penalty_weight,
         beta=0.0,
         bonus_weight_abs=args.reward_bonus_weight,
         bonus_k=args.reward_bonus_k,
@@ -375,7 +382,7 @@ def validate_trajectory_flow_constraints(
                 f"acid+acetate sum deviates from {float(fixed_buffer_flow_sum)} "
                 f"by up to {float(np.nanmax(buffer_deviation))}"
             )
-    elif action_mode == "ratio_buffer_sum":
+    elif action_mode in {"ratio_buffer_sum", "ratio_preserving_flow"}:
         lower = float(buffer_flow_sum_min)
         upper = float(buffer_flow_sum_max)
         below_count = int(np.sum(buffer_sum < lower - tolerance))
@@ -399,7 +406,10 @@ def validate_trajectory_flow_constraints(
                 f"with min={float(np.nanmin(buffer_sum))}, max={float(np.nanmax(buffer_sum))}"
             )
     else:
-        raise ValueError("action_mode must be 'ratio' or 'ratio_buffer_sum'.")
+        raise ValueError(
+            "action_mode must be 'ratio', 'ratio_buffer_sum', or "
+            "'ratio_preserving_flow'."
+        )
 
     water_values = trajectory["water_flow"].to_numpy(float)
     water_deviation = np.abs(water_values - float(fixed_water_flow))
@@ -562,6 +572,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         if step_idx >= warm_start_steps and not is_test:
             train_meta = agent.train_step()
 
+        action_values = np.asarray(action).reshape(-1)
         record = {
             "step": step_idx,
             "cycle": cycle,
@@ -583,10 +594,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
             "water_flow": float(info["water_flow"]),
             "flow_ratio_acetate_acid": float(info["flow_ratio_acetate_acid"]),
             "buffer_flow_sum": float(info["buffer_flow_sum"]),
-            "action_ratio": float(np.asarray(action).reshape(-1)[0]),
-            "action_buffer_sum": float(np.asarray(action).reshape(-1)[1])
-            if np.asarray(action).reshape(-1).size > 1
-            else np.nan,
+            "action_ratio": float(action_values[0]),
             "normalized_buffer_sum_action": float(info["normalized_buffer_sum_action"]),
             "exploration_sigma": exploration_sigma,
             "exploration_magnitude": exploration_magnitude,
@@ -599,6 +607,13 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
             if train_meta is None or train_meta["actor_loss"] is None
             else float(train_meta["actor_loss"]),
         }
+        if action_values.size > 1:
+            secondary_column = (
+                "action_optional_flow"
+                if args.action_mode == "ratio_preserving_flow"
+                else "action_buffer_sum"
+            )
+            record[secondary_column] = float(action_values[1])
         for column in OPTIONAL_INFO_COLUMNS:
             if column in info:
                 value = info[column]
@@ -798,6 +813,7 @@ def summarize_by_cycle(trajectory: pd.DataFrame) -> pd.DataFrame:
         "reward_linear_in_term",
         "reward_bonus_term",
         "reward_sum_move_penalty_term",
+        "reward_economic_flow_penalty_term",
         "reward_tail_offset_term",
     ]
     for column in optional_sum_columns:
@@ -880,6 +896,19 @@ def summarize_run(
                 "overall_sum_move_cost": float(
                     trajectory["reward_sum_move_cost"].sum()
                 ),
+                "overall_economic_flow_cost": float(
+                    trajectory.get(
+                        "reward_economic_flow_cost",
+                        pd.Series(dtype=float),
+                    ).sum()
+                ),
+                "mean_buffer_flow_sum": float(trajectory["buffer_flow_sum"].mean()),
+                "mean_economic_flow_fraction": float(
+                    trajectory.get(
+                        "economic_flow_fraction",
+                        pd.Series(dtype=float),
+                    ).mean()
+                ),
                 "mean_exploration_sigma": float(
                     trajectory["exploration_sigma"].mean()
                 ),
@@ -901,6 +930,9 @@ def summarize_run(
                 "reward_absolute_weight": float(args.reward_absolute_weight),
                 "move_penalty_weight": float(args.move_penalty_weight),
                 "sum_move_penalty_weight": float(args.sum_move_penalty_weight),
+                "flow_economy_penalty_weight": float(
+                    args.flow_economy_penalty_weight
+                ),
                 "reward_band_floor_ph": float(args.reward_band_floor_ph),
                 "reward_bonus_weight": float(reward_config.bonus_weight_abs),
                 "reward_bonus_k": float(reward_config.bonus_k),
@@ -968,14 +1000,22 @@ def write_config_snapshot(
                 "normalized_ratio_action",
             ]
             + (
-                ["normalized_buffer_sum_action"]
-                if args.action_mode == "ratio_buffer_sum"
+                [
+                    "normalized_optional_flow_action"
+                    if args.action_mode == "ratio_preserving_flow"
+                    else "normalized_buffer_sum_action"
+                ]
+                if args.action_mode != "ratio"
                 else []
             ),
             "rl_action_variables": ["acetate_acid_ratio"]
             + (
-                ["acid_acetate_total_flow"]
-                if args.action_mode == "ratio_buffer_sum"
+                [
+                    "optional_total_flow_fraction"
+                    if args.action_mode == "ratio_preserving_flow"
+                    else "acid_acetate_total_flow"
+                ]
+                if args.action_mode != "ratio"
                 else []
             ),
             "action_mode": str(args.action_mode),
@@ -990,6 +1030,9 @@ def write_config_snapshot(
             "reward_absolute_weight": float(args.reward_absolute_weight),
             "move_penalty_weight": float(args.move_penalty_weight),
             "sum_move_penalty_weight": float(args.sum_move_penalty_weight),
+            "flow_economy_penalty_weight": float(
+                args.flow_economy_penalty_weight
+            ),
             "reward_band_floor_ph": float(args.reward_band_floor_ph),
             "reward_bonus_weight": float(reward_config.bonus_weight_abs),
             "reward_bonus_k": float(reward_config.bonus_k),
@@ -1064,9 +1107,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--actor-lr", type=float, default=1e-4)
     parser.add_argument("--critic-lr", type=float, default=1e-3)
-    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--gamma", type=float, default=0.97)
     parser.add_argument("--std-start", type=float, default=0.35)
-    parser.add_argument("--std-end", type=float, default=0.04)
+    parser.add_argument("--std-end", type=float, default=0.02)
     parser.add_argument("--std-decay-steps", type=int, default=5000)
     parser.add_argument(
         "--std-decay-mode",
@@ -1089,6 +1132,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Weight on ((acid+acetate sum change)/(sum range))^2. "
             "This is the MPC-like move penalty used by the variable-sum action."
+        ),
+    )
+    parser.add_argument(
+        "--flow-economy-penalty-weight",
+        type=float,
+        default=0.01,
+        help=(
+            "Weight on squared optional-flow use. In ratio_preserving_flow mode, "
+            "zero means the minimum total flow that preserves the chosen ratio."
         ),
     )
     parser.add_argument(
@@ -1119,11 +1171,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reward-tail-offset-weight", type=float, default=0.0)
     parser.add_argument(
         "--action-mode",
-        choices=["ratio", "ratio_buffer_sum"],
-        default="ratio_buffer_sum",
+        choices=["ratio", "ratio_buffer_sum", "ratio_preserving_flow"],
+        default="ratio_preserving_flow",
         help=(
             "ratio uses the legacy one-action fixed-sum setup. "
-            "ratio_buffer_sum lets TD3 choose ratio and acid+acetate total flow."
+            "ratio_buffer_sum uses the older sum-first mapping. "
+            "ratio_preserving_flow chooses ratio first, then chooses total flow "
+            "only inside the interval that preserves that ratio."
         ),
     )
     parser.add_argument(
@@ -1132,7 +1186,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=15.0,
         help=(
             "Acid+acetate sum in ratio-only mode, and nominal/default sum in "
-            "ratio_buffer_sum mode."
+            "two-action modes."
         ),
     )
     parser.add_argument("--buffer-flow-sum-min", type=float, default=2.0)
@@ -1144,8 +1198,9 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Save the trained agent checkpoint and, for ratio_buffer_sum mode, "
-            "the actor-only deployment bundle. Enabled by default; use "
+            "Save the trained agent checkpoint. The actor-only deployment bundle "
+            "is currently exported only for the existing ratio_buffer_sum BioSMB "
+            "contract. Enabled by default; use "
             "--no-save-checkpoint for a disposable run."
         ),
     )

@@ -42,6 +42,7 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
             for column in [
                 "action_ratio",
                 "action_buffer_sum",
+                "action_optional_flow",
                 "action_acid",
                 "action_acetate",
                 "action_water",
@@ -59,6 +60,7 @@ def add_hh_consistency_columns(trajectory: pd.DataFrame, config: dict) -> pd.Dat
     for column in [
         "action_ratio",
         "action_buffer_sum",
+        "action_optional_flow",
         "action_acid",
         "action_acetate",
         "action_water",
@@ -91,6 +93,8 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
             "move_cost_sum": np.nan,
             "sum_move_cost_sum": np.nan,
             "sum_move_penalty_sum": np.nan,
+            "economic_flow_cost_sum": np.nan,
+            "economic_flow_penalty_sum": np.nan,
             "total_cost_sum": np.nan,
             "error_effective_term_sum": np.nan,
             "linear_out_term_sum": np.nan,
@@ -120,6 +124,14 @@ def metric_row(label: str, frame: pd.DataFrame) -> dict:
         "sum_move_penalty_sum": sum_optional(
             frame,
             "reward_sum_move_penalty_term",
+        ),
+        "economic_flow_cost_sum": sum_optional(
+            frame,
+            "reward_economic_flow_cost",
+        ),
+        "economic_flow_penalty_sum": sum_optional(
+            frame,
+            "reward_economic_flow_penalty_term",
         ),
         "total_cost_sum": sum_optional(frame, "reward_total_cost"),
         "error_effective_term_sum": sum_optional(
@@ -615,7 +627,15 @@ def plot_last_setpoint_tracking(
             linewidth=1.3,
             label="ratio action",
         )
-        if "action_buffer_sum" in subset:
+        if "action_optional_flow" in subset:
+            axs[4].plot(
+                steps,
+                subset["action_optional_flow"],
+                color="#E69F00",
+                linewidth=1.2,
+                label="optional-flow action",
+            )
+        elif "action_buffer_sum" in subset:
             axs[4].plot(
                 steps,
                 subset["action_buffer_sum"],
@@ -671,6 +691,7 @@ def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     action_specs = [
         ("action_ratio", "#AA4499", "ratio action"),
         ("action_buffer_sum", "#E69F00", "sum action"),
+        ("action_optional_flow", "#E69F00", "optional-flow action"),
         ("action_acid", "#CC6677", "acid action"),
         ("action_acetate", "#4477AA", "acetate action"),
         ("action_water", "#228833", "water action"),
@@ -687,10 +708,20 @@ def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
     axs[0].grid(alpha=0.28)
     axs[0].legend(loc="best")
 
-    if "action_ratio" in trajectory and "action_buffer_sum" in trajectory:
+    secondary_action = (
+        "action_optional_flow"
+        if "action_optional_flow" in trajectory
+        else "action_buffer_sum"
+    )
+    secondary_label = (
+        "optional-flow action"
+        if secondary_action == "action_optional_flow"
+        else "sum action"
+    )
+    if "action_ratio" in trajectory and secondary_action in trajectory:
         scatter = axs[1].scatter(
             trajectory["action_ratio"],
-            trajectory["action_buffer_sum"],
+            trajectory[secondary_action],
             c=trajectory["abs_ph_error"],
             cmap="viridis",
             s=34,
@@ -698,7 +729,7 @@ def plot_action_diagnostics(trajectory: pd.DataFrame, output_dir: Path) -> Path:
             linewidth=0.25,
         )
         axs[1].set_xlabel("ratio action")
-        axs[1].set_ylabel("sum action")
+        axs[1].set_ylabel(secondary_label)
         axs[1].set_xlim(-1.05, 1.05)
         axs[1].set_ylim(-1.05, 1.05)
     elif "action_ratio" in trajectory:
