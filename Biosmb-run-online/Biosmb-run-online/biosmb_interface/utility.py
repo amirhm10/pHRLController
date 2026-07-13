@@ -1,11 +1,11 @@
 from typing import Dict, List
 from biosmb_interface.enum import ValveState
 
-def print_status_text(valve_state: Dict[str, ValveState],
-        flows:List[float],
-        inlet_names: List[str] = None,
+def print_status_text(valve_state: Dict[str, ValveState], 
+        flows:List[float], 
+        inlet_names: List[str] = None, 
         outlet_names: List[str] = None):
-
+    
     lines = _generate_whole_system(valve_state, flows, inlet_names, outlet_names)
     for i in range(len(lines)):
         print(lines[i])
@@ -31,7 +31,7 @@ def _generate_valve_state(valve_state: Dict[str, ValveState]) -> List[str]:
                 next_line += " ● |"
             else:
                 next_line += " ◌ |"
-
+        
         to_return.append(next_line)
         if(row == 7 or row == 8 or row == 14):
             to_return.append("  +---------------------------------------------------------------+")
@@ -40,15 +40,15 @@ def _generate_valve_state(valve_state: Dict[str, ValveState]) -> List[str]:
     return to_return
 
 def _generate_whole_system(
-        valve_state: Dict[str, ValveState],
-        flows:List[float],
-        inlet_names: List[str] = None,
+        valve_state: Dict[str, ValveState], 
+        flows:List[float], 
+        inlet_names: List[str] = None, 
         outlet_names: List[str] = None):
-
+    
     to_return = []
 
     valve_block_lines = _generate_valve_state(valve_state)
-
+    
     if(inlet_names is not None):
         inlet_name_length = len(max(inlet_names, key = len))
 
@@ -60,12 +60,12 @@ def _generate_whole_system(
     for i in range(7):
         to_add = f"PUMP {i+1} [{flows[i]:{5.2}}] "
         if(inlet_names is not None):
-            to_add += f"--{inlet_names[i]}-->".rjust(inlet_name_length+5, "-")
+            to_add += f"--{inlet_names[i]}-->".rjust(inlet_name_length+5, "-") 
         else:
             to_add += "------> "
         if(len(to_add)>max_inlet_label_length):
             max_inlet_label_length = len(to_add)
-
+        
         inlet_labels.append(to_add)
 
     outlet_labels = []
@@ -84,3 +84,9 @@ def _generate_whole_system(
             to_return.append(' '*max_inlet_label_length + valve_block_lines[i])
 
     return to_return
+
+
+        
+                
+
+    

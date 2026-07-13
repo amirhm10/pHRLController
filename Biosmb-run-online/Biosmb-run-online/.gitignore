@@ -1,12 +1,8 @@
 __pycache__/
 *.py[cod]
 
-# Retain the upstream Stable-Baselines3 dependency snapshot only as a local
-# reference. The custom actor-only service uses requirements-runtime.txt.
-requirements.txt
-
-# Trained policies and replay buffers are local artifacts.  Commit only the
-# documentation and manifest example below.
-models/*
-!models/README.md
-!models/td3_actor_manifest.example.json
+# Model binaries remain local deployment artifacts.
+models/*.zip
+models/*.pkl
+models/*.pt
+models/td3_actor_manifest.json

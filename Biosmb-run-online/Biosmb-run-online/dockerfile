@@ -1,31 +1,14 @@
 FROM python:3.11-slim
 
-# The Compose file builds from the repository root so the exact custom Actor
-# and its small network helper can be copied without copying training code.
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-WORKDIR /app
+WORKDIR /app 
 
-COPY Biosmb-run-online/Biosmb-run-online/requirements-runtime.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt && pip check
+COPY requirements.txt ./ 
 
-# Copy the laboratory deployment application and BioSMB interface.
-COPY Biosmb-run-online/Biosmb-run-online/main.py ./main.py
-COPY Biosmb-run-online/Biosmb-run-online/td3_deployment.py ./td3_deployment.py
-COPY Biosmb-run-online/Biosmb-run-online/deployment_settings.json ./deployment_settings.json
-COPY Biosmb-run-online/Biosmb-run-online/settings.json ./settings.json
-COPY Biosmb-run-online/Biosmb-run-online/biosmb_interface ./biosmb_interface
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy only the actor code required for frozen custom-TD3 inference.
-COPY TD3Agent/__init__.py TD3Agent/actor.py ./TD3Agent/
-COPY utils/__init__.py utils/helpers_net.py ./utils/
+COPY . .
 
-# Policy files are mounted read-only at runtime. The image contains no SAC
-# checkpoint, TD3 critic, optimizer, replay buffer, or online-learning path.
-RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin biosmb \
-    && mkdir -p /app/models \
-    && chown -R biosmb:biosmb /app
+CMD ["python", "./main.py"]
 
-USER biosmb
+# CMD ["python", "./main_deploy.py"]
 
-CMD ["python", "./main.py", "--control-mode", "suggest_only"]

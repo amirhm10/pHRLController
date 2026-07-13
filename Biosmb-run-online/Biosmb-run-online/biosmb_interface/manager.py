@@ -6,12 +6,12 @@ from typing import Dict, List
 from biosmb_interface.enum import ValveState, PumpEnabledState
 from biosmb_interface.utility import print_status_text
 
-
+                
 OPCValveIndex = namedtuple("ValveOPCIndex", ["node_id", "array_index", "bit_index"])
 
 class BioSMBManager():
-    def __init__(self,
-                 opc_client:Client,
+    def __init__(self, 
+                 opc_client:Client, 
                  settings_file="settings.json",
                  inlet_names: List[str] = None,
                  outlet_names: List[str] = None):
@@ -43,15 +43,15 @@ class BioSMBManager():
         self.conductivity_ids = settings["CONDUCTIVITY"]
         self.uv_ids =settings["UV"]
 
-
+         
     def _initialize_valve_map(self):
-        """ This function initializes a dictionary map between
-            user friendly names for valves (ie "A3") and the
+        """ This function initializes a dictionary map between 
+            user friendly names for valves (ie "A3") and the 
             OPC-UA node, array index, and bit number that corresponds
             to the valve in the BioSMB PLC's digital output space.
         """
         self.valve_map = {}
-
+        
         node_index = 0
         array_index = 0
         bit_index = 0
@@ -69,7 +69,7 @@ class BioSMBManager():
                 if(bit_index>=8):
                     bit_index = 0
                     array_index += 1
-
+            
             if(column %4 == 3):
                 node_index += 1
                 bit_index = 0
@@ -92,7 +92,7 @@ class BioSMBManager():
             return ValveState.OPEN
         else:
             return ValveState.CLOSED
-
+    
 
     def set_valve(self, valve_name:str, new_state:ValveState) -> None:
         """ Sets the state of an individual valve based on the user frindely name for
@@ -111,7 +111,7 @@ class BioSMBManager():
             valve_int = valve_int | (1<<idx.bit_index)
         elif(new_state == ValveState.CLOSED):
             valve_int = valve_int & ~(1<<idx.bit_index)
-
+        
         valve_int_array[idx.array_index] = valve_int
 
         valve_int_array = ua.DataValue(ua.Variant(valve_int_array, ua.VariantType.Byte))
@@ -141,33 +141,33 @@ class BioSMBManager():
         with the fewist possible OPC-UA calls (ie most efficient) to prevent network delays
 
         Returns:
-            Dict[str, ValveState]: A dictionary where the key is the user friendly name of the valve (ie "A3") and
+            Dict[str, ValveState]: A dictionary where the key is the user friendly name of the valve (ie "A3") and 
             the value is the state of the valve (open or closed)
         """
         row_number = 0
         column_number = 0
 
         toReturn = {}
-
+        
         all_values = {}
         for k in range(len(self.node_id_list)):
             all_values[self.node_id_list[k]] = self.opc_client.get_node(self.node_id_list[k]).get_value()
-
-
+            
+        
         for column in range(16):
             for row in range(15):
                 key = chr(column+65) +str(row +1)
                 idx: OPCValveIndex = self.valve_map[key]
 
-                value_int = all_values[idx.node_id][idx.array_index]
+                value_int = all_values[idx.node_id][idx.array_index]                
                 if((value_int >> idx.bit_index)&1 == 1):
                     toReturn[key] = ValveState.OPEN
                 else:
                     toReturn[key] = ValveState.CLOSED
 
-
+        
         return toReturn
-
+    
     def close_all_valves(self):
         """Closes all valves using the fewest possible OPC-UA writes
         """
@@ -178,7 +178,7 @@ class BioSMBManager():
 
             for i in range(8):
                 valve_int_array[i] = 0
-
+            
             valve_int_array = ua.DataValue(ua.Variant(valve_int_array, ua.VariantType.Byte))
             node.write_value(valve_int_array)
 
@@ -189,16 +189,16 @@ class BioSMBManager():
 
         Args:
             pump_number (int): A number between 1 to 7 specifying for which pump to get a flow rate value.
-
+            
         Returns:
             float: The current pump flow rate in ml/min.
         """
 
         flow_values = self.opc_client.get_node(self.flow_id).get_value()
         return flow_values[pump_number - 1]
+    
 
-
-    def set_flow(self, pump_number:int, flow_rate: float)-> None:
+    def set_flow(self, pump_number:int, flow_rate: float)-> None:    
         """Sets the flow rate of a specified pump in ml/min.  NOte that pumps
         are numbered from 1 to 7 with pump 1 feeding row 2 of the valve block.
         Also note that pumps must be enabled in order to actually run.
@@ -271,10 +271,10 @@ class BioSMBManager():
             return PumpEnabledState.ENABLED
         else:
             return PumpEnabledState.DISABLED
-
+        
 
     def set_pump_enabled(self, pump_number:int, target_state: PumpEnabledState)->None:
-        """Sets the enabled/disabled state of the
+        """Sets the enabled/disabled state of the 
 
         Args:
             pump_number (int): The pump for which to set the enabled state.  Note that pumps are
@@ -323,7 +323,7 @@ class BioSMBManager():
         enable_values =ua.DataValue(ua.Variant(enable_values, ua.VariantType.Boolean))
         self.opc_client.get_node(self.enable_id).write_value(enable_values)
 
-
+    
     def get_pressure(self, sensor_number:int) -> float:
         """Reads the current pressure for the specified pressure sensor (note 1 indexed)
 
@@ -376,7 +376,7 @@ class BioSMBManager():
         to_return["C"] = self.opc_client.get_node(self.uv_ids[sensor_number-1]["C"]).get_value()
 
         return to_return
-
+    
 
     def get_all_sensors(self) -> Dict[str, float]:
         """Gets a dictionary with the current value of all BioSMB sensors
@@ -402,9 +402,19 @@ class BioSMBManager():
             to_return[f"UV_{i+1}C"]= self.opc_client.get_node(self.uv_ids[i]["C"]).get_value()
 
         return to_return
-
+                    
 
     def print_status(self):
         valve_state = self.get_all_valves()
         flows = self.get_all_flows()
         print_status_text(valve_state, flows, self.inlet_names, self.outlet_names)
+        
+
+
+        
+
+        
+
+
+
+

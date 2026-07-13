@@ -1,7 +1,0 @@
-# Actor-only custom TD3 deployment dependencies.
-# Stable-Baselines3, Gymnasium, plotting, and training libraries are not needed.
-asyncua==1.1.6
-numpy==2.3.1
-pymongo==4.16.0
-redis==7.4.0
-torch==2.8.0

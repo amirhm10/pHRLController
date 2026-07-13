@@ -1,5 +1,11 @@
 # Custom TD3 integration into the BioSMB online reference
 
+> **Superseded implementation note, 2026-07-12:** The large replacement of the
+> original BioSMB `main.py` and container files documented below was reverted.
+> The original reference application is restored, and the current TD3 work is
+> additive under `Biosmb-run-online/Biosmb-run-online/custom_td3/`. See
+> `reports/biosmb_additive_td3_module_report.md` for the current design.
+
 **Date:** 2026-07-10
 
 **Implementation status:** actor-only runtime implemented and verified without hardware
