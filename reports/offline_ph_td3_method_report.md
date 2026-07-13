@@ -318,9 +318,9 @@ The current default runner settings are:
 
 | Parameter | Value |
 |---|---:|
-| Total rollout steps | 100000 |
+| Total rollout steps | 500000 |
 | Default setpoint hold length | 200 steps |
-| Default number of setpoint cycles | 500 |
+| Default number of setpoint cycles | 2500 |
 | Default setpoint range source | lab-data `target_ph` range |
 | Lab-data desired setpoint range | 3.7 to 5.7 pH |
 | Resolved default training setpoint range | 3.76 to 5.7 pH |
@@ -343,12 +343,11 @@ The current default runner settings are:
 | Save training checkpoint | yes, enabled by default |
 | Save actor-only deployment bundle | yes in `ratio_buffer_sum` mode |
 
-The next offline run defaults to `100000` rollout steps, `gamma = 0.97`, actor
-layers `[128, 128]`, critic layers `[128, 128]`, and batch size `64`. The
-previously completed checkpoint used `500000` rollout steps and `gamma = 0.97`.
-Its saved configuration must remain unchanged so that it truthfully records how
-those existing weights were trained. Its network layers and batch size were
-already `[128, 128]` and `64`.
+The offline runner now defaults to `500000` rollout steps, `gamma = 0.97`, actor
+layers `[128, 128]`, critic layers `[128, 128]`, and batch size `64`. These
+settings reproduce the experiment definition used by the selected successful
+checkpoint. A new run still receives a new result directory and must be judged
+from its own saved metrics before replacing existing weights.
 
 The next run also writes a BioSMB-ready `deployment_bundle` containing the actor
 manifest, actor weights, training checkpoint, and exact offline configuration.
@@ -840,5 +839,5 @@ actor loss is plotted on a signed-log axis because TD3 actor loss can be
 negative.
 
 The next addition to this report should be a quantitative interpretation of the
-revised 100000-step run plus a frozen-policy evaluation sweep across the
-reachable pH range.
+exact 500000-step reproduction run plus a frozen-policy evaluation sweep across
+the reachable pH range.

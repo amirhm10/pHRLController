@@ -1016,7 +1016,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run a repo-style offline TD3 simulation for the ideal-HH pH plant."
     )
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--total-steps", type=int, default=100_000)
+    parser.add_argument("--total-steps", type=int, default=500_000)
     parser.add_argument("--n-tests", type=int, default=None)
     parser.add_argument("--set-points-len", type=int, default=None)
     parser.add_argument(

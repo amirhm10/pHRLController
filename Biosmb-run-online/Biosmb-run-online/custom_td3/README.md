@@ -72,16 +72,17 @@ The selected shipment checkpoint was trained with:
 - policy delay `2` and soft target coefficient `0.005`
 - mixed replay: 50% prioritized, 20% recent, and 30% uniform
 
-The next offline training run now defaults to:
+The offline training runner now defaults to the selected experiment settings:
 
-- total rollout length `100000` steps
+- total rollout length `500000` steps
 - actor and critic layers `[128, 128]`
 - gamma `0.97`
 - batch size `64`
 
-These future offline defaults do not change the selected 500000-step shipment
-checkpoint. `main.py` continues to load that existing four-file model set from
-`models/`.
+Running the offline experiment does not automatically change the selected
+500000-step shipment checkpoint. `main.py` continues to load the existing
+four-file model set from `models/` until a new matched set is deliberately
+copied there.
 
 For a future deliberate replacement, the offline runner writes a ready-to-copy
 `deployment_bundle` containing
