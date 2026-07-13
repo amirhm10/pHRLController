@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 
-# I cnaged this line: import our custom TD3 facade instead of Stable-Baselines3 SAC.
+# I changed this line: import our custom TD3 model helper instead of Stable-Baselines3 SAC.
 from custom_td3 import BioSMBTD3Policy
 
 from redis import Redis
@@ -21,7 +21,7 @@ from biosmb_interface.manager import BioSMBManager
 # Deployment settings
 # ============================================================
 
-# I cnaged this line: keep the simulation-only TD3 actor in non-actuating shadow mode.
+# I changed this line: keep the simulation-only TD3 actor in non-actuating shadow mode.
 control_mode = "suggest_only"   # "suggest_only" or "active_control"
 
 deployment_target_ph = 4.7
@@ -42,7 +42,7 @@ controlled_stream_names = {
 
 min_flow_rate = 1.0
 max_flow_rate = 10.0
-# I cnaged this line: TD3 allows at most 20 mL/min buffer plus 5 mL/min water.
+# I changed this line: TD3 allows at most 20 mL/min buffer plus 5 mL/min water.
 max_total_flow_rate = 25.0
 
 minimum_mass_grams = 200.0 + 1000   # bottle mass + safety liquid amount
@@ -74,7 +74,7 @@ raw_observation_collection_name = "biosmb-inline-mixing"
 deployment_collection_name = "biosmb-rl-controller-deployment"
 
 model_dir = "models"
-# I cnaged this line: point to our TD3 manifest and remove the old SAC model names.
+# I changed this line: point to our TD3 model information file and remove the old SAC model names.
 td3_manifest_path = os.path.join(model_dir, "td3_actor_manifest.json")
 
 
@@ -548,7 +548,7 @@ def log_deployment_step(
             "max_flow_rate": max_flow_rate,
             "max_total_flow_rate": max_total_flow_rate,
             "state_sensor_key": state_sensor_key,
-            # I cnaged this line: log our TD3 artifact instead of an SAC checkpoint.
+            # I changed this line: log our TD3 model file instead of an SAC checkpoint.
             "td3_manifest_path": td3_manifest_path,
         },
     }
@@ -563,11 +563,11 @@ def log_deployment_step(
 # ============================================================
 
 def load_trained_model():
-    # I cnaged this line: load and verify our weights-only custom TD3 actor.
+    # I changed this line: load and verify our saved custom TD3 actor weights.
     """Loads the verified custom TD3 actor for deployment."""
 
     print("Loading custom TD3 actor for deployment...")
-    # I cnaged this line: pass the existing BioSMB mapping into our TD3 facade.
+    # I changed this line: pass the existing BioSMB mapping into our TD3 model helper.
     return BioSMBTD3Policy.load(
         td3_manifest_path,
         controlled_flow_indices=controlled_flow_indices,
@@ -586,7 +586,7 @@ def run_deployment_loop(
 ) -> None:
     """Runs the deployed controller indefinitely."""
 
-    # I cnaged this line: use the startup flows represented in TD3 action coordinates.
+    # I changed this line: use the startup flows represented in TD3 action coordinates.
     previous_executed_action = model.default_action()
     step_number = 0
 
@@ -645,7 +645,7 @@ def run_deployment_loop(
 
         measured_ph_before = get_controller_ph(observation_before)
 
-        # I cnaged this line: build the exact five-element state used in TD3 training.
+        # I changed this line: build the exact five-element state used in TD3 training.
         state = model.build_state(
             observation=observation_before,
             target_ph=target_ph,
@@ -657,7 +657,7 @@ def run_deployment_loop(
             deterministic=True,
         )
 
-        # I cnaged this line: map the two normalized TD3 outputs into BioSMB flows.
+        # I changed this line: map the two normalized TD3 outputs into BioSMB flows.
         proposed_action = model.format_action(raw_action)
 
         executed_action, action_valid, action_failure_reason = select_executed_action(

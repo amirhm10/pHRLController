@@ -32,7 +32,7 @@ of 3.76 to 5.70. The latest actor remains simulation-only, so the main setting
 is `suggest_only`.
 
 Every changed area in `main.py` has a nearby comment beginning with
-`# I cnaged this line:` as requested.
+`# I changed this line:` as requested.
 
 ## 3. Model artifacts
 

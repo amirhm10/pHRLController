@@ -26,7 +26,7 @@ configure future online exploration to continue from 0.02 to 0.01.
   immutable offline configuration.
 - Added a separate online configuration with Gaussian exploration 0.02 to 0.01.
 - Changed only the policy-specific seams in main and marked each area with the
-  requested `# I cnaged this line:` reason comment.
+  requested `# I changed this line:` reason comment.
 - Forced `suggest_only` because the manifest is simulation-only.
 - Tightened the total controlled flow safety limit from 30 to 25 mL/min to
   match a maximum 20 mL/min buffer sum plus fixed 5 mL/min water.
