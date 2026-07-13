@@ -38,9 +38,10 @@ The following original files already matched and were left alone:
 - `biosmb_interface/enum.py`
 - `biosmb_interface/__init__.py`
 
-The original `main.py` still imports Stable-Baselines3 SAC. It contains no
-`custom_td3` import or TD3-specific call. This is intentional for the current
-step.
+Step 1 of the reviewed integration now replaces only the Stable-Baselines3 SAC
+import with `from custom_td3 import BioSMBTD3Policy`. No other `main.py` line is
+changed in this step. The later `SAC.load(...)` calls are intentionally still
+present and will be handled as the next separate edit.
 
 ## 3. BioSMB control-library boundary
 
@@ -294,7 +295,7 @@ At the later container step:
 - Synthetic export/load prediction matches the training actor.
 - The real saved 500k actor passes manifest, hash, strict-load, and golden-vector
   checks.
-- Tests confirm the restored main file contains SAC and no custom TD3 import.
+- Tests confirm the main file imports `BioSMBTD3Policy` instead of SAC.
 
 ## 12. Remaining uncertainty
 

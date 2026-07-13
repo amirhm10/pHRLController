@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 
-from stable_baselines3 import SAC
+from custom_td3 import BioSMBTD3Policy
 
 from redis import Redis
 from pymongo import MongoClient
