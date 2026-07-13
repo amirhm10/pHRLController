@@ -145,6 +145,7 @@ class BioSMBTD3Policy:
             previous_flows,
             self.policy.mapper,
             water_tolerance=self.water_flow_tolerance,
+            enforce_water_tolerance=False,
         )
         return self.policy.validate_state(state)
 
@@ -179,6 +180,7 @@ class BioSMBTD3Policy:
         normalized_action = self.policy.mapper.flows_to_action(
             flows,
             water_tolerance=self.water_flow_tolerance,
+            enforce_water_tolerance=False,
         )
         return format_logical_flows(
             flows,

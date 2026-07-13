@@ -254,8 +254,12 @@ def get_controller_ph(observation: Dict) -> float:
 # ============================================================
 
 # I changed this line: the old SAC default and three-flow converter were removed.
-# I changed this line: validate the two TD3 values and the exact physical flow rules.
-def check_action(action: Dict[str, List[float]]) -> Tuple[bool, str]:
+# I changed this line: keep fixed-water enforcement for commands but allow measured readback to be checked separately.
+def check_action(
+    action: Dict[str, List[float]],
+    *,
+    enforce_fixed_water: bool = True,
+) -> Tuple[bool, str]:
     """Checks the normalized TD3 action and its physical flow values."""
 
     required_keys = [
@@ -330,7 +334,8 @@ def check_action(action: Dict[str, List[float]]) -> Tuple[bool, str]:
     if buffer_flow_sum > max_buffer_flow_sum:
         return False, "buffer_flow_sum_above_maximum"
 
-    if not np.isclose(
+    # I changed this line: only reject a water mismatch when validating a command sent to the pumps.
+    if enforce_fixed_water and not np.isclose(
         water_flow,
         fixed_water_flow_rate,
         atol=water_flow_tolerance,
@@ -351,6 +356,32 @@ def check_action(action: Dict[str, List[float]]) -> Tuple[bool, str]:
         return False, "total_controlled_flow_above_maximum"
 
     return True, "valid"
+
+
+# I changed this line: describe a measured water-flow mismatch without stopping the process.
+def get_water_flow_warning(action: Dict[str, List[float]]) -> Dict:
+    """Returns warning details when measured water differs from 5 mL/min."""
+
+    controlled_flow_rates = np.asarray(
+        action["controlled_flow_rates"],
+        dtype=float,
+    ).reshape(-1)
+    water_flow = float(controlled_flow_rates[2])
+    absolute_deviation = abs(water_flow - fixed_water_flow_rate)
+    warning_active = absolute_deviation > water_flow_tolerance
+
+    return {
+        "active": warning_active,
+        "reason": (
+            "measured_water_flow_outside_tolerance"
+            if warning_active
+            else "within_tolerance"
+        ),
+        "measured_water_flow_rate": water_flow,
+        "fixed_water_flow_rate": fixed_water_flow_rate,
+        "absolute_deviation": absolute_deviation,
+        "tolerance": water_flow_tolerance,
+    }
 
 
 def select_executed_action(
@@ -485,6 +516,7 @@ def log_deployment_step(
     next_state: np.ndarray,
     action_valid: bool,
     action_failure_reason: str,
+    water_flow_warning: Dict,
     mass_safe: bool,
     mass_safety_reason: str,
     observation_before: Dict,
@@ -522,6 +554,8 @@ def log_deployment_step(
 
         "action_valid": action_valid,
         "action_failure_reason": action_failure_reason,
+        # I changed this line: log water readback deviations as warnings instead of shutdown reasons.
+        "water_flow_warning": water_flow_warning,
 
         "mass_safe": mass_safe,
         "mass_safety_reason": mass_safety_reason,
@@ -573,7 +607,7 @@ def load_trained_model():
         controlled_flow_indices=controlled_flow_indices,
         controlled_stream_names=controlled_stream_names,
         state_sensor_key=state_sensor_key,
-        # I changed this line: use the same 0.1 mL/min tolerance inside the TD3 model helper.
+        # I changed this line: give the TD3 helper the threshold used for measured-water warnings.
         water_flow_tolerance=water_flow_tolerance,
         device="cpu",
     )
@@ -708,13 +742,25 @@ def run_deployment_loop(
 
         # I changed this line: reconstruct the action that the measured pump flows represent.
         measured_action = model.action_from_observation(observation_after)
+        # I changed this line: do not reject measured pump readback only because water missed its target.
         measured_action_valid, measured_action_failure_reason = check_action(
-            measured_action
+            measured_action,
+            enforce_fixed_water=False,
         )
         if not measured_action_valid:
             stop_biosmb_safely(biosmb)
             raise SafetyShutdown(
                 f"invalid_measured_action_{measured_action_failure_reason}"
+            )
+
+        # I changed this line: record and display a non-blocking warning for imperfect water-pump readback.
+        water_flow_warning = get_water_flow_warning(measured_action)
+        if water_flow_warning["active"]:
+            print(
+                f"WARNING: measured water flow "
+                f"{water_flow_warning['measured_water_flow_rate']:.4f} mL/min "
+                f"differs from {fixed_water_flow_rate:.4f} mL/min by "
+                f"{water_flow_warning['absolute_deviation']:.4f} mL/min."
             )
 
         # I changed this line: build the next TD3 state for a later replay transition.
@@ -737,6 +783,8 @@ def run_deployment_loop(
             next_state=next_state,
             action_valid=action_valid,
             action_failure_reason=action_failure_reason,
+            # I changed this line: include the non-blocking water warning in the MongoDB step log.
+            water_flow_warning=water_flow_warning,
             mass_safe=mass_safe,
             mass_safety_reason=mass_safety_reason,
             observation_before=observation_before,

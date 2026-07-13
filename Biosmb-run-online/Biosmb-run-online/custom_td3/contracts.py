@@ -219,11 +219,16 @@ class RatioSumActionMapper:
         flows: LogicalFlows,
         *,
         water_tolerance: float = 0.1,
+        enforce_water_tolerance: bool = True,
     ) -> np.ndarray:
         """Recover the previous normalized action from physical flow values."""
 
         self.validate_flows(flows, require_fixed_water=False)
-        if abs(flows.water_flow - self.mapping.fixed_water_flow) > water_tolerance:
+        if (
+            enforce_water_tolerance
+            and abs(flows.water_flow - self.mapping.fixed_water_flow)
+            > water_tolerance
+        ):
             raise TD3ContractError(
                 "Water flow does not match the fixed-water TD3 contract."
             )
@@ -298,6 +303,7 @@ def build_td3_state(
     mapper: RatioSumActionMapper,
     *,
     water_tolerance: float = 0.1,
+    enforce_water_tolerance: bool = False,
 ) -> np.ndarray:
     """Build the exact five-element state used during offline TD3 training."""
 
@@ -308,6 +314,7 @@ def build_td3_state(
     previous_action = mapper.flows_to_action(
         previous_flows,
         water_tolerance=water_tolerance,
+        enforce_water_tolerance=enforce_water_tolerance,
     )
     return np.asarray(
         [ph, target, ph - target, previous_action[0], previous_action[1]],
