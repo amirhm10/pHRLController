@@ -326,7 +326,7 @@ The current default runner settings are:
 | Resolved default training setpoint range | 3.76 to 5.7 pH |
 | Batch size | 64 |
 | Replay buffer capacity | 60000 |
-| Discount factor `gamma` | 0.97 |
+| Discount factor `gamma` | 0.99 |
 | Actor learning rate | 1e-4 |
 | Critic learning rate | 1e-3 |
 | Optimizer | AdamW |
@@ -343,11 +343,12 @@ The current default runner settings are:
 | Save training checkpoint | yes, enabled by default |
 | Save actor-only deployment bundle | yes in `ratio_buffer_sum` mode |
 
-The offline runner now defaults to `500000` rollout steps, `gamma = 0.97`, actor
-layers `[128, 128]`, critic layers `[128, 128]`, and batch size `64`. These
-settings reproduce the experiment definition used by the selected successful
-checkpoint. A new run still receives a new result directory and must be judged
-from its own saved metrics before replacing existing weights.
+The offline runner now defines a controlled experiment with `500000` rollout
+steps, `gamma = 0.99`, final exploration noise `0.04`, actor layers
+`[128, 128]`, critic layers `[128, 128]`, and batch size `64`. Relative to the
+exact successful reproduction, only `gamma` and final exploration noise are
+changed. A new run receives a new result directory and must be judged from its
+own saved metrics before replacing existing weights.
 
 The next run also writes a BioSMB-ready `deployment_bundle` containing the actor
 manifest, actor weights, training checkpoint, and exact offline configuration.
@@ -361,7 +362,7 @@ The default exploration mode is Gaussian action noise:
 | Exploration parameter | Value |
 |---|---:|
 | Initial standard deviation | 0.35 |
-| Final standard deviation | 0.02 |
+| Final standard deviation | 0.04 |
 | Decay mode | linear |
 | Decay steps | 5000 |
 | Exponential decay rate option | 0.99 |
@@ -838,6 +839,6 @@ training-loss figures. Critic loss is plotted on a log axis when positive, and
 actor loss is plotted on a signed-log axis because TD3 actor loss can be
 negative.
 
-The next addition to this report should be a quantitative interpretation of the
-exact 500000-step reproduction run plus a frozen-policy evaluation sweep across
-the reachable pH range.
+The next addition to this report should compare the `gamma = 0.99`, final-noise
+`0.04` experiment against the exact successful 500000-step reproduction, plus a
+frozen-policy evaluation sweep across the reachable pH range.

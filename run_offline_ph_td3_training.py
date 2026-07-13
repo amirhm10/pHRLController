@@ -1064,9 +1064,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--actor-lr", type=float, default=1e-4)
     parser.add_argument("--critic-lr", type=float, default=1e-3)
-    parser.add_argument("--gamma", type=float, default=0.97)
+    parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--std-start", type=float, default=0.35)
-    parser.add_argument("--std-end", type=float, default=0.02)
+    parser.add_argument("--std-end", type=float, default=0.04)
     parser.add_argument("--std-decay-steps", type=int, default=5000)
     parser.add_argument(
         "--std-decay-mode",
