@@ -269,6 +269,7 @@ class ModelArtifactTests(unittest.TestCase):
         self.assertEqual(config["exploration"]["std_end"], 0.01)
         self.assertEqual(config["batch_size"], 64)
         self.assertEqual(config["buffer_size"], 10_000)
+        self.assertEqual(config["replay"]["recent_window"], 200)
         self.assertTrue(config["safety_status"]["online_updates_enabled"])
         self.assertTrue(config["safety_status"]["exploratory_actions_enabled"])
 
@@ -335,6 +336,7 @@ class OnlineTrainingIntegrationTests(unittest.TestCase):
         trainer.verify_initial_actor(policy)
         self.assertEqual(trainer.agent.batch_size, 64)
         self.assertEqual(trainer.agent.buffer.capacity, 10_000)
+        self.assertEqual(trainer.agent.buffer.recent_window, 200)
 
         state = np.asarray(
             policy.manifest["golden_cases"][0]["state"],

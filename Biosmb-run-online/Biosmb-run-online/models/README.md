@@ -8,7 +8,7 @@ These files replace the historical Stable-Baselines3 SAC artifacts.
 | `td3_actor_weights.pt` | CPU-loadable actor state dictionary for deterministic deployment |
 | `td3_training_checkpoint.pkl` | Trusted pretrained actor/critic starting point for active online training |
 | `td3_training_config.json` | Exact configuration snapshot from the latest offline run |
-| `td3_online_training_config.json` | Active online continuation settings, including batch size `64`, replay capacity `10000`, and noise `0.02 -> 0.01` |
+| `td3_online_training_config.json` | Active online continuation settings, including batch size `64`, replay capacity `10000`, recent window `200`, and noise `0.02 -> 0.01` |
 
 Source run:
 
@@ -41,4 +41,5 @@ include the network architecture, `gamma`, and optimizer states; the online
 loader uses that checkpoint metadata to reconstruct the correct learner. The
 online replay buffer still starts empty. Keep
 `td3_online_training_config.json` for online-only choices such as replay capacity
-`10000`, batch size `64`, update frequency, and exploration `0.02 -> 0.01`.
+`10000`, batch size `64`, recent window `200`, update frequency, and exploration
+`0.02 -> 0.01`.

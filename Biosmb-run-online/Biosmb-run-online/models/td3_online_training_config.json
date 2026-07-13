@@ -22,7 +22,7 @@
     "prioritized_fraction": 0.5,
     "recent_fraction": 0.2,
     "uniform_fraction": 0.3,
-    "recent_window": 1000,
+    "recent_window": 200,
     "alpha": 0.6,
     "beta_start": 0.4,
     "beta_end": 1.0,

@@ -108,7 +108,7 @@ Every intentionally edited area in [main.py](main.py) is marked with an
 | Flow bounds | Use acid and acetate bounds of `1-10 mL/min`, buffer sum `2-20 mL/min`, water `5 mL/min`, and total flow at most `25 mL/min` | Match the offline TD3 environment and physical command checks |
 | Exploration | Start online Gaussian action noise at `0.02` and reduce it to `0.01` over 5,000 actions | Continue from the final offline noise level while gradually reducing random variation |
 | Reward | Calculate the same `relative_band_offset` shaped reward used by the custom implementation | Train online with the intended tracking and flow-movement objective |
-| Replay and updates | Use capacity `10,000`, batch size `64`, and one requested update per completed transition | Use a smaller online buffer and batch appropriate for slowly collected lab transitions |
+| Replay and updates | Use capacity `10,000`, batch size `64`, recent window `200`, and one requested update per completed transition | Keep 20% of each batch focused on approximately the latest 3 hours 20 minutes while retaining prioritized and uniform history |
 | Water readback | Use a tolerance of `0.1 mL/min`; warn and log if measured water differs from `5 mL/min` | Allow realistic pump readback variation without stopping only because of the water deviation |
 | Logging | Add state, next state, reward breakdown, exploration, replay, loss, measured action, and water-warning fields | Make each online transition and update auditable |
 | Checkpoints | Save every 10 completed steps and in the final shutdown block | Preserve the learned online state and allow a later run to resume |
@@ -314,6 +314,11 @@ checkpoints contain actor and critic networks, target networks, optimizers,
 replay contents, counters, and random-number states. Only trusted local `.pkl`
 files should ever be loaded because Python pickle is not safe for untrusted
 input.
+
+Each 64-transition training batch contains 32 prioritized samples, 12 recent
+samples, and 20 uniform samples. The recent pool is limited to the newest 200
+transitions after that many observations exist. With one transition per minute,
+this corresponds to approximately 3 hours 20 minutes of recent operation.
 
 ## 9. Current model versus the incoming model
 

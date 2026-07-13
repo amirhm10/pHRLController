@@ -94,8 +94,11 @@ The active online continuation settings are separate in
 Offline exploration ended at standard deviation `0.02`. Online adaptation is
 configured to begin at `0.02` and decay to `0.01`, preserving continuity while
 reducing random action variation. The online run uses batch size `64`, replay
-capacity `10000`, and one gradient update per completed control transition once
-the replay buffer contains 64 transitions.
+capacity `10000`, a recent-sampling window of `200` transitions, and one
+gradient update per completed control transition once the replay buffer contains
+64 transitions. At the 60-second control interval, the recent window represents
+approximately 3 hours 20 minutes. Before 200 transitions exist, the recent pool
+automatically uses every available transition.
 
 The exact active shaped reward is implemented in `reward.py`. `main.py` stores
 the same reward value in replay and in the MongoDB deployment record, together
