@@ -1,4 +1,4 @@
-"""Compatibility facade for later use by the original BioSMB main file."""
+"""TD3 model helper used by the original BioSMB main file."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from .policy import TD3Policy
 
 
 class BioSMBTD3Policy:
-    """Small TD3 API designed around the original BioSMB action dictionary.
+    """Small TD3 helper designed around the original BioSMB action dictionary.
 
     The class performs no OPC-UA, Redis, MongoDB, or pump writes. It only loads
     the actor, constructs its state, predicts normalized actions, and formats
@@ -155,6 +155,22 @@ class BioSMBTD3Policy:
         return format_biosmb_action(
             normalized_action,
             self.policy.mapper,
+            controlled_flow_indices=self.controlled_flow_indices,
+            controlled_stream_names=self.controlled_stream_names,
+            pump_count=self.pump_count,
+        )
+
+    def action_from_observation(
+        self,
+        observation: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Convert measured pump flows back to the normalized TD3 action."""
+
+        flows = self._flows_from_observation(observation)
+        normalized_action = self.policy.mapper.flows_to_action(flows)
+        return format_logical_flows(
+            flows,
+            raw_action=normalized_action,
             controlled_flow_indices=self.controlled_flow_indices,
             controlled_stream_names=self.controlled_stream_names,
             pump_count=self.pump_count,

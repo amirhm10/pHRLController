@@ -17,6 +17,7 @@ model = BioSMBTD3Policy.load("models/td3_actor_manifest.json")
 state = model.build_state(observation, target_ph)
 normalized_action, _ = model.predict(state, deterministic=True)
 formatted_action = model.format_action(normalized_action)
+measured_action = model.action_from_observation(observation_after)
 ```
 
 The five-element state is:

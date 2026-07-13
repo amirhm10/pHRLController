@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import ast
+import copy
 import json
 import sys
 import unittest
 from pathlib import Path
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -59,6 +62,35 @@ ACTION_MAPPING = {
     "buffer_flow_sum_max": 20.0,
     "fixed_water_flow": 5.0,
 }
+
+
+def load_main_check_action():
+    """Load only main.check_action without importing hardware libraries."""
+
+    main_path = ONLINE_DIR / "main.py"
+    tree = ast.parse(main_path.read_text(encoding="utf-8"), filename=str(main_path))
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "check_action"
+    )
+    namespace = {
+        "np": np,
+        "Dict": Dict,
+        "List": List,
+        "Tuple": Tuple,
+        "controlled_flow_indices": [0, 1, 2],
+        "min_flow_rate": 1.0,
+        "max_flow_rate": 10.0,
+        "max_total_flow_rate": 25.0,
+        "min_buffer_flow_sum": 2.0,
+        "max_buffer_flow_sum": 20.0,
+        "fixed_water_flow_rate": 5.0,
+        "water_flow_tolerance": 1.0e-3,
+    }
+    module = ast.Module(body=[function], type_ignores=[])
+    exec(compile(module, str(main_path), "exec"), namespace)
+    return namespace["check_action"]
 
 
 def create_test_bundle(directory: Path) -> tuple[TrainingActor, Path]:
@@ -197,6 +229,49 @@ class AdditivePolicyTests(unittest.TestCase):
             atol=1.0e-6,
         )
 
+    def test_measured_flows_round_trip_to_normalized_action(self) -> None:
+        normalized_action = np.asarray([0.25, -0.4], dtype=np.float32)
+        command = self.facade.format_action(normalized_action)
+        observation = {
+            "biosmb-sensors": {"PH_2": 4.65},
+            "biosmb-flows": command["flow_rates"],
+        }
+        measured = self.facade.action_from_observation(observation)
+        np.testing.assert_allclose(
+            measured["raw_action"],
+            normalized_action,
+            atol=1.0e-6,
+            rtol=0.0,
+        )
+        next_state = self.facade.build_state(observation, target_ph=4.7)
+        np.testing.assert_allclose(
+            next_state,
+            [4.65, 4.7, -0.05, 0.25, -0.4],
+            atol=1.0e-6,
+            rtol=0.0,
+        )
+
+    def test_main_action_check_enforces_td3_flow_rules(self) -> None:
+        check_action = load_main_check_action()
+        valid_action = self.facade.format_action([0.0, 0.0])
+        self.assertEqual(check_action(valid_action), (True, "valid"))
+
+        wrong_water = copy.deepcopy(valid_action)
+        wrong_water["controlled_flow_rates"][2] = 4.9
+        wrong_water["flow_rates"][2] = 4.9
+        wrong_water["total_controlled_flow_rate"] -= 0.1
+        self.assertEqual(
+            check_action(wrong_water),
+            (False, "water_flow_does_not_match_td3_fixed_value"),
+        )
+
+        wrong_shape = copy.deepcopy(valid_action)
+        wrong_shape["raw_action"] = [0.0, 0.0, 0.0]
+        self.assertEqual(
+            check_action(wrong_shape),
+            (False, "td3_action_must_have_2_values"),
+        )
+
     def test_hash_mismatch_is_rejected(self) -> None:
         _, manifest_path = create_test_bundle(TEST_OUTPUT / "bad_hash")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -216,8 +291,13 @@ class OriginalReferenceTests(unittest.TestCase):
         self.assertNotIn("sac_biosmb_mixing_online", main_text)
         self.assertIn('control_mode = "active_control"', main_text)
         self.assertIn("online_training_enabled = True", main_text)
+        self.assertNotIn("def build_state(", main_text)
+        self.assertNotIn("def get_default_action(", main_text)
+        self.assertNotIn("def action_to_flow_rates(", main_text)
         self.assertIn("model.build_state(", main_text)
         self.assertIn("model.format_action(raw_action)", main_text)
+        self.assertIn("model.action_from_observation(observation_after)", main_text)
+        self.assertIn("next_state = model.build_state(", main_text)
         self.assertIn('CMD ["python", "./main.py"]', docker_text)
         self.assertIn("COPY . .", docker_text)
 

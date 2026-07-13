@@ -195,7 +195,7 @@ but their SAC-specific call sites are no longer used.
 
 ## 9. Verification evidence
 
-Twenty hardware-free tests pass. They verify:
+Twenty-two hardware-free tests pass. They verify:
 
 - deployment actor hash and golden vectors
 - actor output parity between the `.pkl` checkpoint and `.pt` deployment file
@@ -208,6 +208,8 @@ Twenty hardware-free tests pass. They verify:
 - exact copies of the latest saved artifacts
 - absence of the historical SAC artifacts
 - absence of n-step, lambda-return, sequence, and other inactive modules
+- measured-flow round-trip back to the normalized TD3 action
+- rejection of wrong water flow and malformed TD3 actions
 
 No OPC-UA, Redis, MongoDB, or pump connection is opened by these tests.
 
@@ -226,16 +228,14 @@ Other unresolved risks are:
 - pump indices still require physical confirmation
 - 60-second discount and reward semantics have not been validated
 - online terminal behavior for faults and operator stops is not defined
-- in `suggest_only`, the original loop still labels the selected proposal as
-  `executed_action` even though `apply_action()` performs no pump write
+- immediate command-versus-flow readback behavior is still not verified
 - the current main file contains a plaintext database credential
 
 ## 11. Recommended next step
 
-Keep `suggest_only` and review the modified main call sites together. The next
-implementation step should be a separate online-transition collector that logs
-validated current state, candidate action, executed action, next measured
-state, reward components, and terminal reason without calling `train_step()`.
+Do not run the current active setting on the lab system yet. The next
+implementation step should add reward calculation and a reviewed transition
+collector before enabling `train_step()`.
 
 Only after those logged transitions are scientifically reviewed should the
 online replay push and TD3 update cadence be enabled.
@@ -264,3 +264,28 @@ structure. Before active online learning, it should later add:
 
 An invalid target should be rejected or replaced by the reviewed fallback. It
 should not reach the actor and fail indirectly during state validation.
+
+## 13. State and action cleanup
+
+The unused SAC state builder, SAC default action, and three-direct-flow action
+converter were removed from `main.py`. State creation and action conversion now
+have one TD3 path only.
+
+After every decision interval, the loop now:
+
+1. converts measured acid, acetate, and water flows back to the two normalized
+   TD3 action values
+2. checks the normalized values, individual flows, buffer-flow sum, fixed water,
+   seven-pump mapping, and reported total
+3. builds `next_state` from the new PH2 measurement and measured flows
+4. logs `state`, `next_state`, the proposed action, the selected command, and
+   the measured action
+5. uses the measured action as the fallback reference for the following step
+
+The checked TD3 flow rules are acid and acetate from 1 to 10 mL/min, their sum
+from 2 to 20 mL/min, water fixed at 5 mL/min within 0.001 mL/min, and total
+controlled flow no greater than 25 mL/min.
+
+No reward, replay push, TD3 update, or online model save was added in this step.
+An immediate command-readback check and a hard maximum flow change still need
+reviewed tolerances before implementation.

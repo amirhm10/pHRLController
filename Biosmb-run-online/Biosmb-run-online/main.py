@@ -48,6 +48,15 @@ max_flow_rate = 10.0
 # I changed this line: TD3 allows at most 20 mL/min buffer plus 5 mL/min water.
 max_total_flow_rate = 25.0
 
+# I changed this line: match the minimum acid-plus-acetate flow used in TD3 training.
+min_buffer_flow_sum = 2.0
+# I changed this line: match the maximum acid-plus-acetate flow used in TD3 training.
+max_buffer_flow_sum = 20.0
+# I changed this line: keep water at the fixed value used in TD3 training.
+fixed_water_flow_rate = 5.0
+# I changed this line: use the same water comparison tolerance as the TD3 flow converter.
+water_flow_tolerance = 1.0e-3
+
 minimum_mass_grams = 200.0 + 1000   # bottle mass + safety liquid amount
 
 target_ph_tolerance = 0.1
@@ -233,137 +242,110 @@ def get_target_ph(redis_client=None) -> float:
 # State construction
 # ============================================================
 
+# I changed this line: the loop now uses the TD3 model helper, so the old SAC state builder was removed.
 def get_controller_ph(observation: Dict) -> float:
     """Returns the pH value used by the controller."""
 
     return float(observation["biosmb-sensors"][state_sensor_key])
 
 
-def build_state(
-    observation: Dict,
-    previous_executed_action: Dict[str, List[float]],
-    target_ph: float,
-) -> np.ndarray:
-    """Builds the trained model state vector.
-
-    State structure:
-        [PH_2, target_ph, previous_acetic_acid_flow,
-         previous_sodium_acetate_flow, previous_di_water_flow]
-    """
-
-    measured_ph = get_controller_ph(observation)
-
-    state = [
-        float(measured_ph),
-        float(target_ph),
-    ]
-
-    state.extend(previous_executed_action["controlled_flow_rates"])
-
-    return np.array(state, dtype=np.float32)
-
-
 # ============================================================
 # Action handling
 # ============================================================
 
-def get_default_action() -> Dict[str, List[float]]:
-    """Returns a conservative default action."""
-
-    flow_rates = [0.0 for _ in range(7)]
-
-    default_flow_rate = min_flow_rate
-
-    for flow_index in controlled_flow_indices:
-        flow_rates[flow_index] = default_flow_rate
-
-    action = {
-        "raw_action": None,
-        "controlled_flow_rates": [
-            default_flow_rate
-            for _ in controlled_flow_indices
-        ],
-        "flow_rates": flow_rates,
-        "total_controlled_flow_rate": float(
-            default_flow_rate * len(controlled_flow_indices)
-        ),
-        "stream_flow_rates": {
-            controlled_stream_names[flow_index]: flow_rates[flow_index]
-            for flow_index in controlled_flow_indices
-        },
-    }
-
-    return action
-
-
-def action_to_flow_rates(action: np.ndarray) -> Dict[str, List[float]]:
-    """Converts SAC action into seven BioSMB pump flowrates.
-
-    Action structure:
-        action[0] = acetic acid flowrate
-        action[1] = sodium acetate flowrate
-        action[2] = DI water flowrate
-    """
-
-    action = np.asarray(action, dtype=np.float32)
-
-    controlled_flow_rates = [
-        float(value)
-        for value in action
-    ]
-
-    flow_rates = [0.0 for _ in range(7)]
-
-    for i, flow_index in enumerate(controlled_flow_indices):
-        flow_rates[flow_index] = controlled_flow_rates[i]
-
-    total_controlled_flow_rate = sum(
-        flow_rates[flow_index]
-        for flow_index in controlled_flow_indices
-    )
-
-    formatted_action = {
-        "raw_action": action.tolist(),
-        "controlled_flow_rates": controlled_flow_rates,
-        "flow_rates": flow_rates,
-        "total_controlled_flow_rate": float(total_controlled_flow_rate),
-        "stream_flow_rates": {
-            controlled_stream_names[flow_index]: flow_rates[flow_index]
-            for flow_index in controlled_flow_indices
-        },
-    }
-
-    return formatted_action
-
-
+# I changed this line: the old SAC default and three-flow converter were removed.
+# I changed this line: validate the two TD3 values and the exact physical flow rules.
 def check_action(action: Dict[str, List[float]]) -> Tuple[bool, str]:
-    """Checks whether the proposed action is valid."""
+    """Checks the normalized TD3 action and its physical flow values."""
 
-    flow_rates = action["flow_rates"]
+    required_keys = [
+        "raw_action",
+        "controlled_flow_rates",
+        "flow_rates",
+        "total_controlled_flow_rate",
+    ]
+    for key in required_keys:
+        if key not in action:
+            return False, f"missing_action_{key}"
 
-    if len(flow_rates) != 7:
+    try:
+        raw_action = np.asarray(action["raw_action"], dtype=float).reshape(-1)
+        controlled_flow_rates = np.asarray(
+            action["controlled_flow_rates"],
+            dtype=float,
+        ).reshape(-1)
+        flow_rates = np.asarray(action["flow_rates"], dtype=float).reshape(-1)
+        reported_total = float(action["total_controlled_flow_rate"])
+    except (TypeError, ValueError):
+        return False, "action_values_not_numeric"
+
+    if raw_action.shape != (2,):
+        return False, "td3_action_must_have_2_values"
+
+    if not np.all(np.isfinite(raw_action)):
+        return False, "td3_action_not_finite"
+
+    if np.any(np.abs(raw_action) > 1.0 + 1.0e-6):
+        return False, "td3_action_outside_normalized_bounds"
+
+    if controlled_flow_rates.shape != (3,):
+        return False, "controlled_flow_list_must_have_3_values"
+
+    if flow_rates.shape != (7,):
         return False, "flow_rate_list_must_have_7_values"
 
-    for flow_rate in flow_rates:
-        if not np.isfinite(flow_rate):
-            return False, "flow_rate_not_finite"
+    if not np.all(np.isfinite(controlled_flow_rates)) or not np.all(
+        np.isfinite(flow_rates)
+    ):
+        return False, "flow_rate_not_finite"
 
+    for flow_rate in flow_rates:
         if flow_rate < 0:
             return False, "negative_flow_rate"
 
-    for flow_index in controlled_flow_indices:
-        flow_rate = flow_rates[flow_index]
+    mapped_controlled_flows = np.asarray(
+        [flow_rates[index] for index in controlled_flow_indices],
+        dtype=float,
+    )
+    if not np.allclose(
+        controlled_flow_rates,
+        mapped_controlled_flows,
+        atol=1.0e-9,
+        rtol=0.0,
+    ):
+        return False, "controlled_flows_do_not_match_pump_array"
 
+    for flow_rate in controlled_flow_rates:
         if flow_rate < min_flow_rate:
             return False, "controlled_flow_below_minimum"
 
         if flow_rate > max_flow_rate:
             return False, "controlled_flow_above_maximum"
 
-    total_controlled_flow_rate = sum(
-        flow_rates[flow_index]
-        for flow_index in controlled_flow_indices
-    )
+    acid_flow, acetate_flow, water_flow = controlled_flow_rates
+    buffer_flow_sum = float(acid_flow + acetate_flow)
+    if buffer_flow_sum < min_buffer_flow_sum:
+        return False, "buffer_flow_sum_below_minimum"
+
+    if buffer_flow_sum > max_buffer_flow_sum:
+        return False, "buffer_flow_sum_above_maximum"
+
+    if not np.isclose(
+        water_flow,
+        fixed_water_flow_rate,
+        atol=water_flow_tolerance,
+        rtol=0.0,
+    ):
+        return False, "water_flow_does_not_match_td3_fixed_value"
+
+    total_controlled_flow_rate = float(np.sum(controlled_flow_rates))
+    if not np.isclose(
+        reported_total,
+        total_controlled_flow_rate,
+        atol=1.0e-9,
+        rtol=0.0,
+    ):
+        return False, "reported_total_flow_does_not_match_action"
 
     if total_controlled_flow_rate > max_total_flow_rate:
         return False, "total_controlled_flow_above_maximum"
@@ -489,6 +471,7 @@ def stop_biosmb_safely(biosmb_manager) -> None:
 # Logging
 # ============================================================
 
+# I changed this line: include the measured action and both TD3 states in each step log.
 def log_deployment_step(
     deployment_collection,
     target_ph: float,
@@ -496,7 +479,10 @@ def log_deployment_step(
     measured_ph_after: float,
     proposed_action: Dict,
     executed_action: Dict,
+    measured_action: Dict,
     previous_executed_action: Dict,
+    state: np.ndarray,
+    next_state: np.ndarray,
     action_valid: bool,
     action_failure_reason: str,
     mass_safe: bool,
@@ -526,7 +512,13 @@ def log_deployment_step(
 
         "proposed_action": proposed_action,
         "executed_action": executed_action,
+        # I changed this line: log the normalized action reconstructed from measured flows.
+        "measured_action": measured_action,
         "previous_executed_action": previous_executed_action,
+
+        # I changed this line: save both TD3 states needed for a later replay transition.
+        "state": state,
+        "next_state": next_state,
 
         "action_valid": action_valid,
         "action_failure_reason": action_failure_reason,
@@ -550,6 +542,9 @@ def log_deployment_step(
             "min_flow_rate": min_flow_rate,
             "max_flow_rate": max_flow_rate,
             "max_total_flow_rate": max_total_flow_rate,
+            "min_buffer_flow_sum": min_buffer_flow_sum,
+            "max_buffer_flow_sum": max_buffer_flow_sum,
+            "fixed_water_flow_rate": fixed_water_flow_rate,
             "state_sensor_key": state_sensor_key,
             # I changed this line: log our TD3 model file instead of an SAC checkpoint.
             "td3_manifest_path": td3_manifest_path,
@@ -707,6 +702,24 @@ def run_deployment_loop(
 
         measured_ph_after = get_controller_ph(observation_after)
 
+        # I changed this line: reconstruct the action that the measured pump flows represent.
+        measured_action = model.action_from_observation(observation_after)
+        measured_action_valid, measured_action_failure_reason = check_action(
+            measured_action
+        )
+        if not measured_action_valid:
+            stop_biosmb_safely(biosmb)
+            raise SafetyShutdown(
+                f"invalid_measured_action_{measured_action_failure_reason}"
+            )
+
+        # I changed this line: build the next TD3 state for a later replay transition.
+        next_state = model.build_state(
+            observation=observation_after,
+            target_ph=target_ph,
+            previous_executed_action=executed_action,
+        )
+
         log_deployment_step(
             deployment_collection=deployment_collection,
             target_ph=target_ph,
@@ -714,7 +727,10 @@ def run_deployment_loop(
             measured_ph_after=measured_ph_after,
             proposed_action=proposed_action,
             executed_action=executed_action,
+            measured_action=measured_action,
             previous_executed_action=previous_executed_action,
+            state=state,
+            next_state=next_state,
             action_valid=action_valid,
             action_failure_reason=action_failure_reason,
             mass_safe=mass_safe,
@@ -734,7 +750,8 @@ def run_deployment_loop(
             f"Error={ph_error_after}"
         )
 
-        previous_executed_action = executed_action
+        # I changed this line: use measured flows as the previous action for the next step.
+        previous_executed_action = measured_action
         step_number += 1
 
 
