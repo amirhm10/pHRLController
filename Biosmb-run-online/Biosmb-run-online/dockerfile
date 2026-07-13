@@ -2,13 +2,19 @@ FROM python:3.11-slim
 
 WORKDIR /app 
 
+# I changed this line: show Python logs immediately and avoid copying runtime bytecode into the shared project folder.
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
 COPY requirements.txt ./ 
 
-RUN pip install --no-cache-dir -r requirements.txt
+# I changed this line: install the pinned packages and fail the image build if their dependencies are inconsistent.
+RUN python -m pip install --no-cache-dir -r requirements.txt \
+    && python -m pip check
 
 COPY . .
 
-CMD ["python", "./main.py"]
+# I changed this line: keep controller output unbuffered so Docker shows each online TD3 and safety message immediately.
+CMD ["python", "-u", "./main.py"]
 
 # CMD ["python", "./main_deploy.py"]
-

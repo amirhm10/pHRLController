@@ -1,7 +1,16 @@
 services:
   biosmb-rl:
-    build: .
+    # I changed this line: explicitly select the lowercase dockerfile so the build also works on case-sensitive lab computers.
+    build:
+      context: .
+      dockerfile: dockerfile
     container_name: biosmb-rl-controller
+    # I changed this line: run a small init process so Docker signals are forwarded cleanly to Python.
+    init: true
+    # I changed this line: use SIGINT so main.py enters its KeyboardInterrupt handler and saves the final TD3 checkpoint.
+    stop_signal: SIGINT
+    # I changed this line: allow time for safe pump shutdown and final checkpoint writing before Docker forces termination.
+    stop_grace_period: 30s
     volumes:
       - models:/app/models
       - logs:/app/logs
