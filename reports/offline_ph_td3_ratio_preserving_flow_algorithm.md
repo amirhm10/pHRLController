@@ -198,11 +198,11 @@ The offline runner now defaults to:
 |---|---:|
 | Action mode | `ratio_preserving_flow` |
 | Total training steps | 500,000 |
-| Actor hidden layers | 128, 128 |
-| Critic hidden layers | 128, 128 |
+| Actor hidden layers | 64, 64 |
+| Critic hidden layers | 64, 64 |
 | Batch size | 64 |
 | Replay capacity | 60,000 |
-| Discount factor | 0.97 |
+| Discount factor | 0.99 |
 | Exploration start standard deviation | 0.35 |
 | Exploration end standard deviation | 0.02 |
 | Exploration decay | 5,000 steps, linear |
@@ -276,10 +276,16 @@ The `Biosmb-run-online` folder was intentionally left unchanged.
 
 ## Required next experiment
 
-Run the new default 500,000-step experiment and compare it with the reproduced
-`gamma = 0.97`, final-noise `0.02`, `ratio_buffer_sum` baseline. Both runs should
-use the same seed, target schedule, architecture, and reward settings except for
-the action conversion and economy term.
+The first 500,000-step `ratio_preserving_flow` run used `[128, 128]` actor and
+critic layers with `gamma = 0.97`. Its saved checkpoint should remain the
+baseline for the next controlled ablation.
+
+Run the new default experiment with `[64, 64]` actor and critic layers and
+`gamma = 0.99`. Keep the seed, target schedule, batch size, replay capacity,
+learning rates, exploration schedule, reward settings, action conversion, and
+500,000-step duration unchanged. This isolates the combined effect of the
+smaller networks and longer discount horizon under the new ratio-preserving
+action contract.
 
 The comparison should report:
 
@@ -294,9 +300,9 @@ The comparison should report:
 - pump saturation
 - total-flow movement
 
-The new method is supported if it preserves or improves full-range pH tracking,
-produces zero ratio-induced infeasibility, and reduces reagent use relative to
-the fixed or sum-first alternatives.
+The new setting is supported only if it matches or improves the frozen-policy
+grid metrics without increasing reagent use or introducing constraint
+violations. Otherwise, retain the `[128, 128]`, `gamma = 0.97` checkpoint.
 
 ## Reference
 

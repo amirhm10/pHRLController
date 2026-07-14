@@ -281,9 +281,9 @@ def test_runner_default_reward_is_offset_focused_shaped() -> None:
     assert args.action_mode == "ratio_preserving_flow"
     assert args.batch_size == 64
     assert args.buffer_size == 60_000
-    assert args.actor_hidden == [128, 128]
-    assert args.critic_hidden == [128, 128]
-    assert np.isclose(args.gamma, 0.97)
+    assert args.actor_hidden == [64, 64]
+    assert args.critic_hidden == [64, 64]
+    assert np.isclose(args.gamma, 0.99)
     assert np.isclose(args.std_end, 0.02)
     assert args.save_checkpoint is True
     assert cfg.mode == "relative_band_offset"
