@@ -31,7 +31,7 @@ The controller now:
 6. validates the command before using the existing
    `BioSMBManager.set_flow(...)` calls;
 7. waits for the 60-second control interval and reads the new process state;
-8. calculates the shaped pH reward;
+8. calculates the aligned tracking, movement, and flow-economy reward;
 9. stores the transition in a 10,000-transition replay buffer;
 10. performs online TD3 updates after at least 64 transitions are available;
 11. logs the process, reward, exploration, and training values to MongoDB; and
@@ -107,7 +107,7 @@ Every intentionally edited area in [main.py](main.py) is marked with an
 | Action construction | Convert two TD3 outputs to the existing seven-pump action dictionary | Connect the custom action meaning to the reference BioSMB command format |
 | Flow bounds | Use acid and acetate bounds of `1-10 mL/min`, buffer sum `2-20 mL/min`, water `5 mL/min`, and total flow at most `25 mL/min` | Match the offline TD3 environment and physical command checks |
 | Exploration | Start online Gaussian action noise at `0.02` and reduce it to `0.01` over 5,000 actions | Continue from the final offline noise level while gradually reducing random variation |
-| Reward | Calculate the same `relative_band_offset` shaped reward used by the custom implementation | Train online with the intended tracking and flow-movement objective |
+| Reward | Calculate the same `relative_band_offset` shaped reward and optional-flow cost used offline | Train online with the intended tracking, flow-movement, and economic objective |
 | Replay and updates | Use capacity `10,000`, batch size `64`, recent window `200`, and one requested update per completed transition | Keep 20% of each batch focused on approximately the latest 3 hours 20 minutes while retaining prioritized and uniform history |
 | Water readback | Use a tolerance of `0.1 mL/min`; warn and log if measured water differs from `5 mL/min` | Allow realistic pump readback variation without stopping only because of the water deviation |
 | Logging | Add state, next state, reward breakdown, exploration, replay, loss, measured action, and water-warning fields | Make each online transition and update auditable |
@@ -127,7 +127,7 @@ s_t =
 \mathrm{pH}^{*}_t,
 \mathrm{pH}_t-\mathrm{pH}^{*}_t,
 a^{\mathrm{ratio}}_{t-1},
-a^{\mathrm{sum}}_{t-1}
+a^{\mathrm{flow}}_{t-1}
 \end{bmatrix}.
 $$
 
@@ -148,31 +148,60 @@ $$
 a_t =
 \begin{bmatrix}
 a^{\mathrm{ratio}}_t,
-a^{\mathrm{sum}}_t
+a^{\mathrm{flow}}_t
 \end{bmatrix},
 \qquad a_t \in [-1,1]^2.
 $$
 
-The second value selects the acid-plus-acetate flow:
+The new mapping chooses the chemical ratio first. With
+$\rho_t=F_{B,t}/F_{A,t}$, its global bounds are
+$\rho_{\min}=F_{B,\min}/F_{A,\max}=0.1$ and
+$\rho_{\max}=F_{B,\max}/F_{A,\min}=10$. Therefore,
 
 $$
-F_{A,t}+F_{B,t}
-= 2 + \frac{a^{\mathrm{sum}}_t+1}{2}(20-2),
-$$
-
-where $F_A$ is acetic-acid flow and $F_B$ is sodium-acetate flow, both in
-`mL/min`. The first value selects the logarithm of the feasible ratio
-$F_B/F_A$. The mapper then calculates
-
-$$
-F_{A,t}=\frac{F_{A,t}+F_{B,t}}{1+F_{B,t}/F_{A,t}},
+u_t=\frac{a^{\mathrm{ratio}}_t+1}{2},
 \qquad
-F_{B,t}=(F_{A,t}+F_{B,t})-F_{A,t}.
+\rho_t=10^{\log_{10}\rho_{\min}
++u_t(\log_{10}\rho_{\max}-\log_{10}\rho_{\min})}.
 $$
 
-The feasible ratio range is recalculated for the selected total so that both
-$F_A$ and $F_B$ remain between `1` and `10 mL/min`. Water is commanded at
-$F_W=5 mL/min`.
+For that selected ratio, the feasible acid-plus-acetate total $S_t$ is
+recalculated:
+
+$$
+S_{\min}(\rho_t)=\max\left(
+2,\ F_{A,\min}(1+\rho_t),\
+\frac{F_{B,\min}(1+\rho_t)}{\rho_t}
+\right),
+$$
+
+$$
+S_{\max}(\rho_t)=\min\left(
+20,\ F_{A,\max}(1+\rho_t),\
+\frac{F_{B,\max}(1+\rho_t)}{\rho_t}
+\right).
+$$
+
+The second actor output selects only a fraction inside this feasible interval:
+
+$$
+v_t=\frac{a^{\mathrm{flow}}_t+1}{2},
+\qquad
+S_t=S_{\min}(\rho_t)+v_t\left(S_{\max}(\rho_t)-S_{\min}(\rho_t)\right),
+$$
+
+$$
+F_{A,t}=\frac{S_t}{1+\rho_t},
+\qquad
+F_{B,t}=\rho_t F_{A,t}.
+$$
+
+Here, $F_A$ is acetic-acid flow and $F_B$ is sodium-acetate flow, both in
+`mL/min`. Choosing the ratio before total flow preserves access to the full
+feasible ratio range. The second action can then reduce reagent use without
+changing that ratio. Both buffer streams remain between `1` and `10 mL/min`,
+their sum remains between `2` and `20 mL/min`, and water is commanded at
+$F_W=5\ \mathrm{mL/min}$.
 
 ### 5.3 Online transition and TD3 update
 
@@ -189,13 +218,15 @@ $$
 r_t = -\left(C_{\mathrm{pH},t}
 + C_{\lvert e\rvert,t}
 + 5\left(\frac{F_{A,t}+F_{B,t}-F_{A,t-1}-F_{B,t-1}}{20-2}\right)^2
++ 0.01v_t^2
 - B_t\right),
 $$
 
 where $e_t=\mathrm{pH}^{*}_t-\mathrm{pH}_{t+1}$,
 $C_{\mathrm{pH},t}$ is the smooth relative-band tracking cost,
-$C_{\lvert e\rvert,t}=|e_t|$, and $B_t$ is a small near-target bonus. The exact
-calculation and all of its logged components are in
+$C_{\lvert e\rvert,t}=|e_t|$, $0.01v_t^2$ discourages unnecessarily high
+acid-plus-acetate flow within the ratio-specific feasible interval, and $B_t$
+is a small near-target bonus. The exact calculation and all logged components are in
 [custom_td3/reward.py](custom_td3/reward.py). The same scalar reward is stored
 in replay and MongoDB.
 
@@ -327,14 +358,16 @@ the lab shipment. `main.py` already loads these filenames by default.
 
 | Setting | Selected value |
 |---|---:|
-| Source run | `offline_ph_td3_training_20260710_183129` |
+| Source run | `offline_ph_td3_training_20260713_204554` |
 | Total offline steps | `500000` |
-| Actor hidden layers | `[128, 128]` |
-| Critic hidden layers | `[128, 128]` |
-| Discount factor $\gamma$ | `0.97` |
+| Action mapping | `ratio_preserving_flow_v1` |
+| Actor hidden layers | `[64, 64]` |
+| Critic hidden layers | `[64, 64]` |
+| Discount factor $\gamma$ | `0.99` |
 | Offline batch size | `64` |
 | Final offline exploration noise | `0.02` |
-| Policy ID | `custom_td3_0c10ce7b8602bd5c` |
+| Flow-economy reward weight | `0.01` |
+| Policy ID | `custom_td3_687131b557875010` |
 
 The selected matched set is:
 
@@ -349,6 +382,19 @@ Their SHA-256 values are recorded in [models/README.md](models/README.md) and
 were rechecked during the final handoff audit. Do not replace or mix these files
 before shipment. The startup actor-matching check is designed to catch an
 inconsistent actor and training checkpoint.
+
+The saved deterministic 25-target simulation grid for this checkpoint has pH
+MAE `0.011105`, RMSE `0.013258`, maximum absolute error `0.032116`, and `92%`
+of targets within `0.02` pH. Its mean acid-plus-acetate flow is
+`10.184659 mL/min`.
+
+This newest checkpoint was selected at the user's direction, but it was not the
+best checkpoint in the direct frozen-grid comparison. The preceding
+`offline_ph_td3_training_20260713_191125` checkpoint (`[128, 128]`,
+$\gamma=0.97$) achieved MAE `0.005471`, maximum absolute error `0.017666`, and
+mean acid-plus-acetate flow `5.015525 mL/min` on the same grid. The current
+selection must therefore be treated as a requested latest-run selection, not as
+evidence of superior performance. Neither checkpoint has live-lab validation.
 
 ## 10. Docker and dependency status
 
@@ -397,10 +443,9 @@ the selected files stored in the image.
 
 ### Tests completed
 
-The relevant local test suites completed with `47 passed`, including offline
-TD3 behavior, BioSMB TD3 fidelity, model loading, state/action conversion,
-reward use, replay updates, checkpointing, and additive integration checks.
-A focused BioSMB subset also completed with `24 passed`.
+The complete local test suite completed with `50 passed`, including offline TD3
+behavior, BioSMB TD3 fidelity, model loading, refined state/action conversion,
+reward parity, replay updates, checkpointing, and additive integration checks.
 
 A model-only preflight successfully:
 
@@ -408,12 +453,12 @@ A model-only preflight successfully:
 - verified its saved inference cases;
 - loaded the online learner;
 - verified deployment/training actor equality; and
-- confirmed the 500000-step source, `[128, 128]` networks, `gamma = 0.97`, batch
+- confirmed the 500000-step source, `[64, 64]` networks, `gamma = 0.99`, batch
   size `64`, replay capacity `10000`, recent window `200`, and online noise
   `0.02 -> 0.01`.
 
 The current actor identifies itself as
-`custom_td3_0c10ce7b8602bd5c`.
+`custom_td3_687131b557875010`.
 
 The final audit also confirmed that the current `biosmb_interface` modules,
 `settings.json`, and the five lab-interaction functions in `main.py` are

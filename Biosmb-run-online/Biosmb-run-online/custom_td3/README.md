@@ -25,18 +25,22 @@ The five-element state is:
 ```text
 [PH_2, target pH, PH_2 - target pH,
  previous normalized ratio action,
- previous normalized buffer-sum action]
+ previous normalized optional-flow action]
 ```
 
 The two actor outputs are:
 
 ```text
 [normalized log acetate/acid ratio,
- normalized acid+acetate total flow]
+ normalized optional total-flow fraction]
 ```
 
-The mapper enforces acid and acetate bounds of 1-10 mL/min, a buffer-flow sum
-of 2-20 mL/min, and fixed Arium water at 5 mL/min.
+The first output selects the acetate/acid ratio over the complete feasible ratio
+range. For that ratio, the mapper calculates the exact feasible acid-plus-acetate
+flow interval. The second output then chooses a fraction inside that interval.
+This preserves the ratio authority instead of allowing the total-flow choice to
+restrict it. The mapper enforces acid and acetate bounds of 1-10 mL/min, a
+buffer-flow sum of 2-20 mL/min, and fixed Arium water at 5 mL/min.
 
 ## Active training modules
 
@@ -62,8 +66,9 @@ The public imports include `TD3Agent`, `GaussianNoiseSchedule`,
 The selected shipment checkpoint was trained with:
 
 - total rollout length `500000` steps
-- actor and critic layers `[128, 128]`
-- gamma `0.97`
+- action mapping `ratio_preserving_flow_v1`
+- actor and critic layers `[64, 64]`
+- gamma `0.99`
 - batch size `64`
 - replay capacity `60000`
 - Gaussian exploration `0.35 -> 0.02`, linearly over 5000 actions
@@ -71,28 +76,15 @@ The selected shipment checkpoint was trained with:
 - target smoothing standard deviation `0.2`, clipped at `0.5`
 - policy delay `2` and soft target coefficient `0.005`
 - mixed replay: 50% prioritized, 20% recent, and 30% uniform
+- optional-flow economic penalty weight `0.01`
 
-The offline training runner now defaults to a separate controlled experiment:
-
-- total rollout length `500000` steps
-- actor and critic layers `[128, 128]`
-- gamma `0.99`
-- batch size `64`
-- Gaussian exploration `0.35 -> 0.04`, linearly over 5000 actions
-
-Running the offline experiment does not automatically change the selected
-500000-step shipment checkpoint. `main.py` continues to load the existing
-four-file model set from `models/` until a new matched set is deliberately
-copied there. The selected shipment checkpoint remains the earlier
-`gamma = 0.97`, `0.35 -> 0.02` model until the new experiment is reviewed.
-
-For a future deliberate replacement, the offline runner writes a ready-to-copy
-`deployment_bundle` containing
+The selected files came from
+`results/offline_ph_td3_training_20260713_204554`. The offline runner writes a
+ready-to-copy `deployment_bundle` containing
 `td3_actor_manifest.json`, `td3_actor_weights.pt`,
 `td3_training_checkpoint.pkl`, and `td3_training_config.json`. Copy those four
 files together into the BioSMB `models` folder and do not mix files from
-different offline runs. The selected 500000-step shipment set should remain in
-place for the current handoff.
+different offline runs.
 
 The immutable offline values are stored in `models/td3_training_config.json`.
 The active online continuation settings are separate in
@@ -107,9 +99,11 @@ gradient update per completed control transition once the replay buffer contains
 approximately 3 hours 20 minutes. Before 200 transitions exist, the recent pool
 automatically uses every available transition.
 
-The exact active shaped reward is implemented in `reward.py`. `main.py` stores
-the same reward value in replay and in the MongoDB deployment record, together
-with the full reward breakdown and actor/critic update diagnostics.
+The exact active shaped reward is implemented in `reward.py`. It includes the
+same tracking, total-flow movement, near-target bonus, and optional-flow economic
+terms used in the selected offline run. `main.py` stores the same reward value in
+replay and in the MongoDB deployment record, together with the full reward
+breakdown and actor/critic update diagnostics.
 
 ## Important checkpoint limitation
 
@@ -117,11 +111,11 @@ The current `models/td3_training_checkpoint.pkl` is the selected trusted local
 checkpoint. It contains actor and critic weights, target weights, and selected
 hyperparameters, but no replay or optimizer state.
 
-The future offline checkpoint format also records actor/critic architecture and
-optimizer states. The online loader reads the architecture and `gamma` from
-that checkpoint, so a new `[128, 128]`, `gamma = 0.97` model does not depend on
-stale duplicated values in the online JSON. It restores the offline optimizer
-state but intentionally starts with an empty online replay buffer.
+The checkpoint records actor/critic architecture and optimizer states. The
+online loader reads the `[64, 64]` architecture and `gamma = 0.99` from that
+checkpoint instead of relying on duplicated online JSON values. It restores the
+offline optimizer state but intentionally starts with an empty online replay
+buffer.
 
 New `td3_online_*.pkl` checkpoints contain actor, critics, target networks,
 optimizers, the 10000-transition replay buffer, update counters, and random

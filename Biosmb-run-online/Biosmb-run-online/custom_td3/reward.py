@@ -18,6 +18,7 @@ class PHRewardConfig:
     r_move: float = 0.0
     default_flow_weight: float = 0.0
     sum_move_weight: float = 5.0
+    economic_flow_weight: float = 0.01
     tau_frac: float = 0.7
     gamma_out: float = 0.5
     gamma_in: float = 0.5
@@ -53,11 +54,13 @@ class PHRewardBreakdown:
     move_cost: float
     default_flow_cost: float
     sum_move_cost: float
+    economic_flow_cost: float
     squared_error_term: float
     absolute_error_term: float
     move_penalty_term: float
     default_flow_term: float
     sum_move_penalty_term: float
+    economic_flow_penalty_term: float
     total_cost: float
     band_ph: float
     normalized_error: float
@@ -83,11 +86,15 @@ class PHRewardBreakdown:
             "reward_move_cost": float(self.move_cost),
             "reward_default_flow_cost": float(self.default_flow_cost),
             "reward_sum_move_cost": float(self.sum_move_cost),
+            "reward_economic_flow_cost": float(self.economic_flow_cost),
             "reward_squared_error_term": float(self.squared_error_term),
             "reward_absolute_error_term": float(self.absolute_error_term),
             "reward_move_penalty_term": float(self.move_penalty_term),
             "reward_default_flow_term": float(self.default_flow_term),
             "reward_sum_move_penalty_term": float(self.sum_move_penalty_term),
+            "reward_economic_flow_penalty_term": float(
+                self.economic_flow_penalty_term
+            ),
             "reward_total_cost": float(self.total_cost),
             "reward_band_ph": float(self.band_ph),
             "reward_normalized_error": float(self.normalized_error),
@@ -117,6 +124,7 @@ def compute_ph_reward(
     previous_buffer_sum: float | None = None,
     buffer_sum_min: float | None = None,
     buffer_sum_max: float | None = None,
+    economic_flow_fraction: float | None = None,
 ) -> PHRewardBreakdown:
     """Compute the exact active relative-band reward plus offset penalty."""
 
@@ -136,6 +144,7 @@ def compute_ph_reward(
         buffer_sum_min,
         buffer_sum_max,
     )
+    economic_flow_cost = _economic_flow_cost(economic_flow_fraction)
 
     band_ph = max(cfg.k_rel * abs(float(target_ph)), cfg.band_floor_ph, 1.0e-12)
     tau_ph = max(cfg.tau_frac * band_ph, 1.0e-12)
@@ -149,6 +158,9 @@ def compute_ph_reward(
     move_penalty_term = cfg.r_move * move_cost
     default_flow_term = cfg.default_flow_weight * default_flow_cost
     sum_move_penalty_term = cfg.sum_move_weight * sum_move_cost
+    economic_flow_penalty_term = (
+        cfg.economic_flow_weight * economic_flow_cost
+    )
     slope_at_edge = 2.0 * cfg.q_band * band_ph
     overflow = max(absolute_error - band_ph, 0.0)
     inside_magnitude = min(absolute_error, band_ph)
@@ -168,6 +180,7 @@ def compute_ph_reward(
         + move_penalty_term
         + default_flow_term
         + sum_move_penalty_term
+        + economic_flow_penalty_term
         + linear_out_term
         + linear_in_term
         - bonus_term
@@ -190,11 +203,13 @@ def compute_ph_reward(
         move_cost=move_cost,
         default_flow_cost=default_flow_cost,
         sum_move_cost=sum_move_cost,
+        economic_flow_cost=economic_flow_cost,
         squared_error_term=error_quad,
         absolute_error_term=absolute_error_term,
         move_penalty_term=move_penalty_term,
         default_flow_term=default_flow_term,
         sum_move_penalty_term=sum_move_penalty_term,
+        economic_flow_penalty_term=economic_flow_penalty_term,
         total_cost=float(-reward),
         band_ph=band_ph,
         normalized_error=normalized_error,
@@ -215,7 +230,8 @@ def reward_definition_text(config: PHRewardConfig | None = None) -> str:
     del config
     return (
         "relative_band reward minus absolute-error penalty, with optional "
-        "late-hold offset and normalized total-flow move penalties"
+        "late-hold offset, normalized total-flow move penalties, and optional "
+        "excess-flow cost"
     )
 
 
@@ -244,6 +260,15 @@ def _normalized_scalar_delta(value, reference, lower, upper) -> float:
     if span <= 0.0:
         raise ValueError("buffer_sum_max must be greater than buffer_sum_min.")
     return float(((values[0] - values[1]) / span) ** 2)
+
+
+def _economic_flow_cost(fraction: float | None) -> float:
+    if fraction is None:
+        return 0.0
+    value = float(fraction)
+    if not isfinite(value):
+        raise ValueError("economic_flow_fraction must be finite.")
+    return float(np.clip(value, 0.0, 1.0) ** 2)
 
 
 def _sigmoid(value: float) -> float:

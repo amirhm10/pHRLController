@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ONLINE_DIR = ROOT / "Biosmb-run-online" / "Biosmb-run-online"
 CUSTOM_DIR = ONLINE_DIR / "custom_td3"
 MODELS_DIR = ONLINE_DIR / "models"
-SOURCE_RUN = ROOT / "results" / "offline_ph_td3_training_20260710_183129"
+SOURCE_RUN = ROOT / "results" / "offline_ph_td3_training_20260713_204554"
 
 for path in [ROOT, ONLINE_DIR]:
     if str(path) not in sys.path:
@@ -67,6 +67,7 @@ class NumericalFidelityTests(unittest.TestCase):
             "q_absolute": 1.0,
             "move_weight": 0.0,
             "sum_move_weight": 5.0,
+            "economic_flow_weight": 0.01,
             "band_floor_ph": 0.01,
             "bonus_weight_abs": 0.05,
             "bonus_k": 6.0,
@@ -78,6 +79,7 @@ class NumericalFidelityTests(unittest.TestCase):
             "q_band": 1.0,
             "r_move": 0.0,
             "sum_move_weight": 5.0,
+            "economic_flow_weight": 0.01,
             "bonus_weight_abs": 0.05,
             "bonus_k": 6.0,
             "absolute_error_weight": 1.0,
@@ -93,6 +95,7 @@ class NumericalFidelityTests(unittest.TestCase):
             "previous_buffer_sum": 9.8,
             "buffer_sum_min": 2.0,
             "buffer_sum_max": 20.0,
+            "economic_flow_fraction": 0.5,
         }
         expected = compute_root_reward(
             config=RootRewardConfig(**root_kwargs),
@@ -108,16 +111,16 @@ class NumericalFidelityTests(unittest.TestCase):
                 self.assertEqual(actual[name], expected[name])
             else:
                 self.assertAlmostEqual(actual[name], expected[name], places=14)
-        self.assertEqual(expected["reward_economic_flow_cost"], 0.0)
-        self.assertEqual(expected["reward_economic_flow_penalty_term"], 0.0)
+        self.assertEqual(expected["reward_economic_flow_cost"], 0.25)
+        self.assertEqual(expected["reward_economic_flow_penalty_term"], 0.0025)
 
     def test_active_one_step_update_matches_original_agent(self) -> None:
         common = {
             "state_dim": 5,
             "action_dim": 2,
-            "actor_hidden": [128, 128],
-            "critic_hidden": [128, 128],
-            "gamma": 0.97,
+            "actor_hidden": [64, 64],
+            "critic_hidden": [64, 64],
+            "gamma": 0.99,
             "actor_lr": 1.0e-4,
             "critic_lr": 1.0e-3,
             "batch_size": 64,
@@ -240,7 +243,7 @@ class ModelArtifactTests(unittest.TestCase):
             (
                 SOURCE_RUN
                 / "checkpoints"
-                / "offline_ph_td3_20260710_183222.pkl"
+                / "offline_ph_td3_20260713_204651.pkl"
             ).read_bytes(),
         )
         self.assertEqual(
@@ -364,6 +367,7 @@ class OnlineTrainingIntegrationTests(unittest.TestCase):
                 previous_buffer_sum=15.0,
                 buffer_sum_min=2.0,
                 buffer_sum_max=20.0,
+                economic_flow_fraction=0.5,
                 done=False,
             )
 

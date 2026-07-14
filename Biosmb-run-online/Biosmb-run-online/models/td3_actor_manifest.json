@@ -19,22 +19,22 @@
     "buffer_flow_sum_max": 20.0,
     "buffer_flow_sum_min": 2.0,
     "fixed_water_flow": 5.0,
-    "mapping_version": "ratio_buffer_sum_v1",
+    "mapping_version": "ratio_preserving_flow_v1",
     "water_flow_max": 10.0,
     "water_flow_min": 1.0
   },
-  "action_semantics": "normalized_ratio_and_buffer_flow_sum",
+  "action_semantics": "normalized_global_ratio_and_optional_flow_fraction",
   "action_variables": [
     "normalized_acetate_acid_ratio",
-    "normalized_acid_acetate_total_flow"
+    "normalized_optional_total_flow_fraction"
   ],
   "actor": {
     "action_dim": 2,
     "activation": "relu",
     "dropout": 0.0,
     "hidden_dims": [
-      128,
-      128
+      64,
+      64
     ],
     "max_action": 1.0,
     "squash": "tanh",
@@ -43,13 +43,13 @@
   },
   "algorithm": "custom_td3",
   "controlled_measurement": "PH_2",
-  "created_utc": "2026-07-10T22:32:22.744459+00:00",
+  "created_utc": "2026-07-14T00:57:35.007194+00:00",
   "error_definition": "current_ph_minus_target_ph",
   "golden_cases": [
     {
       "expected_action": [
-        -0.015487102791666985,
-        -0.21419352293014526
+        -0.008084348402917385,
+        0.01079174317419529
       ],
       "state": [
         4.760000228881836,
@@ -61,8 +61,8 @@
     },
     {
       "expected_action": [
-        1.0,
-        -0.1363929957151413
+        0.9959539771080017,
+        -1.0
       ],
       "state": [
         3.759999990463257,
@@ -74,26 +74,37 @@
     },
     {
       "expected_action": [
-        -1.0,
-        -0.13695141673088074
+        -0.999995231628418,
+        -0.7185823917388916
       ],
       "state": [
         5.760000228881836,
         3.759999990463257,
-        2.000000238418579,
+        2.0,
         0.5,
         0.0
       ]
     }
   ],
   "golden_tolerance": 1e-06,
-  "policy_id": "custom_td3_0c10ce7b8602bd5c",
+  "policy_id": "custom_td3_687131b557875010",
   "schema_version": 1,
   "source": {
-    "config_snapshot": "results\\offline_ph_td3_training_20260710_183129\\tables\\config_snapshot.json",
-    "config_snapshot_sha256": "4b56db30bd2d7f33630e80a1510e33ae37b3b9d5d079f3d99abfc5dc11800bc0",
+    "config_snapshot": "results\\offline_ph_td3_training_20260713_204554\\deployment_bundle\\td3_training_config.json",
+    "config_snapshot_sha256": "c61f15870bc0aad197a8962571b8e4f97a8cd50f3424082f8aba22ec3789e594",
     "dynamic_model_validated": false,
-    "frozen_policy_validated": false,
+    "frozen_policy_grid": {
+      "fraction_within_0_01": 0.56,
+      "fraction_within_0_02": 0.92,
+      "mae": 0.011105,
+      "max_abs_error": 0.032116,
+      "mean_buffer_flow_sum": 10.184659,
+      "rmse": 0.013258,
+      "target_max": 5.7,
+      "target_min": 3.76,
+      "targets": 25
+    },
+    "frozen_policy_validated": true,
     "lab_validated": false,
     "numpy_version": "2.3.1",
     "python_version": "3.13.7",
@@ -101,23 +112,23 @@
     "simulation_only": true,
     "torch_version": "2.8.0+cu129",
     "total_steps": 500000,
-    "training_checkpoint": "results\\offline_ph_td3_training_20260710_183129\\checkpoints\\offline_ph_td3_20260710_183222.pkl",
-    "training_checkpoint_sha256": "3795935a7d84846ecf7341fbe6d5f8bc0afccfe4af2d90d22ad061d2cf97cc4e",
-    "training_result_directory": "results\\offline_ph_td3_training_20260710_183129",
+    "training_checkpoint": "results\\offline_ph_td3_training_20260713_204554\\deployment_bundle\\td3_training_checkpoint.pkl",
+    "training_checkpoint_sha256": "b2298ab8120ccaa190109d386baa4ed297342d0954aeb2577baca6443bee73ae",
+    "training_result_directory": "results\\offline_ph_td3_training_20260713_204554",
     "training_runner": "run_offline_ph_td3_training.py"
   },
   "state_bounds": [
     [
-      3.759999990463257,
-      5.760000228881836
+      3.76,
+      5.76
     ],
     [
       3.76,
       5.7
     ],
     [
-      -1.9400000095367433,
-      2.000000228881836
+      -1.9400000000000004,
+      2.0
     ],
     [
       -1.0,
@@ -136,7 +147,7 @@
     "target_ph",
     "current_ph_minus_target_ph",
     "normalized_ratio_action",
-    "normalized_buffer_sum_action"
+    "normalized_optional_flow_action"
   ],
   "target_ph_bounds": [
     3.76,
@@ -144,5 +155,5 @@
   ],
   "weights_file": "td3_actor_weights.pt",
   "weights_format": "pytorch_state_dict_weights_only",
-  "weights_sha256": "0c10ce7b8602bd5c455f74009e233ecc990735a3f73c76b2c99a196d23f91777"
+  "weights_sha256": "687131b5578750103f6dfe93731009c1eb7ab49e792db9f1e0dcd531662c0a88"
 }

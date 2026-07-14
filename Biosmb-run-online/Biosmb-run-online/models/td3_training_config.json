@@ -2,6 +2,13 @@
   "runner": "run_offline_ph_td3_training.py",
   "simulation_only": true,
   "uses_biosmb_or_emulator": false,
+  "result_storage": {
+    "trajectory_filename": "trajectory.csv.gz",
+    "trajectory_compression": "gzip",
+    "trajectory_compression_level": 6,
+    "includes_diagnostic_columns": true,
+    "writes_duplicate_diagnostic_trajectory": false
+  },
   "process_config": {
     "pKa": 4.76,
     "Kw": 1e-14,
@@ -45,13 +52,13 @@
       "target_ph",
       "current_ph_minus_target_ph",
       "normalized_ratio_action",
-      "normalized_buffer_sum_action"
+      "normalized_optional_flow_action"
     ],
     "rl_action_variables": [
       "acetate_acid_ratio",
-      "acid_acetate_total_flow"
+      "optional_total_flow_fraction"
     ],
-    "action_mode": "ratio_buffer_sum",
+    "action_mode": "ratio_preserving_flow",
     "fixed_buffer_flow_sum": 15.0,
     "buffer_flow_sum_min": 2.0,
     "buffer_flow_sum_max": 20.0,
@@ -67,6 +74,7 @@
       "q_band": 1.0,
       "r_move": 0.0,
       "sum_move_weight": 5.0,
+      "economic_flow_weight": 0.01,
       "tau_frac": 0.7,
       "gamma_out": 0.5,
       "gamma_in": 0.5,
@@ -82,12 +90,13 @@
       "tail_offset_weight": 0.0,
       "tail_start_fraction": 0.75
     },
-    "reward_definition": "relative_band reward minus absolute-error penalty, with optional late-hold offset and normalized total-flow move penalties",
+    "reward_definition": "relative_band reward minus absolute-error penalty, with optional late-hold offset, total-flow move penalties, and optional excess-flow cost",
     "reward_mode": "relative_band_offset",
     "reward_squared_weight": 1.0,
     "reward_absolute_weight": 1.0,
     "move_penalty_weight": 0.0,
     "sum_move_penalty_weight": 5.0,
+    "flow_economy_penalty_weight": 0.01,
     "reward_band_floor_ph": 0.01,
     "reward_bonus_weight": 0.05,
     "reward_bonus_k": 6.0,
@@ -112,16 +121,16 @@
     "batch_size": 64,
     "buffer_size": 60000,
     "actor_hidden": [
-      128,
-      128
+      64,
+      64
     ],
     "critic_hidden": [
-      128,
-      128
+      64,
+      64
     ],
     "actor_lr": 0.0001,
     "critic_lr": 0.001,
-    "gamma": 0.97,
+    "gamma": 0.99,
     "std_start": 0.35,
     "std_end": 0.02,
     "std_decay_steps": 5000,
@@ -131,12 +140,13 @@
     "reward_absolute_weight": 1.0,
     "move_penalty_weight": 0.0,
     "sum_move_penalty_weight": 5.0,
+    "flow_economy_penalty_weight": 0.01,
     "reward_mode": "relative_band_offset",
     "reward_band_floor_ph": 0.01,
     "reward_bonus_weight": 0.05,
     "reward_bonus_k": 6.0,
     "reward_tail_offset_weight": 0.0,
-    "action_mode": "ratio_buffer_sum",
+    "action_mode": "ratio_preserving_flow",
     "fixed_buffer_flow_sum": 15.0,
     "buffer_flow_sum_min": 2.0,
     "buffer_flow_sum_max": 20.0,

@@ -19,15 +19,15 @@ STATE_VARIABLES = (
     "target_ph",
     "current_ph_minus_target_ph",
     "normalized_ratio_action",
-    "normalized_buffer_sum_action",
+    "normalized_optional_flow_action",
 )
 
 ACTION_VARIABLES = (
     "normalized_acetate_acid_ratio",
-    "normalized_acid_acetate_total_flow",
+    "normalized_optional_total_flow_fraction",
 )
 
-MAPPING_VERSION = "ratio_buffer_sum_v1"
+MAPPING_VERSION = "ratio_preserving_flow_v1"
 
 
 class TD3ContractError(ValueError):
@@ -60,7 +60,7 @@ class LogicalFlows:
 
 @dataclass(frozen=True)
 class FlowMapping:
-    """Manifest parameters for normalized ratio/sum action conversion."""
+    """Manifest parameters for ratio-preserving action conversion."""
 
     acid_flow_min: float
     acid_flow_max: float
@@ -147,33 +147,44 @@ class FlowMapping:
 
 
 class RatioSumActionMapper:
-    """Exact action mapper used by the offline `ratio_buffer_sum` environment."""
+    """Exact mapper used by the offline `ratio_preserving_flow` environment."""
 
     def __init__(self, mapping: FlowMapping):
         mapping.validate()
         self.mapping = mapping
 
-    def _acid_bounds_for_sum(self, buffer_sum: float) -> tuple[float, float]:
-        acid_low = max(
-            self.mapping.acid_flow_min,
-            buffer_sum - self.mapping.acetate_flow_max,
-        )
-        acid_high = min(
-            self.mapping.acid_flow_max,
-            buffer_sum - self.mapping.acetate_flow_min,
-        )
-        if acid_low > acid_high:
-            raise TD3ContractError("Selected buffer-flow sum is infeasible.")
-        return float(acid_low), float(acid_high)
-
-    def _ratio_bounds_for_sum(self, buffer_sum: float) -> tuple[float, float]:
-        acid_low, acid_high = self._acid_bounds_for_sum(buffer_sum)
-        ratio_low = (buffer_sum - acid_high) / acid_high
-        ratio_high = (buffer_sum - acid_low) / acid_low
+    def _global_ratio_bounds(self) -> tuple[float, float]:
+        ratio_low = self.mapping.acetate_flow_min / self.mapping.acid_flow_max
+        ratio_high = self.mapping.acetate_flow_max / self.mapping.acid_flow_min
         return float(ratio_low), float(ratio_high)
 
+    def _sum_bounds_for_ratio(self, ratio: float) -> tuple[float, float]:
+        ratio = float(ratio)
+        if not np.isfinite(ratio) or ratio <= 0.0:
+            raise TD3ContractError("Flow ratio must be finite and positive.")
+        one_plus_ratio = 1.0 + ratio
+        sum_low = max(
+            self.mapping.buffer_flow_sum_min,
+            self.mapping.acid_flow_min * one_plus_ratio,
+            self.mapping.acetate_flow_min * one_plus_ratio / ratio,
+        )
+        sum_high = min(
+            self.mapping.buffer_flow_sum_max,
+            self.mapping.acid_flow_max * one_plus_ratio,
+            self.mapping.acetate_flow_max * one_plus_ratio / ratio,
+        )
+        if sum_low > sum_high + 1.0e-10:
+            raise TD3ContractError(
+                "Selected flow ratio has no feasible total-flow interval."
+            )
+        if sum_low > sum_high:
+            midpoint = 0.5 * (sum_low + sum_high)
+            sum_low = midpoint
+            sum_high = midpoint
+        return float(sum_low), float(sum_high)
+
     def action_to_flows(self, action: Sequence[float]) -> LogicalFlows:
-        """Convert normalized `[ratio, sum]` action to three logical flows."""
+        """Convert `[global ratio, optional flow]` to three logical flows."""
 
         values = np.asarray(action, dtype=np.float32).reshape(-1)
         if values.shape != (2,):
@@ -184,33 +195,27 @@ class RatioSumActionMapper:
             raise TD3ContractError("TD3 action contains NaN or infinity.")
         if np.any(np.abs(values) > 1.0 + 1.0e-6):
             raise TD3ContractError("TD3 action is outside normalized bounds.")
-        ratio_action, sum_action = np.clip(values, -1.0, 1.0)
+        ratio_action, optional_flow_action = np.clip(values, -1.0, 1.0)
 
-        sum_fraction = float(0.5 * (sum_action + 1.0))
-        buffer_sum = float(
-            self.mapping.buffer_flow_sum_min
-            + sum_fraction
-            * (
-                self.mapping.buffer_flow_sum_max
-                - self.mapping.buffer_flow_sum_min
-            )
-        )
-        ratio_low, ratio_high = self._ratio_bounds_for_sum(buffer_sum)
+        ratio_low, ratio_high = self._global_ratio_bounds()
         log_low = float(np.log10(ratio_low))
         log_high = float(np.log10(ratio_high))
         ratio_fraction = float(0.5 * (ratio_action + 1.0))
         ratio = float(
             10.0 ** (log_low + ratio_fraction * (log_high - log_low))
         )
+        sum_low, sum_high = self._sum_bounds_for_ratio(ratio)
+        optional_flow_fraction = float(0.5 * (optional_flow_action + 1.0))
+        buffer_sum = float(
+            sum_low + optional_flow_fraction * (sum_high - sum_low)
+        )
 
         acid_flow = float(buffer_sum / (1.0 + ratio))
-        acid_low, acid_high = self._acid_bounds_for_sum(buffer_sum)
-        acid_flow = float(np.clip(acid_flow, acid_low, acid_high))
-        flows = LogicalFlows(
-            acid_flow=acid_flow,
-            acetate_flow=float(buffer_sum - acid_flow),
-            water_flow=float(self.mapping.fixed_water_flow),
+        flow_values = np.asarray(
+            [acid_flow, ratio * acid_flow, self.mapping.fixed_water_flow],
+            dtype=np.float32,
         )
+        flows = LogicalFlows(*flow_values.astype(float).tolist())
         self.validate_flows(flows)
         return flows
 
@@ -240,17 +245,8 @@ class RatioSumActionMapper:
         ):
             raise TD3ContractError("Buffer-flow sum is outside TD3 bounds.")
 
-        sum_action = (
-            2.0
-            * (buffer_sum - self.mapping.buffer_flow_sum_min)
-            / (
-                self.mapping.buffer_flow_sum_max
-                - self.mapping.buffer_flow_sum_min
-            )
-            - 1.0
-        )
         ratio = float(flows.acetate_flow / flows.acid_flow)
-        ratio_low, ratio_high = self._ratio_bounds_for_sum(buffer_sum)
+        ratio_low, ratio_high = self._global_ratio_bounds()
         log_low = float(np.log10(ratio_low))
         log_high = float(np.log10(ratio_high))
         log_span = log_high - log_low
@@ -259,13 +255,34 @@ class RatioSumActionMapper:
         else:
             log_ratio = float(np.log10(np.clip(ratio, ratio_low, ratio_high)))
             ratio_action = 2.0 * (log_ratio - log_low) / log_span - 1.0
+        sum_low, sum_high = self._sum_bounds_for_ratio(ratio)
+        if not sum_low - 1.0e-6 <= buffer_sum <= sum_high + 1.0e-6:
+            raise TD3ContractError(
+                "Buffer-flow sum is outside the selected ratio's feasible interval."
+            )
+        sum_span = sum_high - sum_low
+        if sum_span <= 1.0e-12:
+            optional_flow_action = -1.0
+        else:
+            optional_flow_action = (
+                2.0 * (buffer_sum - sum_low) / sum_span - 1.0
+            )
         return np.asarray(
             [
                 np.clip(ratio_action, -1.0, 1.0),
-                np.clip(sum_action, -1.0, 1.0),
+                np.clip(optional_flow_action, -1.0, 1.0),
             ],
             dtype=np.float32,
         )
+
+    def economic_flow_fraction(self, flows: LogicalFlows) -> float:
+        """Return the optional fraction above the ratio-specific minimum."""
+
+        normalized_action = self.flows_to_action(
+            flows,
+            enforce_water_tolerance=False,
+        )
+        return float(np.clip(0.5 * (normalized_action[1] + 1.0), 0.0, 1.0))
 
     def validate_flows(
         self,

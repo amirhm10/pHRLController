@@ -858,6 +858,14 @@ def run_deployment_loop(
                 ),
                 buffer_sum_min=min_buffer_flow_sum,
                 buffer_sum_max=max_buffer_flow_sum,
+                # I changed this line: use the refined action's optional-flow fraction in the online reward.
+                economic_flow_fraction=float(
+                    np.clip(
+                        0.5 * (executed_action["raw_action"][1] + 1.0),
+                        0.0,
+                        1.0,
+                    )
+                ),
                 done=False,
             )
             online_training_info["checkpoint_saved"] = False

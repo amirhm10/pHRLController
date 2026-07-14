@@ -14,33 +14,41 @@ default model set selected for the lab shipment.
 Source run:
 
 ```text
-results/offline_ph_td3_training_20260710_183129/
+results/offline_ph_td3_training_20260713_204554/
 ```
 
 Selected model settings:
 
 - `500000` offline rollout steps
-- actor and critic layers `[128, 128]`
-- `gamma = 0.97`
+- ratio-preserving two-action flow mapping
+- actor and critic layers `[64, 64]`
+- `gamma = 0.99`
 - batch size `64`
 - final offline exploration noise `0.02`
-- policy ID `custom_td3_0c10ce7b8602bd5c`
+- policy ID `custom_td3_687131b557875010`
 
 Verified SHA-256 values:
 
 ```text
 td3_actor_manifest.json
-c243d5d74d1d7ff1377e969a3efe2cffc9656e0c0b73b87dd033b2a9d8dbbec5
+070179921655aed8939933ceb582432faf734114e7c6752b3e7eaac14e37bb75
 
 td3_actor_weights.pt
-0c10ce7b8602bd5c455f74009e233ecc990735a3f73c76b2c99a196d23f91777
+687131b5578750103f6dfe93731009c1eb7ab49e792db9f1e0dcd531662c0a88
 
 td3_training_checkpoint.pkl
-3795935a7d84846ecf7341fbe6d5f8bc0afccfe4af2d90d22ad061d2cf97cc4e
+b2298ab8120ccaa190109d386baa4ed297342d0954aeb2577baca6443bee73ae
 
 td3_training_config.json
-4b56db30bd2d7f33630e80a1510e33ae37b3b9d5d079f3d99abfc5dc11800bc0
+c61f15870bc0aad197a8962571b8e4f97a8cd50f3424082f8aba22ec3789e594
 ```
+
+The saved deterministic 25-target simulation grid produced pH MAE `0.011105`,
+RMSE `0.013258`, maximum absolute error `0.032116`, and `92%` of targets within
+`0.02` pH. It has not been validated on the live BioSMB process. A preceding
+`[128, 128]`, `gamma = 0.97` checkpoint had better fixed-grid tracking and lower
+mean buffer use; the current selection follows the explicit decision to ship the
+latest run, not a claim that it won the comparison.
 
 The `.pkl` is not a full replay/optimizer/RNG resume checkpoint and must never
 be loaded from an untrusted source.

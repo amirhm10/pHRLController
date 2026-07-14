@@ -195,6 +195,7 @@ class BioSMBOnlineTD3Trainer:
         previous_buffer_sum: float,
         buffer_sum_min: float,
         buffer_sum_max: float,
+        economic_flow_fraction: float,
         done: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Compute, store, and learn from one completed BioSMB transition."""
@@ -210,6 +211,7 @@ class BioSMBOnlineTD3Trainer:
             previous_buffer_sum=previous_buffer_sum,
             buffer_sum_min=buffer_sum_min,
             buffer_sum_max=buffer_sum_max,
+            economic_flow_fraction=economic_flow_fraction,
         )
         self.agent.push(
             np.asarray(state, dtype=np.float32),

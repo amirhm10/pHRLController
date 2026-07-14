@@ -71,7 +71,7 @@ class TD3Agent(nn.Module):
         action_dim: int = 2,
         actor_hidden: List[int] | None = None,
         critic_hidden: List[int] | None = None,
-        gamma: float = 0.97,
+        gamma: float = 0.99,
         actor_lr: float = 1.0e-4,
         critic_lr: float = 1.0e-3,
         batch_size: int = 64,
@@ -102,8 +102,8 @@ class TD3Agent(nn.Module):
         if self.seed is not None:
             set_global_seeds(self.seed)
 
-        actor_hidden = [128, 128] if actor_hidden is None else actor_hidden
-        critic_hidden = [128, 128] if critic_hidden is None else critic_hidden
+        actor_hidden = [64, 64] if actor_hidden is None else actor_hidden
+        critic_hidden = [64, 64] if critic_hidden is None else critic_hidden
         self.state_dim = int(state_dim)
         self.action_dim = int(action_dim)
         self.actor_hidden = [int(value) for value in actor_hidden]

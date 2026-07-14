@@ -22,12 +22,12 @@ PH_TD3_STATE_VARIABLES = [
     "target_ph",
     "current_ph_minus_target_ph",
     "normalized_ratio_action",
-    "normalized_buffer_sum_action",
+    "normalized_optional_flow_action",
 ]
 
 PH_TD3_ACTION_VARIABLES = [
     "normalized_acetate_acid_ratio",
-    "normalized_acid_acetate_total_flow",
+    "normalized_optional_total_flow_fraction",
 ]
 
 
@@ -201,7 +201,7 @@ def export_td3_actor_bundle(
         ],
         "action_dim": action_dim,
         "action_dtype": "float32",
-        "action_semantics": "normalized_ratio_and_buffer_flow_sum",
+        "action_semantics": "normalized_global_ratio_and_optional_flow_fraction",
         "action_variables": PH_TD3_ACTION_VARIABLES,
         "action_bounds": [[-1.0, 1.0], [-1.0, 1.0]],
         "actor": actor_config,

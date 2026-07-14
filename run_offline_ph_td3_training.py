@@ -697,7 +697,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
 
         # Package the frozen actor and the trusted training checkpoint together
         # so the BioSMB runtime receives one internally consistent model set.
-        if args.action_mode == "ratio_buffer_sum":
+        if args.action_mode == "ratio_preserving_flow":
             deployment_dir = output_dir / "deployment_bundle"
             deployment_dir.mkdir(parents=True, exist_ok=True)
             packaged_checkpoint_path = deployment_dir / "td3_training_checkpoint.pkl"
@@ -721,7 +721,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
                     "squash": "tanh",
                 },
                 action_mapping={
-                    "mapping_version": "ratio_buffer_sum_v1",
+                    "mapping_version": "ratio_preserving_flow_v1",
                     "acid_flow_min": float(process_config.acid_flow_min),
                     "acid_flow_max": float(process_config.acid_flow_max),
                     "acetate_flow_min": float(process_config.acetate_flow_min),
@@ -765,7 +765,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Path | pd.DataFrame]:
         else:
             print(
                 "Deployment bundle not exported: the live BioSMB contract "
-                "requires --action-mode ratio_buffer_sum."
+                "requires --action-mode ratio_preserving_flow."
             )
 
     print(f"Saved offline pH TD3 results to: {output_dir}")

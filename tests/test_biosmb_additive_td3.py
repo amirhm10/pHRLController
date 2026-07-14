@@ -20,7 +20,7 @@ TEST_OUTPUT = ROOT / "results" / "_test_biosmb_additive_td3"
 LATEST_MANIFEST = (
     ROOT
     / "results"
-    / "offline_ph_td3_training_20260710_183129"
+    / "offline_ph_td3_training_20260713_204554"
     / "deployment_bundle"
     / "td3_actor_manifest.json"
 )
@@ -42,7 +42,7 @@ from TD3Agent.actor import Actor as TrainingActor  # noqa: E402
 ACTOR_CONFIG = {
     "state_dim": 5,
     "action_dim": 2,
-    "hidden_dims": [128, 128],
+    "hidden_dims": [64, 64],
     "activation": "relu",
     "use_layernorm": False,
     "dropout": 0.0,
@@ -51,7 +51,7 @@ ACTOR_CONFIG = {
 }
 
 ACTION_MAPPING = {
-    "mapping_version": "ratio_buffer_sum_v1",
+    "mapping_version": "ratio_preserving_flow_v1",
     "acid_flow_min": 1.0,
     "acid_flow_max": 10.0,
     "acetate_flow_min": 1.0,
@@ -101,7 +101,7 @@ def create_test_bundle(directory: Path) -> tuple[TrainingActor, Path]:
     actor = TrainingActor(
         state_dim=5,
         action_dim=2,
-        hidden_dims=[128, 128],
+        hidden_dims=[64, 64],
         activation="relu",
         use_layernorm=False,
         dropout=0.0,
@@ -170,7 +170,7 @@ class AdditivePolicyTests(unittest.TestCase):
     def test_action_mapping_matches_training_environment(self) -> None:
         environment = PHEnvironment(
             PHEnvironmentConfig(
-                action_mode="ratio_buffer_sum",
+                action_mode="ratio_preserving_flow",
                 buffer_flow_sum_min=2.0,
                 buffer_flow_sum_max=20.0,
             )
@@ -321,7 +321,7 @@ class LatestSavedActorTests(unittest.TestCase):
         self.assertFalse(policy.source_metadata["lab_validated"])
         self.assertEqual(
             policy.manifest["weights_sha256"],
-            "0c10ce7b8602bd5c455f74009e233ecc990735a3f73c76b2c99a196d23f91777",
+            "687131b5578750103f6dfe93731009c1eb7ab49e792db9f1e0dcd531662c0a88",
         )
 
 
