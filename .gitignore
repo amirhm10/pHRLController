@@ -1,15 +1,40 @@
 __pycache__/
 *.py[cod]
 *.pyo
+
+# Local Python environments and secrets.
 .venv/
 venv/
 .env
 .env.*
+
+# Editor and notebook state.
 .ipynb_checkpoints/
 .vscode/
+
+# Local datasets and generated experiment artifacts. Reviewed deployment model
+# files remain tracked in their application folder.
 Data/*.csv
+Data/*.parquet
+Data/*.pickle
+Data/*.pkl
+Data/*.xlsx
 outputs/
 results/
+logs/
+*.log
+
+# Local reference application used during integration, not part of this repo.
+Biosmb-interact/
+
+# Large local transfer archives.
+*.zip
+*.tar
+*.tar.gz
+
+# Generated report exports.
 reports/*.html
+
+# Operating-system metadata.
 .DS_Store
 Thumbs.db

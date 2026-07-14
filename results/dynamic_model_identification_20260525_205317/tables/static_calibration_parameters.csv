@@ -1,2 +1,0 @@
-calibration,b0_intercept,b1_slope,n_train
-PH_2 = b0 + b1 * pH_equilibrium,0.6567147801378311,0.7909130554967375,731

@@ -1,7 +1,0 @@
-model_stage,model_label,parameter,value,feature,n_fit,fit_method,condition_number
-equilibrium_bias,Equilibrium + bias,bias,-0.3430422568893844,ph_equilibrium_charge_balance,731,train_mean_offset,
-hh_effective_pka,HH effective pKa,effective_pKa,4.417789465065566,log10_molar_base_acid_ratio,731,train_mean_offset,
-hh_affine,HH affine,intercept,0.6659972171751112,intercept,731,ordinary_least_squares,66.51200766329835
-hh_affine,HH affine,coefficient_ph_henderson_hasselbalch,0.7891090085768627,ph_henderson_hasselbalch,731,ordinary_least_squares,66.51200766329835
-equilibrium_affine,Equilibrium affine,intercept,0.6567147801378311,intercept,731,ordinary_least_squares,66.6901948819264
-equilibrium_affine,Equilibrium affine,coefficient_ph_equilibrium_charge_balance,0.7909130554967375,ph_equilibrium_charge_balance,731,ordinary_least_squares,66.6901948819264
