@@ -1,7 +1,7 @@
 # BioSMB custom TD3 online controller: lab handoff report
 
-**Report date:** July 13, 2026  
-**Software status:** custom TD3 integration completed and locally tested  
+**Report date:** July 19, 2026<br>
+**Software status:** custom TD3 integration and selectable runtime modes locally tested<br>
 **Model status:** the bundled 500000-step checkpoint is the selected shipment default<br>
 **Lab status:** live BioSMB control and online learning have not yet been validated
 
@@ -24,18 +24,21 @@ The controller now:
 
 1. reads `PH_2`, pump flows, and feed masses through the existing BioSMB and
    MFCS interfaces;
-2. reads the desired pH from Redis, with `4.7` as the fallback;
+2. obtains the desired pH from fixed, scheduled, or legacy Redis target mode;
 3. builds the same five-value state used during offline TD3 training;
-4. asks the custom actor for a two-value normalized action;
+4. asks either the online learner or frozen actor for a two-value normalized
+   action;
 5. maps that action to acid, sodium acetate, and water flow commands;
 6. validates the command before using the existing
    `BioSMBManager.set_flow(...)` calls;
 7. waits for the 60-second control interval and reads the new process state;
-8. calculates the aligned tracking, movement, and flow-economy reward;
-9. stores the transition in a 10,000-transition replay buffer;
-10. performs online TD3 updates after at least 64 transitions are available;
-11. logs the process, reward, exploration, and training values to MongoDB; and
-12. saves complete online-training checkpoints periodically and at shutdown.
+8. updates the optional target schedule after the completed control interval;
+9. calculates the aligned tracking, movement, and flow-economy reward when
+   online training is enabled;
+10. conditionally stores and learns from online transitions;
+11. logs target, action-mode, process, reward, and training values to MongoDB;
+   and
+12. saves online checkpoints only when online training is enabled.
 
 The resulting control path is:
 
@@ -46,7 +49,7 @@ BioSMB + MFCS measurements
 observation and mass checks
           |
           v
-five-value TD3 state --> custom TD3 actor + exploration
+five-value TD3 state --> custom TD3 actor + selected action mode
           |                         |
           |                         v
           |                normalized two-value action
@@ -61,7 +64,7 @@ five-value TD3 state --> custom TD3 actor + exploration
 next state <-- 60-second wait and new measurements
           |
           v
-reward --> replay buffer --> online TD3 update --> checkpoint
+optional reward --> replay --> online TD3 update --> checkpoint
           |
           v
       MongoDB log
@@ -72,7 +75,7 @@ reward --> replay buffer --> online TD3 update --> checkpoint
 The integration does not replace the BioSMB control library. The following
 parts retain the original lab-facing approach:
 
-- `Redis` is used to read the experiment target.
+- `Redis` remains available as the legacy external target source.
 - `MongoClient` is used for raw-observation and controller-step logging.
 - `asyncua` is used to read the MFCS mass values and connect to the BioSMB OPC
   UA server.
@@ -100,13 +103,16 @@ Every intentionally edited area in [main.py](main.py) is marked with an
 |---|---|---|
 | RL import | Replaced `stable_baselines3.SAC` with `BioSMBTD3Policy` and `BioSMBOnlineTD3Trainer` | Use our own TD3 inference and learning implementation without Stable-Baselines3 |
 | Operating mode | Set `control_mode = "active_control"` | Allow validated controller outputs to be sent to the pumps |
-| Online learning | Set `online_training_enabled = True` | Enable exploration, replay storage, critic updates, and delayed actor updates |
+| Target mode | Add `fixed`, `scheduled`, and legacy `redis` choices | Let the operator select a constant target or a repeatable in-range schedule without removing Redis compatibility |
+| Target schedule | Add user settings for pH range, target count, 50-step maximum hold, 10 consecutive in-tolerance steps, and tolerance | Advance on either requested condition and keep every scheduled target inside the actor manifest bounds |
+| Online learning | Default `online_training_enabled = False` | Keep the actor frozen unless online replay and gradient updates are explicitly selected |
+| Frozen action mode | Add deterministic and clipped Gaussian choices with user-defined standard deviation and seed | Permit repeatable inference or small, auditable action perturbations without updating the model |
 | Model loading | Load the actor description, weights, training checkpoint, and online settings from `models/` | Reconstruct the exact offline actor and continue training from its critics |
 | Actor verification | Compare the trainable checkpoint actor with the deployment actor on saved test inputs | Prevent online learning from starting with mismatched model files |
 | State construction | Build the exact five-value state used offline | Keep online inputs consistent with offline training |
 | Action construction | Convert two TD3 outputs to the existing seven-pump action dictionary | Connect the custom action meaning to the reference BioSMB command format |
 | Flow bounds | Use acid and acetate bounds of `1-10 mL/min`, buffer sum `2-20 mL/min`, water `5 mL/min`, and total flow at most `25 mL/min` | Match the offline TD3 environment and physical command checks |
-| Exploration | Start online Gaussian action noise at `0.02` and reduce it to `0.01` over 5,000 actions | Continue from the final offline noise level while gradually reducing random variation |
+| Exploration | Keep online `0.02 -> 0.01` noise inside the trainer and add a separate frozen Gaussian setting | Prevent action noise from implicitly enabling replay or learning |
 | Reward | Calculate the same `relative_band_offset` shaped reward and optional-flow cost used offline | Train online with the intended tracking, flow-movement, and economic objective |
 | Replay and updates | Use capacity `10,000`, batch size `64`, recent window `200`, and one requested update per completed transition | Keep 20% of each batch focused on approximately the latest 3 hours 20 minutes while retaining prioritized and uniform history |
 | Water readback | Use a tolerance of `0.1 mL/min`; warn and log if measured water differs from `5 mL/min` | Allow realistic pump readback variation without stopping only because of the water deviation |
@@ -131,9 +137,9 @@ a^{\mathrm{flow}}_{t-1}
 \end{bmatrix}.
 $$
 
-Here, `PH_2` supplies $\mathrm{pH}_t$, Redis normally supplies the target
-$\mathrm{pH}^{*}_t$, and the last two values are reconstructed from measured
-pump flows when flow readback is available.
+Here, `PH_2` supplies $\mathrm{pH}_t$. Fixed, scheduled, or Redis mode supplies
+the target $\mathrm{pH}^{*}_t$. The last two values are reconstructed from
+measured pump flows when flow readback is available.
 
 For the actor currently in `models/`, the target must remain in the saved range
 $3.76 \leq \mathrm{pH}^{*} \leq 5.70$. The measured pH and complete state must
@@ -203,9 +209,39 @@ changing that ratio. Both buffer streams remain between `1` and `10 mL/min`,
 their sum remains between `2` and `20 mL/min`, and water is commanded at
 $F_W=5\ \mathrm{mL/min}$.
 
-### 5.3 Online transition and TD3 update
+### 5.3 Scheduled target update
 
-After the 60-second decision interval, one transition is stored:
+Scheduled mode creates evenly spaced targets inside the user-selected range and
+visits them in ping-pong order. Let $n_t$ be the completed controller steps at
+the current target and let $c_t$ be the consecutive in-tolerance count. After a
+completed interval,
+
+$$
+c_t =
+\begin{cases}
+c_{t-1}+1, & |\mathrm{pH}_{t+1}-\mathrm{pH}^{*}_t|\leq\delta,\\
+0, & \text{otherwise}.
+\end{cases}
+$$
+
+The target advances when
+
+$$
+n_t \geq N_{\max}
+\quad\text{or}\quad
+c_t \geq N_{\mathrm{consecutive}}.
+$$
+
+The current defaults are $N_{\max}=50$,
+$N_{\mathrm{consecutive}}=10$, and $\delta=0.1$ pH. These are completed
+60-second controller steps, not the one-second safety observations. If the
+target advances, reward $r_t$ still uses $\mathrm{pH}^{*}_t$, while
+$s_{t+1}$ contains the new target $\mathrm{pH}^{*}_{t+1}$.
+
+### 5.4 Online transition and TD3 update
+
+When online training is enabled, one transition is stored after the 60-second
+decision interval:
 
 $$
 (s_t, a_t, r_t, s_{t+1}, d_t),
@@ -252,9 +288,10 @@ approximately 64 minutes after warm-up.
    weights-only `.pt` file.
 3. The weights hash, architecture, state/action contract, and saved test cases
    are checked.
-4. The trainable TD3 agent is loaded from the trusted offline `.pkl`
-   checkpoint.
-5. The trainable actor is required to match the deployment actor.
+4. Target mode, target bounds, online-training choice, and frozen action mode
+   are validated.
+5. The trainable TD3 agent is loaded and actor-matched only when online
+   training is enabled.
 6. MongoDB and BioSMB OPC connections are opened.
 7. `BioSMBManager` is created using the existing `settings.json`.
 8. The program performs a 60-second observation and mass-safety warm-up.
@@ -263,11 +300,13 @@ No active control step begins if model loading or actor matching fails.
 
 ### Each control step
 
-1. Read the target pH from Redis; use `4.7` if Redis does not provide it.
+1. Use the fixed target, current scheduled target, or latest validated Redis
+   target.
 2. Read `PH_2`, all flow readbacks, and all monitored masses.
 3. Stop on invalid required measurements or unsafe mass.
 4. Build the five-value state.
-5. Add the scheduled online exploration noise to the actor action.
+5. Select online exploration, frozen deterministic inference, or frozen
+   Gaussian action noise.
 6. Convert the normalized action into physical flows.
 7. Validate dimensions, finite values, normalized bounds, individual flow
    bounds, buffer-flow sum, water command, and total flow.
@@ -279,17 +318,21 @@ No active control step begins if model loading or actor matching fails.
     readback.
 12. Warn and log if measured water differs from `5 mL/min` by more than
     `0.1 mL/min`; this water deviation alone does not stop the process.
-13. Build the next state and calculate the reward.
-14. Store the transition and request one TD3 update.
+13. Update the target schedule after the completed interval and build the next
+    state with the target that the next action will see.
+14. When online training is enabled, calculate reward against the old target,
+    store the transition, and request one TD3 update.
 15. Log the full step to MongoDB.
-16. Save a full checkpoint every 10 completed steps.
+16. Save a full checkpoint every 10 completed steps only during online
+    training.
 
 ### Shutdown
 
 On `Ctrl+C`, a safety exception, or an unhandled exception, the active-control
-path attempts to zero all flows and disable all pumps. The `finally` block then
-attempts to save a final online TD3 checkpoint. Docker is configured to send
-`SIGINT` and wait 30 seconds so Python can enter this shutdown path.
+path attempts to zero all flows and disable all pumps. If an online trainer was
+loaded, the `finally` block then attempts to save a final checkpoint. Docker is
+configured to send `SIGINT` and wait 30 seconds so Python can enter this
+shutdown path.
 
 ## 7. Safety behavior
 
@@ -324,12 +367,15 @@ Raw observations continue to use the MongoDB collection
 Each controller-step record now includes:
 
 - target pH and `PH_2` before and after the action;
+- target source, next target, schedule counters, change decision, and change
+  reason;
 - proposed, executed, previous, and measured actions;
 - current state and next state;
 - action validation result and fallback reason;
 - water warning status, measured deviation, and tolerance;
 - scalar reward and the full reward breakdown;
-- exploration standard deviation, magnitude, saturation, and action number;
+- frozen or online action source, clean action, sampled noise when applicable,
+  standard deviation, magnitude, saturation, and action number;
 - replay size, batch size, update count, critic loss, actor-update status, and
   actor loss;
 - mass-safety result;
@@ -340,7 +386,8 @@ The console also prints the current target, pH, executed streams, reward, and
 replay size. [dockerfile](dockerfile) enables unbuffered Python output so these
 messages appear promptly in Docker logs.
 
-Online checkpoints are written below `models/online_checkpoints/`. New online
+When online training is enabled, checkpoints are written below
+`models/online_checkpoints/`. New online
 checkpoints contain actor and critic networks, target networks, optimizers,
 replay contents, counters, and random-number states. Only trusted local `.pkl`
 files should ever be loaded because Python pickle is not safe for untrusted
@@ -410,13 +457,17 @@ The container configuration remains close to the earlier setup:
 - [.dockerignore](.dockerignore) excludes Python caches, logs, and generated
   online checkpoints while retaining the selected offline model files.
 
-[requirements.txt](requirements.txt) now contains only the direct runtime
-packages imported by the BioSMB program. Stable-Baselines3 is not installed
-because the online controller uses only the custom TD3 package. The Docker build
-installs CPU-only PyTorch `2.8.0`, matching the selected checkpoint's PyTorch
-release, and NumPy `2.3.1`, matching the saved actor information. Python
-`3.11-slim` is retained from the reference container. Actor hashes and saved
-inference cases are checked at startup to detect an incompatible runtime.
+[requirements.txt](requirements.txt) restores the exact extended package list
+from the previously working BioSMB reference in commit `d5e17e5`. It includes
+Gymnasium, Stable-Baselines3, plotting, TensorBoard, Torch `2.11.0`, NumPy
+`2.4.4`, and the BioSMB communication dependencies. The Dockerfile installs
+this list once and retains `pip check`, avoiding a separate conflicting Torch
+installation. Python `3.11-slim` remains the container base.
+
+The selected actor was exported under Torch `2.8.0` and NumPy `2.3.1`, so the
+restored working environment does not exactly match the export environment.
+Actor hashes and saved inference cases are checked at startup, but an actual
+Docker build and in-container actor preflight remain required.
 
 Because `restart: unless-stopped` is retained, Docker may restart the container
 after an internal process exit. The lab team should account for this behavior
@@ -443,9 +494,13 @@ the selected files stored in the image.
 
 ### Tests completed
 
-The complete local test suite completed with `50 passed`, including offline TD3
-behavior, BioSMB TD3 fidelity, model loading, refined state/action conversion,
-reward parity, replay updates, checkpointing, and additive integration checks.
+The preceding complete local test suite completed with `50 passed`. For the
+July 19 runtime-mode change, the new scheduler and frozen-action suite completed
+with `11 passed`, and the TD3 training-fidelity suite completed with `13 passed`.
+Python compilation also passed for `main.py`, the runtime helper, and the
+affected tests. The additive suite could not be recollected in the current
+`rl-env` because Gymnasium is not installed there. Gymnasium is present in the
+restored container requirements.
 
 A model-only preflight successfully:
 
@@ -460,11 +515,11 @@ A model-only preflight successfully:
 The current actor identifies itself as
 `custom_td3_687131b557875010`.
 
-The final audit also confirmed that the current `biosmb_interface` modules,
+The earlier audit also confirmed that the current `biosmb_interface` modules,
 `settings.json`, and the five lab-interaction functions in `main.py` are
-structurally identical to the Desktop reference. A Linux Python 3.11 dependency
-dry-run resolved every runtime package and the official CPU-only PyTorch 2.8.0
-wheel without installing them.
+structurally identical to the Desktop reference. The restored 46-package list
+matches the earlier working requirement content, but it has not been installed
+or resolved again during this change.
 
 ### Evidence not yet available
 
@@ -502,8 +557,10 @@ The following items should remain visible during handoff:
    library represent measured flow, commanded flow, or another internal value.
 5. The 60-second decision interval and reward timing have not been validated
    against the real process dynamics.
-6. Online exploration from `0.02` to `0.01` is intentionally small but has not
-   yet been shown safe on the lab system.
+6. Online exploration from `0.02` to `0.01` and frozen Gaussian noise are both
+   optional but neither has been shown safe on the lab system.
+   Frozen-action noise is defined in normalized actor coordinates, not directly
+   in pH or `mL/min`.
 7. The first online gradient update needs 64 completed transitions, so a short
    test will exercise inference and replay storage but not learning.
 8. The MongoDB connection string currently contains a plaintext credential in
@@ -516,15 +573,17 @@ The following items should remain visible during handoff:
     exit.
 11. Full training checkpoints are pickle files and must be treated as trusted
     internal artifacts only.
-12. `suggest_only` must be paired with `online_training_enabled = False`.
-    Otherwise, the program would store the suggested action as though it had
-    been applied, creating an incorrect online-training transition.
+12. `suggest_only` must be paired with `online_training_enabled = False`. The
+    startup validator now rejects the invalid combination before control.
 13. An existing Docker `models` volume can hide the selected model files from
     the newly built image. Its contents and hashes must be checked before use.
 14. The selected checkpoint was exported with Python `3.13.7`, while the
-    reference Docker base remains Python `3.11`. The model loads locally and
-    dependency resolution passes, but the final container preflight still must
-    be run after Docker is available.
+    reference Docker base remains Python `3.11`. The model loads locally, but
+    the final container build and preflight still must be run after Docker is
+    available.
+15. The restored working dependency set uses Torch `2.11.0` and NumPy `2.4.4`,
+    while the actor export recorded Torch `2.8.0` and NumPy `2.3.1`. Golden
+    actor cases reduce this risk but do not replace the container preflight.
 
 No literature comparison was needed for this software handoff. The controller's
 scientific performance should be assessed from supervised lab data rather than
@@ -550,14 +609,17 @@ The next experiment should be a staged, supervised lab commissioning run:
    suggested flows against expected safe values. Disabling learning is
    required because a suggested action is not physically applied and therefore
    must not be stored as the cause of the next measurement.
-9. Perform a manual Docker stop test and verify zero flows, disabled pumps, a
-    final checkpoint, and clean logs.
+9. Perform a manual Docker stop test and verify zero flows, disabled pumps,
+    clean logs, and no online checkpoint when training is disabled.
 10. Enable active control only after the above checks pass. Start with a fixed
     in-range target and closely monitor pH, actions, water warnings, masses, and
     MongoDB records.
-11. Use a run shorter than 64 control transitions if the first objective is to
-    validate deployment without any gradient update. A later approved run can
-    explicitly test online learning.
+11. Test scheduled mode with frozen deterministic actions before any noise or
+    learning. Confirm the 50-step and 10-consecutive-step change reasons in the
+    MongoDB records.
+12. Test frozen Gaussian actions only after deterministic operation is accepted.
+13. A later approved run can explicitly enable online learning and verify replay,
+    updates, and checkpoints.
 
 ## 15. Lab sign-off checklist
 
@@ -569,6 +631,10 @@ The next experiment should be a staged, supervised lab commissioning run:
 | Docker configuration and image build passed | |
 | Redis target key confirmed | |
 | Target constrained to the model's saved range | |
+| Fixed and scheduled target modes reviewed | |
+| 50-step and consecutive-in-tolerance switching verified | |
+| Frozen deterministic action mode reviewed | |
+| Frozen Gaussian action mode separately authorized | |
 | MongoDB collections and access confirmed | |
 | `PH_2` sensor confirmed | |
 | Pump 1 = acetic acid confirmed | |

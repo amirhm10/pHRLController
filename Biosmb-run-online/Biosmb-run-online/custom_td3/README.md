@@ -42,6 +42,33 @@ This preserves the ratio authority instead of allowing the total-flow choice to
 restrict it. The mapper enforces acid and acetate bounds of 1-10 mL/min, a
 buffer-flow sum of 2-20 mL/min, and fixed Arium water at 5 mL/min.
 
+## Runtime target and action modes
+
+`runtime_modes.py` keeps scheduling and optional frozen-action noise separate
+from the actor, pump mapping, online trainer, and BioSMB interfaces.
+
+`main.py` accepts `fixed`, `scheduled`, and legacy `redis` target modes. The
+scheduled mode creates the requested number of evenly spaced targets inside the
+deployed actor's saved target range and visits them in ping-pong order. After
+each completed controller interval, it advances when either the maximum hold
+length is reached or the required number of consecutive measurements is inside
+the configured pH tolerance. A miss resets the consecutive counter.
+
+When a scheduled target changes after transition `t`, the reward is calculated
+against the target used for action `t`, while `next_state` contains the new
+target that action `t+1` will see. This keeps TD3 replay semantics consistent.
+
+When `online_training_enabled = False`, `frozen_action_mode` selects either the
+exact deterministic actor output or an explicitly logged, clipped Gaussian
+perturbation. Neither frozen mode stores replay transitions, performs gradient
+updates, or saves online checkpoints. When online training is enabled, the
+existing online trainer continues to own exploration, replay, learning, and
+checkpointing.
+
+`frozen_action_noise_std` is expressed in the actor's normalized `[-1, 1]`
+coordinates. It is not a pH or `mL/min` standard deviation because the physical
+flow mapping is nonlinear.
+
 ## Active training modules
 
 Only the components used by the latest run are included:
@@ -53,6 +80,7 @@ agent.py
 replay_buffer.py
 helpers_net.py
 reward.py
+runtime_modes.py
 ```
 
 The active replay path samples one-step transitions directly. The package
@@ -127,7 +155,8 @@ weights-only `.pt` file with a manifest hash and golden-vector checks.
 ## Current safety status
 
 The latest actor manifest still records that the starting policy was trained in
-simulation and was not lab validated at export time. `main.py` is now configured
-for active control and active online updates at the user's direction. Laboratory
-supervision, verified pump mapping, and reviewed shutdown behavior remain
-necessary.
+simulation and was not lab validated at export time. `main.py` defaults to a
+fixed pH target, active control, a frozen deterministic actor, and no online
+updates. Scheduled targets, frozen Gaussian actions, Redis targets, and online
+training remain explicit user-selectable modes. Laboratory supervision, verified
+pump mapping, and reviewed shutdown behavior remain necessary.

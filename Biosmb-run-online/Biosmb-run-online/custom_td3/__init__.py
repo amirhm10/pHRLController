@@ -23,6 +23,12 @@ from .reward import (
     compute_ph_reward,
     reward_definition_text,
 )
+from .runtime_modes import (
+    RuntimeModeError,
+    ScheduledSetpointManager,
+    select_frozen_action,
+    validate_target_ph,
+)
 
 __all__ = [
     "ACTION_VARIABLES",
@@ -37,6 +43,8 @@ __all__ = [
     "PHRewardBreakdown",
     "PHRewardConfig",
     "RatioSumActionMapper",
+    "RuntimeModeError",
+    "ScheduledSetpointManager",
     "TD3Agent",
     "TD3ContractError",
     "TD3Policy",
@@ -45,6 +53,8 @@ __all__ = [
     "compute_ph_reward",
     "format_biosmb_action",
     "reward_definition_text",
+    "select_frozen_action",
     "set_global_seeds",
     "sha256_file",
+    "validate_target_ph",
 ]

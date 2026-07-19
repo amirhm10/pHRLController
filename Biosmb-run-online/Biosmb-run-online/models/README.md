@@ -7,9 +7,9 @@ default model set selected for the lab shipment.
 |---|---|
 | `td3_actor_manifest.json` | Deployment contract, provenance, hashes, and golden vectors |
 | `td3_actor_weights.pt` | CPU-loadable actor state dictionary for deterministic deployment |
-| `td3_training_checkpoint.pkl` | Trusted pretrained actor/critic starting point for active online training |
+| `td3_training_checkpoint.pkl` | Trusted pretrained actor/critic starting point when online training is enabled |
 | `td3_training_config.json` | Exact configuration snapshot from the latest offline run |
-| `td3_online_training_config.json` | Active online continuation settings, including batch size `64`, replay capacity `10000`, recent window `200`, and noise `0.02 -> 0.01` |
+| `td3_online_training_config.json` | Optional online continuation settings, including batch size `64`, replay capacity `10000`, recent window `200`, and noise `0.02 -> 0.01` |
 
 Source run:
 
@@ -53,9 +53,10 @@ latest run, not a claim that it won the comparison.
 The `.pkl` is not a full replay/optimizer/RNG resume checkpoint and must never
 be loaded from an untrusted source.
 
-`main.py` loads this actor description, actor weights, and training checkpoint
-by their fixed names. The online loader verifies that the checkpoint actor
-matches the deployment actor before control begins.
+`main.py` always loads the actor description and weights by their fixed names.
+It loads the training checkpoint only when `online_training_enabled = True`.
+The online loader then verifies that the checkpoint actor matches the deployment
+actor before control begins.
 
 If the selected model is deliberately replaced later, copy all four files from
 one generated `deployment_bundle` into this folder together. Never mix files

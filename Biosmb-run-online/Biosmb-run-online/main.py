@@ -8,8 +8,15 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 
-# I changed this line: import our custom TD3 deployment and active online-training helpers.
-from custom_td3 import BioSMBOnlineTD3Trainer, BioSMBTD3Policy
+# I changed this line: import our custom TD3 deployment, scheduling, and runtime-mode helpers.
+from custom_td3 import (
+    BioSMBOnlineTD3Trainer,
+    BioSMBTD3Policy,
+    RuntimeModeError,
+    ScheduledSetpointManager,
+    select_frozen_action,
+    validate_target_ph,
+)
 
 from redis import Redis
 from pymongo import MongoClient
@@ -24,13 +31,26 @@ from biosmb_interface.manager import BioSMBManager
 # I changed this line: allow checked TD3 flow commands to be sent to the pumps.
 control_mode = "active_control"   # "suggest_only" or "active_control"
 
-# I changed this line: enable active TD3 exploration, replay storage, and gradient updates.
-online_training_enabled = True
-
+# I changed this line: select fixed, scheduled, or legacy Redis target handling.
+target_ph_mode = "fixed"   # "fixed", "scheduled", or "redis"
 deployment_target_ph = 4.7
 
-use_redis_target_ph = True
+# I changed this line: define the requested scheduled pH range and switching conditions.
+scheduled_target_ph_min = 3.76
+scheduled_target_ph_max = 5.70
+scheduled_setpoint_count = 5
+scheduled_max_steps_per_setpoint = 50
+scheduled_consecutive_steps_required = 10
+target_ph_tolerance = 0.1
+
 redis_target_ph_key = "biosmb-inline-mixing_target-ph"
+
+# I changed this line: allow online learning to be disabled without changing the deployed actor.
+online_training_enabled = False
+# I changed this line: choose deterministic or small-noise frozen actions when learning is off.
+frozen_action_mode = "deterministic"   # "deterministic" or "gaussian_noise"
+frozen_action_noise_std = 0.01
+frozen_action_noise_seed = 7
 
 decision_interval_seconds = 60      # controller decision interval
 warmup_seconds = 60                 # wait before first control action
@@ -58,8 +78,6 @@ fixed_water_flow_rate = 5.0
 water_flow_tolerance = 0.1
 
 minimum_mass_grams = 200.0 + 1000   # bottle mass + safety liquid amount
-
-target_ph_tolerance = 0.1
 
 state_sensor_key = "PH_2"
 
@@ -234,9 +252,12 @@ def get_observation(
 # ============================================================
 
 def get_target_ph(redis_client=None) -> float:
-    """Gets target pH from Redis if available; otherwise uses fixed value."""
+    """Gets the configured fixed or Redis target pH."""
 
-    if use_redis_target_ph and redis_client is not None:
+    if target_ph_mode == "fixed":
+        return float(deployment_target_ph)
+
+    if target_ph_mode == "redis" and redis_client is not None:
         try:
             target_value = redis_client.get(redis_target_ph_key)
 
@@ -247,7 +268,77 @@ def get_target_ph(redis_client=None) -> float:
             print("Could not read target pH from Redis. Using fixed target.")
             traceback.print_exc()
 
+    if target_ph_mode == "scheduled":
+        raise RuntimeModeError(
+            "Scheduled targets must come from ScheduledSetpointManager."
+        )
+
     return float(deployment_target_ph)
+
+
+# I changed this line: validate all user-selectable runtime modes before opening the lab control loop.
+def prepare_runtime_modes(model):
+    """Validate settings and create the optional scheduler and noise generator."""
+
+    if control_mode not in {"suggest_only", "active_control"}:
+        raise RuntimeModeError(
+            "control_mode must be 'suggest_only' or 'active_control'."
+        )
+    if target_ph_mode not in {"fixed", "scheduled", "redis"}:
+        raise RuntimeModeError(
+            "target_ph_mode must be 'fixed', 'scheduled', or 'redis'."
+        )
+    if frozen_action_mode not in {"deterministic", "gaussian_noise"}:
+        raise RuntimeModeError(
+            "frozen_action_mode must be 'deterministic' or 'gaussian_noise'."
+        )
+    if online_training_enabled and control_mode != "active_control":
+        raise RuntimeModeError(
+            "Online training requires active_control because suggested actions "
+            "must not be stored as executed transitions."
+        )
+    if not np.isfinite(frozen_action_noise_std) or frozen_action_noise_std < 0.0:
+        raise RuntimeModeError("frozen_action_noise_std must be nonnegative.")
+
+    state_bounds = np.asarray(model.manifest["state_bounds"], dtype=float)
+    if state_bounds.shape != (5, 2):
+        raise RuntimeModeError("TD3 manifest has invalid state bounds.")
+    target_ph_bounds = (
+        float(state_bounds[1, 0]),
+        float(state_bounds[1, 1]),
+    )
+    validate_target_ph(
+        deployment_target_ph,
+        *target_ph_bounds,
+        name="deployment_target_ph",
+    )
+
+    target_scheduler = None
+    if target_ph_mode == "scheduled":
+        validate_target_ph(
+            scheduled_target_ph_min,
+            *target_ph_bounds,
+            name="scheduled_target_ph_min",
+        )
+        validate_target_ph(
+            scheduled_target_ph_max,
+            *target_ph_bounds,
+            name="scheduled_target_ph_max",
+        )
+        target_scheduler = ScheduledSetpointManager(
+            target_ph_min=scheduled_target_ph_min,
+            target_ph_max=scheduled_target_ph_max,
+            setpoint_count=scheduled_setpoint_count,
+            max_steps_per_setpoint=scheduled_max_steps_per_setpoint,
+            consecutive_steps_required=scheduled_consecutive_steps_required,
+            tolerance=target_ph_tolerance,
+        )
+
+    frozen_action_rng = None
+    if not online_training_enabled and frozen_action_mode == "gaussian_noise":
+        frozen_action_rng = np.random.default_rng(frozen_action_noise_seed)
+
+    return target_scheduler, frozen_action_rng, target_ph_bounds
 
 
 # ============================================================
@@ -532,6 +623,7 @@ def log_deployment_step(
     reward_info: Dict,
     exploration_info: Dict,
     online_training_info: Dict,
+    target_update_info: Dict,
     mass_safe: bool,
     mass_safety_reason: str,
     observation_before: Dict,
@@ -552,6 +644,8 @@ def log_deployment_step(
         "control_mode": control_mode,
 
         "target_ph": target_ph,
+        # I changed this line: record how and why the runtime target will change for the next state.
+        "target_update_info": target_update_info,
         "measured_ph_before": measured_ph_before,
         "measured_ph_after": measured_ph_after,
         "ph_error_after": ph_error_after,
@@ -604,6 +698,22 @@ def log_deployment_step(
             # I changed this line: log the shared fixed-water tolerance used by safety and TD3 conversion.
             "water_flow_tolerance": water_flow_tolerance,
             "state_sensor_key": state_sensor_key,
+            # I changed this line: log every user-selectable fixed and scheduled target setting.
+            "target_ph_mode": target_ph_mode,
+            "deployment_target_ph": deployment_target_ph,
+            "scheduled_target_ph_min": scheduled_target_ph_min,
+            "scheduled_target_ph_max": scheduled_target_ph_max,
+            "scheduled_setpoint_count": scheduled_setpoint_count,
+            "scheduled_max_steps_per_setpoint": (
+                scheduled_max_steps_per_setpoint
+            ),
+            "scheduled_consecutive_steps_required": (
+                scheduled_consecutive_steps_required
+            ),
+            # I changed this line: distinguish frozen deterministic and frozen Gaussian action runs.
+            "frozen_action_mode": frozen_action_mode,
+            "frozen_action_noise_std": frozen_action_noise_std,
+            "frozen_action_noise_seed": frozen_action_noise_seed,
             # I changed this line: record the active online-training settings and source checkpoint.
             "online_training_enabled": online_training_enabled,
             "td3_online_training_config_path": td3_online_training_config_path,
@@ -666,6 +776,9 @@ def load_online_trainer(model):
 def run_deployment_loop(
     model,
     online_trainer,
+    target_scheduler,
+    frozen_action_rng,
+    target_ph_bounds,
     biosmb,
     redis_client,
     raw_observation_collection,
@@ -709,9 +822,17 @@ def run_deployment_loop(
 
     print("Warm-up complete. Deployment control can now begin.")
 
-    while True:
-        target_ph = get_target_ph(redis_client)
+    # I changed this line: initialize one target that will remain consistent with each stored TD3 state.
+    if target_scheduler is not None:
+        target_ph = target_scheduler.current_target_ph
+        print(f"Scheduled pH targets: {target_scheduler.metadata()}")
+    else:
+        target_ph = validate_target_ph(
+            get_target_ph(redis_client),
+            *target_ph_bounds,
+        )
 
+    while True:
         observation_before = get_observation(
             biosmb_manager=biosmb,
             redis_client=redis_client,
@@ -739,23 +860,17 @@ def run_deployment_loop(
             previous_executed_action=previous_executed_action,
         )
 
-        # I changed this line: use the trainable actor with 0.02-to-0.01 exploration during online learning.
+        # I changed this line: separate online exploration from frozen deterministic or fixed-noise actions.
         if online_trainer is not None:
             raw_action, exploration_info = online_trainer.take_action(state)
         else:
-            raw_action, _ = model.predict(
+            raw_action, exploration_info = select_frozen_action(
+                model,
                 state,
-                deterministic=True,
+                action_mode=frozen_action_mode,
+                gaussian_noise_std=frozen_action_noise_std,
+                rng=frozen_action_rng,
             )
-            exploration_info = {
-                "action_source": "frozen_td3_deterministic",
-                "exploration_sigma": 0.0,
-                "exploration_magnitude": 0.0,
-                "action_saturation_fraction": float(
-                    np.mean(np.abs(raw_action) >= 1.0 - 1.0e-6)
-                ),
-                "online_action_step": None,
-            }
 
         # I changed this line: map the two normalized TD3 outputs into BioSMB flows.
         proposed_action = model.format_action(raw_action)
@@ -827,10 +942,59 @@ def run_deployment_loop(
                 f"{water_flow_warning['absolute_deviation']:.4f} mL/min."
             )
 
-        # I changed this line: build the next TD3 state for a later replay transition.
+        # I changed this line: apply the scheduled OR rule after one completed controller step.
+        if target_scheduler is not None:
+            target_update_info = target_scheduler.observe(measured_ph_after)
+            if not np.isclose(
+                target_update_info["target_ph"],
+                target_ph,
+                atol=1.0e-9,
+                rtol=0.0,
+            ):
+                raise RuntimeModeError(
+                    "Scheduled target state does not match the active target."
+                )
+            next_target_ph = float(target_update_info["next_target_ph"])
+        elif target_ph_mode == "redis":
+            next_target_ph = validate_target_ph(
+                get_target_ph(redis_client),
+                *target_ph_bounds,
+            )
+            target_changed = not np.isclose(
+                next_target_ph,
+                target_ph,
+                atol=1.0e-9,
+                rtol=0.0,
+            )
+            target_update_info = {
+                "mode": "redis",
+                "target_ph": target_ph,
+                "next_target_ph": next_target_ph,
+                "target_changed": target_changed,
+                "change_reason": (
+                    "redis_target_changed" if target_changed else "hold"
+                ),
+                "within_tolerance": (
+                    abs(measured_ph_after - target_ph) <= target_ph_tolerance
+                ),
+            }
+        else:
+            next_target_ph = target_ph
+            target_update_info = {
+                "mode": "fixed",
+                "target_ph": target_ph,
+                "next_target_ph": next_target_ph,
+                "target_changed": False,
+                "change_reason": "hold",
+                "within_tolerance": (
+                    abs(measured_ph_after - target_ph) <= target_ph_tolerance
+                ),
+            }
+
+        # I changed this line: use the next scheduled target in the next TD3 state while rewarding the old target.
         next_state = model.build_state(
             observation=observation_after,
-            target_ph=target_ph,
+            target_ph=next_target_ph,
             previous_executed_action=executed_action,
         )
 
@@ -900,6 +1064,7 @@ def run_deployment_loop(
             reward_info=reward_info,
             exploration_info=exploration_info,
             online_training_info=online_training_info,
+            target_update_info=target_update_info,
             mass_safe=mass_safe,
             mass_safety_reason=mass_safety_reason,
             observation_before=observation_before,
@@ -921,6 +1086,8 @@ def run_deployment_loop(
 
         # I changed this line: keep the last validated command as fallback instead of re-commanding imperfect readback.
         previous_executed_action = executed_action
+        # I changed this line: carry forward the exact target already encoded in next_state.
+        target_ph = next_target_ph
         step_number += 1
 
 
@@ -929,14 +1096,27 @@ if __name__ == "__main__":
     biosmb = None
     # I changed this line: keep the learner available for a final checkpoint on every controlled exit.
     online_trainer = None
+    # I changed this line: keep runtime mode state explicit before any lab connection is opened.
+    target_scheduler = None
+    frozen_action_rng = None
+    target_ph_bounds = None
 
     try:
         print("Starting BioSMB RL deployment script...")
         print(f"control_mode = {control_mode}")
+        print(f"target_ph_mode = {target_ph_mode}")
+        print(f"online_training_enabled = {online_training_enabled}")
+        print(f"frozen_action_mode = {frozen_action_mode}")
 
         redis_client = Redis(redis_url, decode_responses=True)
 
         model = load_trained_model()
+        # I changed this line: validate target and action modes before loading a learner or commanding pumps.
+        (
+            target_scheduler,
+            frozen_action_rng,
+            target_ph_bounds,
+        ) = prepare_runtime_modes(model)
         # I changed this line: start the verified active online TD3 learner when enabled.
         online_trainer = load_online_trainer(model)
 
@@ -960,6 +1140,9 @@ if __name__ == "__main__":
                 run_deployment_loop(
                     model=model,
                     online_trainer=online_trainer,
+                    target_scheduler=target_scheduler,
+                    frozen_action_rng=frozen_action_rng,
+                    target_ph_bounds=target_ph_bounds,
                     biosmb=biosmb,
                     redis_client=redis_client,
                     raw_observation_collection=raw_observation_collection,
