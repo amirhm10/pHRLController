@@ -453,6 +453,51 @@ def calculate_flow_switch_diagnostic(events: pd.DataFrame) -> dict[str, float]:
     }
 
 
+def calculate_raw_input_log_diagnostics(
+    run_data: pd.DataFrame,
+    flow_change_threshold: float,
+) -> dict[str, object]:
+    elapsed_seconds = run_data["elapsed_seconds"].to_numpy(dtype=float)
+    sample_intervals = np.diff(elapsed_seconds)
+    stream_diagnostics = []
+    for column, label, _ in MANIPULATED_INPUTS:
+        values = run_data[column].to_numpy(dtype=float)
+        changes = np.abs(np.diff(values))
+        stream_diagnostics.append(
+            {
+                "column": column,
+                "stream": label,
+                "minimum_ml_min": float(np.min(values)),
+                "maximum_ml_min": float(np.max(values)),
+                "unique_logged_value_count": int(
+                    run_data[column].nunique()
+                ),
+                "sample_to_sample_change_count": int(
+                    np.sum(changes > flow_change_threshold)
+                ),
+                "maximum_delta_below_change_threshold": float(
+                    np.max(
+                        changes[changes <= flow_change_threshold],
+                        initial=0.0,
+                    )
+                ),
+            }
+        )
+    return {
+        "sample_count": int(len(run_data)),
+        "duration_minutes": float(elapsed_seconds[-1] / 60.0),
+        "sample_interval_seconds": {
+            "minimum": float(np.min(sample_intervals)),
+            "median": float(np.median(sample_intervals)),
+            "mean": float(np.mean(sample_intervals)),
+            "p95": float(np.quantile(sample_intervals, 0.95)),
+            "maximum": float(np.max(sample_intervals)),
+        },
+        "averaging_or_resampling": "none",
+        "streams": stream_diagnostics,
+    }
+
+
 def plot_results(
     minute_data: pd.DataFrame,
     events: pd.DataFrame,
@@ -664,6 +709,113 @@ def plot_manipulated_inputs(
     plt.close(figure)
 
 
+def plot_raw_input_logs(
+    run_data: pd.DataFrame,
+    diagnostics: dict[str, object],
+    figure_path: Path,
+    generated_at: datetime,
+) -> None:
+    elapsed_min = (
+        run_data["elapsed_seconds"].to_numpy(dtype=float) / 60.0
+    )
+    observed_max = max(
+        float(run_data[column].max())
+        for column, _, _ in MANIPULATED_INPUTS
+    )
+    y_upper = max(10.0, np.ceil(observed_max))
+    interval_stats = diagnostics["sample_interval_seconds"]
+
+    figure, axes = plt.subplots(
+        nrows=3,
+        ncols=1,
+        figsize=(13.2, 8.4),
+        sharex=True,
+        sharey=True,
+    )
+    for axis, (column, label, color) in zip(axes, MANIPULATED_INPUTS):
+        values = run_data[column].to_numpy(dtype=float)
+        axis.plot(
+            elapsed_min,
+            values,
+            color=color,
+            linewidth=0.8,
+            marker=".",
+            markersize=1.2,
+            markeredgewidth=0.0,
+        )
+        axis.set_ylabel(f"{label}\n[mL/min]")
+        axis.set_ylim(-0.2, y_upper + 0.2)
+        axis.grid(True, which="major", alpha=0.22, linewidth=0.7)
+        axis.text(
+            0.995,
+            0.88,
+            (
+                f"Range: {np.min(values):.2f} to "
+                f"{np.max(values):.2f} mL/min"
+            ),
+            transform=axis.transAxes,
+            ha="right",
+            va="top",
+            fontsize=8.5,
+            color="#4A4A4A",
+        )
+
+    axes[0].set_title(
+        "July 31 BioSMB RL Test: Raw Approximately 1-Second Input Logs",
+        fontsize=15,
+        weight="bold",
+        pad=24,
+    )
+    axes[0].text(
+        0.5,
+        1.035,
+        (
+            f"All {diagnostics['sample_count']:,} selected-run CSV samples "
+            "at actual timestamps; no averaging or resampling | "
+            f"median interval {interval_stats['median']:.3f} s"
+        ),
+        transform=axes[0].transAxes,
+        ha="center",
+        va="bottom",
+        fontsize=9.3,
+        color="#4A4A4A",
+    )
+    axes[-1].set_xlabel("Elapsed time from reconstructed run start [min]")
+    axes[-1].set_xlim(0.0, max(float(elapsed_min[-1]), 1.0))
+    axes[-1].text(
+        0.005,
+        -0.28,
+        (
+            "July 31 mapping: water = flows[3], acid = flows[0], "
+            "sodium acetate = flows[1]"
+        ),
+        transform=axes[-1].transAxes,
+        ha="left",
+        va="top",
+        fontsize=8.5,
+        color="#4A4A4A",
+    )
+    axes[-1].text(
+        0.995,
+        -0.28,
+        f"Generated {generated_at.strftime('%Y-%m-%d %H:%M UTC')}",
+        transform=axes[-1].transAxes,
+        ha="right",
+        va="top",
+        fontsize=8.5,
+        color="#4A4A4A",
+    )
+    figure.subplots_adjust(
+        left=0.12,
+        right=0.985,
+        top=0.87,
+        bottom=0.12,
+        hspace=0.12,
+    )
+    figure.savefig(figure_path, dpi=220, bbox_inches="tight")
+    plt.close(figure)
+
+
 def plot_tracking_and_inputs(
     minute_data: pd.DataFrame,
     events: pd.DataFrame,
@@ -848,6 +1000,10 @@ def main() -> None:
         minute_data
     )
     flow_switch_diagnostic = calculate_flow_switch_diagnostic(events)
+    raw_input_log_diagnostics = calculate_raw_input_log_diagnostics(
+        run_data,
+        args.flow_change_threshold,
+    )
 
     event_path = table_dir / "reconstructed_controller_events.csv"
     minute_path = table_dir / "ph2_one_minute_average.csv"
@@ -862,6 +1018,9 @@ def main() -> None:
     )
     combined_figure_path = (
         figure_dir / "july31_ph2_tracking_and_input_flows.png"
+    )
+    raw_input_figure_path = (
+        figure_dir / "july31_raw_input_logs_no_averaging.png"
     )
     events.to_csv(event_path, index=False)
     minute_data.to_csv(minute_path, index=False)
@@ -889,6 +1048,12 @@ def main() -> None:
         tolerance=args.tolerance,
         experiment_end_min=experiment_end_min,
         figure_path=combined_figure_path,
+        generated_at=generated_at,
+    )
+    plot_raw_input_logs(
+        run_data=run_data,
+        diagnostics=raw_input_log_diagnostics,
+        figure_path=raw_input_figure_path,
         generated_at=generated_at,
     )
 
@@ -944,10 +1109,14 @@ def main() -> None:
             ),
         },
         "flow_switch_diagnostic": flow_switch_diagnostic,
+        "raw_input_log_diagnostics": raw_input_log_diagnostics,
         "manipulated_input_plot": {
             "figure": str(input_figure_path.as_posix()),
             "combined_tracking_figure": str(
                 combined_figure_path.as_posix()
+            ),
+            "raw_no_averaging_figure": str(
+                raw_input_figure_path.as_posix()
             ),
             "mapping_note": (
                 "July 31 used pump 4 for Arium water, exported as the "
@@ -988,6 +1157,7 @@ def main() -> None:
     print(f"Figure: {figure_path}")
     print(f"Input-flow figure: {input_figure_path}")
     print(f"Combined tracking/input figure: {combined_figure_path}")
+    print(f"Raw no-averaging input figure: {raw_input_figure_path}")
     print(f"Minute-average table: {minute_path}")
     print(f"Selected run start: {manifest['selected_run_start_utc']}")
     print(f"Action events: {len(events)}")
