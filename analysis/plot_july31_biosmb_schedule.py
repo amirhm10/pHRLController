@@ -2,7 +2,9 @@
 
 The lab CSV did not log ``target_ph``. This script reconstructs the scheduled
 target from the controller's ping-pong scheduler and averages the reliable
-``PH_2`` measurement over consecutive elapsed 60-second bins.
+``PH_2`` measurement over consecutive elapsed 60-second bins. It also plots
+the water, acetic-acid, and sodium-acetate input flows as synchronized
+subplots.
 """
 
 from __future__ import annotations
@@ -32,6 +34,11 @@ import pandas as pd
 PH2_COLUMN = "biosmb-sensors.PH_2"
 TIME_COLUMN = "utc_time"
 FLOW_COLUMNS = [f"biosmb-flows[{index}]" for index in range(7)]
+MANIPULATED_INPUTS = [
+    ("biosmb-flows[2]", "Arium water", "#4E79A7"),
+    ("biosmb-flows[0]", "Acetic acid", "#E15759"),
+    ("biosmb-flows[1]", "Sodium acetate (base)", "#59A14F"),
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -567,6 +574,93 @@ def plot_results(
     plt.close(figure)
 
 
+def plot_manipulated_inputs(
+    events: pd.DataFrame,
+    experiment_end_min: float,
+    figure_path: Path,
+    generated_at: datetime,
+) -> None:
+    event_x = events["elapsed_min"].to_numpy(dtype=float)
+    step_x = np.append(event_x, experiment_end_min)
+    observed_max = max(
+        float(events[column].max())
+        for column, _, _ in MANIPULATED_INPUTS
+    )
+    y_upper = max(10.0, np.ceil(observed_max))
+
+    figure, axes = plt.subplots(
+        nrows=3,
+        ncols=1,
+        figsize=(13.2, 8.4),
+        sharex=True,
+        sharey=True,
+    )
+    for axis, (column, label, color) in zip(axes, MANIPULATED_INPUTS):
+        values = events[column].to_numpy(dtype=float)
+        step_values = np.append(values, values[-1])
+        axis.step(
+            step_x,
+            step_values,
+            where="post",
+            color=color,
+            linewidth=1.8,
+        )
+        axis.set_ylabel(f"{label}\n[mL/min]")
+        axis.set_ylim(-0.2, y_upper + 0.2)
+        axis.grid(True, which="major", alpha=0.22, linewidth=0.7)
+        axis.text(
+            0.995,
+            0.88,
+            f"Range: {np.min(values):.2f} to {np.max(values):.2f} mL/min",
+            transform=axis.transAxes,
+            ha="right",
+            va="top",
+            fontsize=8.5,
+            color="#4A4A4A",
+        )
+
+    axes[0].set_title(
+        "July 31 BioSMB RL Test: Manipulated Input Flows",
+        fontsize=15,
+        weight="bold",
+        pad=24,
+    )
+    axes[0].text(
+        0.5,
+        1.035,
+        (
+            "Logged controller-held inputs; water = flows[2], "
+            "acid = flows[0], base = flows[1]"
+        ),
+        transform=axes[0].transAxes,
+        ha="center",
+        va="bottom",
+        fontsize=9.5,
+        color="#4A4A4A",
+    )
+    axes[-1].set_xlabel("Elapsed time from reconstructed run start [min]")
+    axes[-1].set_xlim(0.0, max(experiment_end_min, 1.0))
+    axes[-1].text(
+        0.995,
+        -0.28,
+        f"Generated {generated_at.strftime('%Y-%m-%d %H:%M UTC')}",
+        transform=axes[-1].transAxes,
+        ha="right",
+        va="top",
+        fontsize=8.5,
+        color="#4A4A4A",
+    )
+    figure.subplots_adjust(
+        left=0.12,
+        right=0.985,
+        top=0.87,
+        bottom=0.12,
+        hspace=0.12,
+    )
+    figure.savefig(figure_path, dpi=220, bbox_inches="tight")
+    plt.close(figure)
+
+
 def main() -> None:
     args = parse_args()
     validate_args(args)
@@ -618,6 +712,9 @@ def main() -> None:
     figure_path = (
         figure_dir / "july31_ph2_vs_reconstructed_setpoint_1min.png"
     )
+    input_figure_path = (
+        figure_dir / "july31_water_acid_base_flows.png"
+    )
     events.to_csv(event_path, index=False)
     minute_data.to_csv(minute_path, index=False)
     schedule_segments.to_csv(segment_path, index=False)
@@ -629,6 +726,13 @@ def main() -> None:
         target_values=target_values,
         tolerance=args.tolerance,
         figure_path=figure_path,
+        generated_at=generated_at,
+    )
+    experiment_end_min = float(run_data["elapsed_seconds"].iloc[-1]) / 60.0
+    plot_manipulated_inputs(
+        events=events,
+        experiment_end_min=experiment_end_min,
+        figure_path=input_figure_path,
         generated_at=generated_at,
     )
 
@@ -684,6 +788,21 @@ def main() -> None:
             ),
         },
         "flow_switch_diagnostic": flow_switch_diagnostic,
+        "manipulated_input_plot": {
+            "figure": str(input_figure_path.as_posix()),
+            "time_representation": (
+                "controller action values held piecewise constant between "
+                "detected action events"
+            ),
+            "subplots": [
+                {
+                    "column": column,
+                    "stream": label,
+                    "units": "mL/min",
+                }
+                for column, label, _ in MANIPULATED_INPUTS
+            ],
+        },
         "limitations": [
             "The target values were not logged and are reconstructed.",
             (
@@ -704,6 +823,7 @@ def main() -> None:
 
     print(f"Output directory: {output_dir}")
     print(f"Figure: {figure_path}")
+    print(f"Input-flow figure: {input_figure_path}")
     print(f"Minute-average table: {minute_path}")
     print(f"Selected run start: {manifest['selected_run_start_utc']}")
     print(f"Action events: {len(events)}")
