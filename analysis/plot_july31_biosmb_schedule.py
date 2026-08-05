@@ -3,8 +3,8 @@
 The lab CSV did not log ``target_ph``. This script reconstructs the scheduled
 target from the controller's ping-pong scheduler and averages the reliable
 ``PH_2`` measurement over consecutive elapsed 60-second bins. It also plots
-the water, acetic-acid, and sodium-acetate input flows as synchronized
-subplots.
+the July 31 pump mapping for water, acetic acid, and sodium acetate as
+synchronized subplots, both alone and beneath the pH tracking panel.
 """
 
 from __future__ import annotations
@@ -34,8 +34,11 @@ import pandas as pd
 PH2_COLUMN = "biosmb-sensors.PH_2"
 TIME_COLUMN = "utc_time"
 FLOW_COLUMNS = [f"biosmb-flows[{index}]" for index in range(7)]
+# The July 31 hardware used pump 4 for Arium water, which appears in the
+# zero-based CSV export as biosmb-flows[3]. This historical mapping differs
+# from compact project datasets that expose water as biosmb-flows[2].
 MANIPULATED_INPUTS = [
-    ("biosmb-flows[2]", "Arium water", "#4E79A7"),
+    ("biosmb-flows[3]", "Arium water", "#4E79A7"),
     ("biosmb-flows[0]", "Acetic acid", "#E15759"),
     ("biosmb-flows[1]", "Sodium acetate (base)", "#59A14F"),
 ]
@@ -629,7 +632,7 @@ def plot_manipulated_inputs(
         0.5,
         1.035,
         (
-            "Logged controller-held inputs; water = flows[2], "
+            "July 31 pump mapping; water = flows[3], "
             "acid = flows[0], base = flows[1]"
         ),
         transform=axes[0].transAxes,
@@ -655,6 +658,148 @@ def plot_manipulated_inputs(
         right=0.985,
         top=0.87,
         bottom=0.12,
+        hspace=0.12,
+    )
+    figure.savefig(figure_path, dpi=220, bbox_inches="tight")
+    plt.close(figure)
+
+
+def plot_tracking_and_inputs(
+    minute_data: pd.DataFrame,
+    events: pd.DataFrame,
+    tolerance: float,
+    experiment_end_min: float,
+    figure_path: Path,
+    generated_at: datetime,
+) -> None:
+    x_ph = minute_data["elapsed_min_center"].to_numpy(dtype=float)
+    ph_mean = minute_data["ph2_mean"].to_numpy(dtype=float)
+    ph_std = minute_data["ph2_std"].to_numpy(dtype=float)
+    event_x = events["elapsed_min"].to_numpy(dtype=float)
+    event_target = events["applied_target_ph"].to_numpy(dtype=float)
+    step_x = np.append(event_x, experiment_end_min)
+    step_target = np.append(event_target, event_target[-1])
+    observed_flow_max = max(
+        float(events[column].max())
+        for column, _, _ in MANIPULATED_INPUTS
+    )
+    flow_y_upper = max(10.0, np.ceil(observed_flow_max))
+
+    figure, axes = plt.subplots(
+        nrows=4,
+        ncols=1,
+        figsize=(13.2, 10.2),
+        sharex=True,
+        gridspec_kw={"height_ratios": [1.45, 1.0, 1.0, 1.0]},
+    )
+    tracking_axis = axes[0]
+    tracking_axis.fill_between(
+        step_x,
+        step_target - tolerance,
+        step_target + tolerance,
+        step="post",
+        color="#F28E2B",
+        alpha=0.12,
+        label=f"Setpoint tolerance (+/-{tolerance:.1f} pH)",
+    )
+    tracking_axis.step(
+        step_x,
+        step_target,
+        where="post",
+        color="#D55E00",
+        linewidth=2.1,
+        label="Reconstructed setpoint",
+        zorder=3,
+    )
+    tracking_axis.fill_between(
+        x_ph,
+        ph_mean - ph_std,
+        ph_mean + ph_std,
+        color="#0072B2",
+        alpha=0.14,
+        label="Within-minute PH2 standard deviation",
+    )
+    tracking_axis.plot(
+        x_ph,
+        ph_mean,
+        color="#0072B2",
+        linewidth=1.7,
+        marker="o",
+        markersize=2.6,
+        markeredgewidth=0.0,
+        label="PH2 one-minute mean",
+        zorder=4,
+    )
+    tracking_axis.set_ylabel("Tracking\n[pH]")
+    tracking_axis.legend(
+        loc="upper right",
+        ncols=2,
+        frameon=True,
+        framealpha=0.95,
+        fontsize=8.2,
+    )
+    tracking_axis.grid(True, which="major", alpha=0.22, linewidth=0.7)
+
+    for axis, (column, label, color) in zip(axes[1:], MANIPULATED_INPUTS):
+        values = events[column].to_numpy(dtype=float)
+        step_values = np.append(values, values[-1])
+        axis.step(
+            step_x,
+            step_values,
+            where="post",
+            color=color,
+            linewidth=1.7,
+        )
+        axis.set_ylabel(f"{label}\n[mL/min]")
+        axis.set_ylim(-0.2, flow_y_upper + 0.2)
+        axis.grid(True, which="major", alpha=0.22, linewidth=0.7)
+        axis.text(
+            0.995,
+            0.84,
+            f"Range: {np.min(values):.2f} to {np.max(values):.2f} mL/min",
+            transform=axis.transAxes,
+            ha="right",
+            va="top",
+            fontsize=8.2,
+            color="#4A4A4A",
+        )
+
+    axes[0].set_title(
+        "July 31 BioSMB RL Test: pH Tracking and Manipulated Inputs",
+        fontsize=15,
+        weight="bold",
+        pad=24,
+    )
+    axes[0].text(
+        0.5,
+        1.035,
+        (
+            "PH2 and reconstructed schedule with water = flows[3], "
+            "acid = flows[0], and sodium acetate = flows[1]"
+        ),
+        transform=axes[0].transAxes,
+        ha="center",
+        va="bottom",
+        fontsize=9.5,
+        color="#4A4A4A",
+    )
+    axes[-1].set_xlabel("Elapsed time from reconstructed run start [min]")
+    axes[-1].set_xlim(0.0, max(experiment_end_min, 1.0))
+    axes[-1].text(
+        0.995,
+        -0.31,
+        f"Generated {generated_at.strftime('%Y-%m-%d %H:%M UTC')}",
+        transform=axes[-1].transAxes,
+        ha="right",
+        va="top",
+        fontsize=8.5,
+        color="#4A4A4A",
+    )
+    figure.subplots_adjust(
+        left=0.12,
+        right=0.985,
+        top=0.90,
+        bottom=0.10,
         hspace=0.12,
     )
     figure.savefig(figure_path, dpi=220, bbox_inches="tight")
@@ -715,6 +860,9 @@ def main() -> None:
     input_figure_path = (
         figure_dir / "july31_water_acid_base_flows.png"
     )
+    combined_figure_path = (
+        figure_dir / "july31_ph2_tracking_and_input_flows.png"
+    )
     events.to_csv(event_path, index=False)
     minute_data.to_csv(minute_path, index=False)
     schedule_segments.to_csv(segment_path, index=False)
@@ -733,6 +881,14 @@ def main() -> None:
         events=events,
         experiment_end_min=experiment_end_min,
         figure_path=input_figure_path,
+        generated_at=generated_at,
+    )
+    plot_tracking_and_inputs(
+        minute_data=minute_data,
+        events=events,
+        tolerance=args.tolerance,
+        experiment_end_min=experiment_end_min,
+        figure_path=combined_figure_path,
         generated_at=generated_at,
     )
 
@@ -790,6 +946,13 @@ def main() -> None:
         "flow_switch_diagnostic": flow_switch_diagnostic,
         "manipulated_input_plot": {
             "figure": str(input_figure_path.as_posix()),
+            "combined_tracking_figure": str(
+                combined_figure_path.as_posix()
+            ),
+            "mapping_note": (
+                "July 31 used pump 4 for Arium water, exported as the "
+                "zero-based biosmb-flows[3] column"
+            ),
             "time_representation": (
                 "controller action values held piecewise constant between "
                 "detected action events"
@@ -824,6 +987,7 @@ def main() -> None:
     print(f"Output directory: {output_dir}")
     print(f"Figure: {figure_path}")
     print(f"Input-flow figure: {input_figure_path}")
+    print(f"Combined tracking/input figure: {combined_figure_path}")
     print(f"Minute-average table: {minute_path}")
     print(f"Selected run start: {manifest['selected_run_start_utc']}")
     print(f"Action events: {len(events)}")

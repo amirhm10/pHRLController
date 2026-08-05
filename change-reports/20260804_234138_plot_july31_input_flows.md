@@ -1,5 +1,15 @@
 # Plot July 31 manipulated input flows
 
+## Correction added August 4, 2026
+
+The initial version of this work item incorrectly applied the compact project
+mapping `biosmb-flows[2] = water` to the July 31 hardware run. The July 31
+experiment used pump 4 for Arium water, which is exported as the zero-based
+column `biosmb-flows[3]`. That channel is fixed at 5.00 mL/min during the
+selected run. The plotting script and generated figure were corrected in the
+follow-up work recorded in
+`change-reports/20260804_234831_correct_july31_water_and_combine_plots.md`.
+
 ## Objective
 
 Add one figure to the existing July 31 BioSMB schedule analysis showing the
@@ -20,11 +30,14 @@ The raw lab CSV and existing generated result files were not modified.
 
 ## Method and implementation summary
 
-The stream mapping follows the project convention:
+The corrected historical stream mapping is:
 
-- `biosmb-flows[2]` is Arium water.
+- `biosmb-flows[3]` is Arium water from pump 4.
 - `biosmb-flows[0]` is 100 mM acetic acid.
 - `biosmb-flows[1]` is 100 mM sodium acetate, labeled as base.
+
+The original implementation used `biosmb-flows[2]` for water. That assumption
+was incorrect for this run and produced a misleading zero-water subplot.
 
 The figure uses controller action-event values from
 `reconstructed_controller_events.csv`. For each input \(u_j\), the plotted
@@ -53,11 +66,11 @@ figure, tables, or manifest. The `results/` directory remains ignored by Git.
 
 Across the 123 detected controller action events:
 
-- Arium water remained at 0.00 mL/min for the full selected run.
+- Arium water remained at 5.00 mL/min for the full selected run.
 - Acetic acid ranged from 1.04 to 9.48 mL/min.
 - Sodium acetate ranged from 1.00 to 9.04 mL/min.
 
-The flat water trace is a data result, not a plotting omission.
+The corrected flat water trace at 5.00 mL/min is a data result.
 
 ## Verification
 
@@ -88,8 +101,8 @@ Results:
 
 ## Known limitations and next steps
 
-- Water was logged at zero throughout this selected run, so its subplot is
-  intentionally flat.
+- Water was logged at 5.00 mL/min on the pump 4 channel throughout this
+  selected run, so its subplot is intentionally flat.
 - The plot shows commanded or logged held flow inputs at action events. It
   does not establish the delivered physical flow or pump calibration.
 - Sub-minute pump and mixing dynamics require separate measured flow data if
