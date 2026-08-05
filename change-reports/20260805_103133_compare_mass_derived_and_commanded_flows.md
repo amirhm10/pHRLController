@@ -1,5 +1,20 @@
 # Compare mass-derived and commanded July 31 flows
 
+## Correction added August 5, 2026
+
+The adjacent-row top-panel estimator described below was superseded after
+checking the bottle-scale update cadence. The current analysis selects the
+first real CSV row from each elapsed four-second bin and calculates mass loss
+between consecutive selected rows. The one-minute method is unchanged. See
+`change-reports/20260805_104250_use_four_second_mass_flow_intervals.md` for the
+correction, regenerated artifacts, and updated findings.
+
+The later audit also confirmed that July 31 water command uses pump 4,
+`biosmb-flows[3]`, at 5.00 mL/min. However, the named water scale increases
+during the run and cannot be used to calculate actual water flow. Current
+tables and figures mark the water scale derivative as an invalid diagnostic
+instead of reporting it as actual flow.
+
 ## Objective
 
 Back-calculate bottle-out flow separately for acetic acid, sodium acetate, and
