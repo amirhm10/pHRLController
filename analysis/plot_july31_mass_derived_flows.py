@@ -317,6 +317,69 @@ def calculate_metrics(
     return pd.DataFrame(records)
 
 
+def build_acid_sodium_actual_flow_export(
+    interval_table: pd.DataFrame,
+) -> pd.DataFrame:
+    common_columns = [
+        "interval_type",
+        "interval_index",
+        "source_row_start",
+        "source_row_end",
+        "utc_start",
+        "utc_end",
+        "elapsed_min_end",
+        "interval_seconds",
+    ]
+    stream_columns = [
+        "mass_start_g",
+        "mass_end_g",
+        "mass_loss_g",
+        "actual_flow_ml_min",
+        "commanded_flow_at_start_ml_min",
+        "commanded_flow_at_end_ml_min",
+        "command_changed_within_interval",
+    ]
+    exported = None
+    for stream in ("acid", "sodium_acetate"):
+        selected = (
+            interval_table.loc[
+                interval_table["stream"].eq(stream),
+                common_columns + stream_columns,
+            ]
+            .sort_values("interval_index")
+            .reset_index(drop=True)
+        )
+        if selected["actual_flow_ml_min"].isna().any():
+            raise ValueError(
+                f"Valid actual-flow export contains missing {stream} values."
+            )
+        renamed = selected.rename(
+            columns={
+                column: f"{stream}_{column}"
+                for column in stream_columns
+            }
+        )
+        if exported is None:
+            exported = renamed
+            continue
+        if not exported[common_columns].equals(renamed[common_columns]):
+            raise ValueError(
+                "Acid and sodium interval metadata are not synchronized."
+            )
+        exported = pd.concat(
+            [
+                exported,
+                renamed[
+                    [f"{stream}_{column}" for column in stream_columns]
+                ],
+            ],
+            axis=1,
+        )
+    if exported is None:
+        raise ValueError("No valid acid or sodium actual-flow rows found.")
+    return exported
+
+
 def padded_limits(values: np.ndarray) -> tuple[float, float]:
     finite = values[np.isfinite(values)]
     lower = float(np.min(finite))
@@ -588,13 +651,23 @@ def main() -> None:
         "first_csv_row_each_elapsed_minute",
     )
     metrics = calculate_metrics([short_table, minute_table])
+    acid_sodium_short = build_acid_sodium_actual_flow_export(short_table)
+    acid_sodium_minute = build_acid_sodium_actual_flow_export(minute_table)
 
     short_path = table_dir / "mass_derived_flow_log_intervals.csv"
     minute_path = table_dir / "mass_derived_flow_one_minute_intervals.csv"
     metrics_path = table_dir / "mass_derived_flow_metrics.csv"
+    acid_sodium_short_path = (
+        table_dir / "acid_sodium_actual_flow_4_second.csv"
+    )
+    acid_sodium_minute_path = (
+        table_dir / "acid_sodium_actual_flow_one_minute.csv"
+    )
     short_table.to_csv(short_path, index=False)
     minute_table.to_csv(minute_path, index=False)
     metrics.to_csv(metrics_path, index=False)
+    acid_sodium_short.to_csv(acid_sodium_short_path, index=False)
+    acid_sodium_minute.to_csv(acid_sodium_minute_path, index=False)
 
     figure_paths = {}
     for definition in stream_definitions:
@@ -689,6 +762,12 @@ def main() -> None:
             "short_intervals": str(short_path.as_posix()),
             "one_minute_intervals": str(minute_path.as_posix()),
             "metrics": str(metrics_path.as_posix()),
+            "acid_sodium_actual_four_second": str(
+                acid_sodium_short_path.as_posix()
+            ),
+            "acid_sodium_actual_one_minute": str(
+                acid_sodium_minute_path.as_posix()
+            ),
         },
         "limitations": [
             (
@@ -721,6 +800,8 @@ def main() -> None:
     print(f"Four-second table: {short_path}")
     print(f"One-minute table: {minute_path}")
     print(f"Metrics table: {metrics_path}")
+    print(f"Acid/base four-second actual flows: {acid_sodium_short_path}")
+    print(f"Acid/base one-minute actual flows: {acid_sodium_minute_path}")
     for stream, figure_path in figure_paths.items():
         print(f"{stream} figure: {figure_path}")
     print(
