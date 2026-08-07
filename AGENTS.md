@@ -60,6 +60,38 @@ requirements.txt            Python dependencies
 CODEX_CONTEXT.md            extra project context for Codex
 ```
 
+## Research and Engineering Skill Routing
+
+Skills supplement, but do not replace, this file. Repository-specific instructions in `AGENTS.md` and verified repository files override generic skill assumptions. This repository does not use `.agents/project-profiles/`; derive paths, variables, units, environments, and execution restrictions from this file and verified repository content.
+
+When the user explicitly names a skill, read its `SKILL.md` completely and follow it. When a task clearly matches a skill description, invoke that skill automatically. Use the smallest sufficient set, normally one to three skills at a time; do not load or invoke every skill for every task. Use `research-result-loop` as the compatibility entrypoint for broad, multidisciplinary research-result analysis, and `research-orchestrator` when a task spans several disciplines or has several plausible failure mechanisms. For focused work, invoke the relevant specialist directly.
+
+| Task or trigger | Skill path |
+|---|---|
+| Broad multidisciplinary result analysis (compatibility entrypoint) | `.agents/skills/research-result-loop/SKILL.md` |
+| Cross-disciplinary planning, failure-mechanism triage, and synthesis | `.agents/skills/research-orchestrator/SKILL.md` |
+| Literature, citations, source verification, and state of the art | `.agents/skills/literature-evidence-research/SKILL.md` |
+| Experiment design, data integrity, metrics, uncertainty, and comparisons | `.agents/skills/experiment-and-statistics/SKILL.md` |
+| Mathematical derivation, proofs, assumptions, conditioning, and verification | `.agents/skills/mathematical-reasoning-verification/SKILL.md` |
+| Optimization objectives, variables, constraints, feasibility, and formulation | `.agents/skills/optimization-modeling/SKILL.md` |
+| Solver selection, scaling, derivatives, initialization, infeasibility, and status | `.agents/skills/solver-engineering/SKILL.md` |
+| Machine learning, including PCA, PLS, deep networks, soft sensors, and OOD behavior | `.agents/skills/machine-learning-research/SKILL.md` |
+| Reinforcement learning, environment semantics, rewards, replay, and evaluation | `.agents/skills/reinforcement-learning-research/SKILL.md` |
+| System identification, observers, MPC, target selection, and closed-loop analysis | `.agents/skills/control-mpc-research/SKILL.md` |
+| Safe learning, executed-action analysis, Lyapunov/barrier methods, and certification claims | `.agents/skills/safe-learning-certification/SKILL.md` |
+| Material/energy balances, units, thermodynamics, transport, and process plausibility | `.agents/skills/chemical-engineering-foundations/SKILL.md` |
+| Aspen Plus/Dynamics/polymer cases, mappings, convergence, and safe automation | `.agents/skills/aspen-process-simulation/SKILL.md` |
+| Distillation, VLE, MESH equations, stages, hydraulics, and column dynamics | `.agents/skills/distillation-separations/SKILL.md` |
+| CSTRs, kinetics, reactor balances, multiplicity, stiffness, and reaction engineering | `.agents/skills/reaction-engineering-cstr/SKILL.md` |
+| Polymerization kinetics, moments, molecular properties, rheology, and grade transitions | `.agents/skills/polymerization-process-engineering/SKILL.md` |
+| pH, aqueous equilibria, buffers, electrolytes, mixing, and sensor behavior | `.agents/skills/ph-aqueous-systems/SKILL.md` |
+| Process hazards, operating envelopes, abnormal scenarios, safeguards, and operability | `.agents/skills/process-safety-operability/SKILL.md` |
+| Scientific Python architecture, interfaces, configuration, notebooks, and maintainability | `.agents/skills/scientific-software-engineering/SKILL.md` |
+| Scientific and numerical unit, invariant, integration, simulator, ML, and RL tests | `.agents/skills/scientific-software-testing/SKILL.md` |
+| Reports, figures, tables, citations, provenance, and reproducibility | `.agents/skills/research-reporting-reproducibility/SKILL.md` |
+
+Sequence related skills only when needed: validate provenance and metrics before interpreting results; formulate optimization problems before solver tuning; pair ML, RL, or control analysis with the relevant physical-domain specialist when process physics is causal; and use reporting after the evidence-owning specialist has validated the conclusions. Skill activation does not authorize out-of-scope controller work, notebook rewrites, Aspen execution, regeneration or overwriting of artifacts, environment changes, commits, or modification of user-owned files; preserve all corresponding rules below.
+
 ## Current models and runners
 
 Core configuration:
