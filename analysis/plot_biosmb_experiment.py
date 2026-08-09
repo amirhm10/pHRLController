@@ -367,7 +367,6 @@ def main() -> None:
         tolerance=args.target_tolerance,
         experiment_label=args.experiment_label,
         figure_path=seconds_tracking_figure,
-        generated_at=generated_at,
     )
     plot_minute_tracking_and_inputs(
         minute_data,
@@ -377,7 +376,6 @@ def main() -> None:
         tolerance=args.target_tolerance,
         experiment_label=args.experiment_label,
         figure_path=minutes_tracking_figure,
-        generated_at=generated_at,
     )
 
     seconds_figures = [seconds_tracking_figure]
@@ -393,18 +391,14 @@ def main() -> None:
         plot_mass_flow_intervals(
             second_mass_flows,
             spec,
-            interval_label=f"{args.seconds_interval:g}-Second",
             experiment_label=args.experiment_label,
             figure_path=seconds_path,
-            generated_at=generated_at,
         )
         plot_mass_flow_intervals(
             minute_mass_flows,
             spec,
-            interval_label="One-Minute",
             experiment_label=args.experiment_label,
             figure_path=minutes_path,
-            generated_at=generated_at,
         )
         seconds_figures.append(seconds_path)
         minutes_figures.append(minutes_path)

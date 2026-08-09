@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
@@ -24,7 +23,6 @@ import pandas as pd
 from helpers.biosmb_experiment_data import (
     PH2_COLUMN,
     SCHEDULE_COLUMN,
-    TIME_COLUMN,
     StreamSpec,
 )
 
@@ -57,7 +55,7 @@ def _style_tracking_axis(
         step="post",
         color="#F28E2B",
         alpha=0.12,
-        label=f"Reconstructed target +/- {tolerance:.2f} pH",
+        label=f"Target +/- {tolerance:.2f} pH",
     )
     axis.step(
         step_x,
@@ -65,7 +63,7 @@ def _style_tracking_axis(
         where="post",
         color="#D55E00",
         linewidth=2.0,
-        label="Reconstructed target",
+        label="Target",
         zorder=3,
     )
     axis.set_ylabel("Tracking [pH]")
@@ -77,39 +75,17 @@ def _finish_tracking_and_inputs_figure(
     axes: Sequence[plt.Axes],
     *,
     title: str,
-    subtitle: str,
     experiment_end_min: float,
-    generated_at: datetime,
     figure_path: Path,
 ) -> None:
-    axes[0].set_title(title, fontsize=15, weight="bold", pad=24)
-    axes[0].text(
-        0.5,
-        1.035,
-        subtitle,
-        transform=axes[0].transAxes,
-        ha="center",
-        va="bottom",
-        fontsize=9.2,
-        color="#4A4A4A",
-    )
-    axes[-1].set_xlabel("Elapsed time from selected experiment start [min]")
+    axes[0].set_title(title, fontsize=15, weight="bold", pad=12)
+    axes[-1].set_xlabel("Time [min]")
     axes[-1].set_xlim(0.0, max(experiment_end_min, 1.0))
-    axes[-1].text(
-        0.995,
-        -0.31,
-        f"Generated {generated_at.strftime('%Y-%m-%d %H:%M UTC')}",
-        transform=axes[-1].transAxes,
-        ha="right",
-        va="top",
-        fontsize=8.2,
-        color="#4A4A4A",
-    )
     figure.subplots_adjust(
         left=0.105,
         right=0.985,
         top=0.87,
-        bottom=0.12,
+        bottom=0.08,
         hspace=0.14,
     )
     figure.savefig(figure_path, dpi=220, bbox_inches="tight")
@@ -125,7 +101,6 @@ def plot_seconds_tracking_and_inputs(
     tolerance: float,
     experiment_label: str,
     figure_path: Path,
-    generated_at: datetime,
 ) -> None:
     """Plot raw pH/commands and interval mass-derived flows together."""
 
@@ -135,8 +110,6 @@ def plot_seconds_tracking_and_inputs(
     elapsed_min = data["elapsed_seconds"].to_numpy(dtype=float) / 60.0
     experiment_end_min = float(elapsed_min[-1])
     step_x, step_target = _schedule_step_arrays(events, experiment_end_min)
-    sample_intervals = data[TIME_COLUMN].diff().dt.total_seconds().dropna()
-    mass_interval_seconds = _single_requested_interval(mass_flow_intervals)
 
     figure, axes = plt.subplots(
         nrows=1 + len(stream_specs),
@@ -169,22 +142,13 @@ def plot_seconds_tracking_and_inputs(
             command=data[spec.flow_column].to_numpy(dtype=float),
             mass_flow_intervals=mass_flow_intervals,
             stream_spec=spec,
-            command_label="Commanded flow (raw log)",
         )
 
     _finish_tracking_and_inputs_figure(
         figure,
         axes,
-        title=(
-            f"{experiment_label}: Second-Level Logs and Calculated Flows"
-        ),
-        subtitle=(
-            f"All {len(data):,} raw pH/command samples | median log interval "
-            f"{sample_intervals.median():.3f} s | calculated flow from "
-            f"{mass_interval_seconds:g}-second mass differences"
-        ),
+        title=experiment_label,
         experiment_end_min=experiment_end_min,
-        generated_at=generated_at,
         figure_path=figure_path,
     )
 
@@ -198,7 +162,6 @@ def plot_minute_tracking_and_inputs(
     tolerance: float,
     experiment_label: str,
     figure_path: Path,
-    generated_at: datetime,
 ) -> None:
     """Plot one-minute pH, commands, and mass-derived flows together."""
 
@@ -215,7 +178,6 @@ def plot_minute_tracking_and_inputs(
     start_timestamp = float(minute_data["utc_first"].iloc[0].timestamp())
     experiment_end_min = (experiment_end_min - start_timestamp) / 60.0
     step_x, step_target = _schedule_step_arrays(events, experiment_end_min)
-    mass_interval_seconds = _single_requested_interval(mass_flow_intervals)
 
     figure, axes = plt.subplots(
         nrows=1 + len(stream_specs),
@@ -269,22 +231,13 @@ def plot_minute_tracking_and_inputs(
             ].to_numpy(dtype=float),
             mass_flow_intervals=mass_flow_intervals,
             stream_spec=spec,
-            command_label="Commanded flow (time-weighted over interval)",
         )
 
     _finish_tracking_and_inputs_figure(
         figure,
         axes,
-        title=(
-            f"{experiment_label}: One-Minute Commanded and Calculated Flows"
-        ),
-        subtitle=(
-            f"{len(minute_data):,} independent elapsed 60-second bins | "
-            "PH_2 mean +/- within-bin SD | calculated flow from "
-            f"{mass_interval_seconds:g}-second mass differences"
-        ),
+        title=experiment_label,
         experiment_end_min=experiment_end_min,
-        generated_at=generated_at,
         figure_path=figure_path,
     )
 
@@ -297,17 +250,6 @@ def _padded_limits(values: np.ndarray) -> tuple[float, float]:
     return lower - padding, upper + padding
 
 
-def _single_requested_interval(interval_data: pd.DataFrame) -> float:
-    """Return the one requested mass-difference interval in seconds."""
-
-    intervals = interval_data["interval_seconds_requested"].unique()
-    if len(intervals) != 1:
-        raise ValueError(
-            "Combined flow figures require one mass-difference interval."
-        )
-    return float(intervals[0])
-
-
 def _plot_combined_flow_axis(
     axis: plt.Axes,
     *,
@@ -315,7 +257,6 @@ def _plot_combined_flow_axis(
     command: np.ndarray,
     mass_flow_intervals: pd.DataFrame,
     stream_spec: StreamSpec,
-    command_label: str,
 ) -> None:
     """Draw comparable commanded and gravimetric flow on one stream panel."""
 
@@ -344,16 +285,8 @@ def _plot_combined_flow_axis(
         color="#1A1A1A",
         linewidth=1.25,
         drawstyle="steps-post",
-        label=command_label,
+        label="Commanded flow",
         zorder=2,
-    )
-    calculated_label = (
-        (
-            "Calculated from "
-            f"{_single_requested_interval(stream_data):g}-s mass difference"
-        )
-        if stream_spec.mass_signal_valid_for_actual_flow
-        else "Invalid scale derivative"
     )
     axis.plot(
         mass_x,
@@ -364,7 +297,7 @@ def _plot_combined_flow_axis(
         markersize=2.0,
         markeredgewidth=0.0,
         alpha=0.88,
-        label=calculated_label,
+        label="Calculated flow",
         zorder=3,
     )
     axis.axhline(0.0, color="#777777", linewidth=0.7, alpha=0.5)
@@ -437,9 +370,17 @@ def _draw_mass_flow_series(
     command: np.ndarray,
     changed: np.ndarray,
     stream_spec: StreamSpec,
-    interval_label: str,
     show_legend: bool,
 ) -> None:
+    axis.plot(
+        x,
+        command,
+        color="#1A1A1A",
+        linewidth=1.4,
+        drawstyle="steps-post",
+        label="Commanded flow",
+        zorder=2,
+    )
     axis.plot(
         x,
         mass_flow,
@@ -448,19 +389,8 @@ def _draw_mass_flow_series(
         marker="o",
         markersize=2.7,
         markeredgewidth=0.0,
-        label=(
-            f"Mass-derived actual flow ({interval_label})"
-            if stream_spec.mass_signal_valid_for_actual_flow
-            else f"Invalid scale derivative ({interval_label})"
-        ),
-    )
-    axis.plot(
-        x,
-        command,
-        color="#1A1A1A",
-        linewidth=1.4,
-        drawstyle="steps-post",
-        label="Time-weighted FLOW command",
+        label="Calculated flow",
+        zorder=3,
     )
     if np.any(changed):
         axis.scatter(
@@ -470,7 +400,7 @@ def _draw_mass_flow_series(
             marker="x",
             s=28,
             linewidths=1.0,
-            label="Command changed inside interval",
+            label="_nolegend_",
             zorder=5,
         )
     axis.axhline(0.0, color="#777777", linewidth=0.7, alpha=0.5)
@@ -485,10 +415,8 @@ def plot_mass_flow_intervals(
     interval_data: pd.DataFrame,
     stream_spec: StreamSpec,
     *,
-    interval_label: str,
     experiment_label: str,
     figure_path: Path,
-    generated_at: datetime,
 ) -> None:
     """Plot one stream's mass-derived and commanded flow at one resolution."""
 
@@ -540,7 +468,6 @@ def plot_mass_flow_intervals(
             command=command,
             changed=changed,
             stream_spec=stream_spec,
-            interval_label=interval_label,
             show_legend=False,
         )
         overview_axis.set_ylim(*full_limits)
@@ -561,7 +488,6 @@ def plot_mass_flow_intervals(
             command=command,
             changed=changed,
             stream_spec=stream_spec,
-            interval_label=interval_label,
             show_legend=True,
         )
         axis.set_ylim(*central_limits)
@@ -585,57 +511,16 @@ def plot_mass_flow_intervals(
             command=command,
             changed=changed,
             stream_spec=stream_spec,
-            interval_label=interval_label,
             show_legend=True,
         )
         axis.set_ylim(*full_limits)
 
-    axis.set_xlabel("Elapsed time from selected experiment start [min]")
-    durations = stream_data["duration_seconds"].to_numpy(dtype=float)
-    density = float(stream_data["density_g_ml"].iloc[0])
+    axis.set_xlabel("Time [min]")
     figure.suptitle(
-        f"{experiment_label}: {stream_spec.label} {interval_label} Flow",
+        experiment_label,
         fontsize=15,
         weight="bold",
         y=0.985,
-    )
-    figure.text(
-        0.5,
-        0.945,
-        (
-            f"No mass averaging | density {density:.4f} g/mL | "
-            f"mean exact interval {np.mean(durations):.3f} s"
-        ),
-        ha="center",
-        va="top",
-        fontsize=9.0,
-        color="#4A4A4A",
-    )
-    footer = (
-        "Bottle-out interval-average flow; not an instantaneous flowmeter."
-        if stream_spec.mass_signal_valid_for_actual_flow
-        else (
-            "Diagnostic only: the water mass signal is invalid for actual "
-            "reservoir-out flow in this experiment."
-        )
-    )
-    figure.text(
-        0.005,
-        0.015,
-        footer,
-        ha="left",
-        va="bottom",
-        fontsize=8.2,
-        color="#4A4A4A",
-    )
-    figure.text(
-        0.995,
-        0.015,
-        f"Generated {generated_at.strftime('%Y-%m-%d %H:%M UTC')}",
-        ha="right",
-        va="bottom",
-        fontsize=8.2,
-        color="#4A4A4A",
     )
     figure.subplots_adjust(
         left=0.08,

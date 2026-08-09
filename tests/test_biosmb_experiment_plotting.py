@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -179,7 +178,6 @@ class BioSMBExperimentPlottingTests(unittest.TestCase):
                 "sodium_acetate": 1.0,
             },
         )
-        generated_at = datetime(2026, 8, 7, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as temp_dir:
             temporary_path = Path(temp_dir)
             seconds_path = temporary_path / "seconds.png"
@@ -194,7 +192,6 @@ class BioSMBExperimentPlottingTests(unittest.TestCase):
                 tolerance=0.1,
                 experiment_label="Test",
                 figure_path=seconds_path,
-                generated_at=generated_at,
             )
             plot_minute_tracking_and_inputs(
                 minute,
@@ -204,15 +201,12 @@ class BioSMBExperimentPlottingTests(unittest.TestCase):
                 tolerance=0.1,
                 experiment_label="Test",
                 figure_path=minutes_path,
-                generated_at=generated_at,
             )
             plot_mass_flow_intervals(
                 intervals,
                 streams[0],
-                interval_label="One-Minute",
                 experiment_label="Test",
                 figure_path=mass_path,
-                generated_at=generated_at,
             )
 
             for path in (seconds_path, minutes_path, mass_path):
