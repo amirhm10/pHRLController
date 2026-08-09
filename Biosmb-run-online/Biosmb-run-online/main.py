@@ -55,12 +55,12 @@ frozen_action_noise_seed = 7
 decision_interval_seconds = 60      # controller decision interval
 warmup_seconds = 60                 # wait before first control action
 
-controlled_flow_indices = [0, 1, 2]
+controlled_flow_indices = [0, 1, 3]
 
 controlled_stream_names = {
     0: "acetic-acid",
     1: "sodium-acetate",
-    2: "di-water",
+    3: "di-water",
 }
 
 min_flow_rate = 1.0
