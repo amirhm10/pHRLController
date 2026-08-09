@@ -1,0 +1,15 @@
+{
+  "skill_name": "reaction-engineering-cstr",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "A nonlinear CSTR simulation oscillates only when the reaction rate is high. Determine whether this is physical multiplicity, controller interaction, stiffness, a heat-of-reaction sign error, or an unstable integrator.",
+      "expected_output": "Reconstructs balances and signs, identifies steady branches and time scales, compares numerical methods, and separates physical from numerical oscillation."
+    },
+    {
+      "id": 2,
+      "prompt": "Audit a distillation tray hydraulic model.",
+      "expected_output": "Routes to distillation rather than CSTR."
+    }
+  ]
+}

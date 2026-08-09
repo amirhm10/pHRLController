@@ -1,0 +1,15 @@
+{
+  "skill_name": "scientific-software-engineering",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Refactor duplicated RL-assisted MPC notebook logic into reusable Python without changing scientific behavior. Identify the active execution surface, preserve units, RNG, solver options, fallback, and result schema, and add migration tests.",
+      "expected_output": "Traces authoritative code, defines interfaces and invariants, proposes minimal refactoring, and protects scientific semantics with tests."
+    },
+    {
+      "id": 2,
+      "prompt": "Interpret whether the polymer kinetics are physically correct.",
+      "expected_output": "Routes primary scientific interpretation to polymer/reaction engineering."
+    }
+  ]
+}

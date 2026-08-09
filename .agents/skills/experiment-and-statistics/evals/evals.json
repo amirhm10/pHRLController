@@ -1,0 +1,15 @@
+{
+  "skill_name": "experiment-and-statistics",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Compare five TD3 variants against OF-MPC across ten paired disturbance seeds. Define fair metrics and report whether the improvement is robust rather than just the best seed.",
+      "expected_output": "Audits provenance, defines paired metrics and uncertainty, includes failures and practical effect size, and avoids winner-only reporting."
+    },
+    {
+      "id": 2,
+      "prompt": "Explain the Bellman equation.",
+      "expected_output": "Does not force an experiment-analysis workflow; routes to RL or mathematics."
+    }
+  ]
+}

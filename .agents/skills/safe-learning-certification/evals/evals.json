@@ -1,0 +1,15 @@
+{
+  "skill_name": "safe-learning-certification",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Determine whether my Lyapunov-filtered TD3 controller is actually safe or merely falling back to MPC. Quantify intervention, verify the condition on executed actions, and classify the guarantee level.",
+      "expected_output": "Defines the safety requirement and claim level, audits executed actions and fallback, reports performance and safety separately, and avoids overclaim."
+    },
+    {
+      "id": 2,
+      "prompt": "Tune a classifier for higher F1 score; there are no safety constraints.",
+      "expected_output": "Does not activate safe-learning certification."
+    }
+  ]
+}

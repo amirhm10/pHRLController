@@ -1,0 +1,15 @@
+{
+  "skill_name": "ph-aqueous-systems",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "A pH-neutralization RL controller is stable in buffered regions but oscillates near pH 7. Audit species and charge balances, activity assumptions, sensor delay, action mapping, reward scale, and Markov state.",
+      "expected_output": "Distinguishes chemistry, logarithmic scaling, nonlinear gain, delay, action semantics, and RL formulation."
+    },
+    {
+      "id": 2,
+      "prompt": "Analyze hydrocarbon VLE in a distillation column.",
+      "expected_output": "Routes to distillation and chemical thermodynamics rather than pH."
+    }
+  ]
+}

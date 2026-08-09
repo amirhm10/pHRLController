@@ -1,0 +1,15 @@
+{
+  "skill_name": "scientific-software-testing",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create a test strategy for an Aspen-coupled RL-assisted MPC repository. Include fast offline tests, solver cases, notebook smoke tests, action-semantic invariants, simulator contract tests, and multi-seed acceptance tests.",
+      "expected_output": "Builds a risk-based test pyramid, avoids live Aspen by default, defines scientific invariants and stochastic assertions, and separates execution classes."
+    },
+    {
+      "id": 2,
+      "prompt": "Explain the physical meaning of polymer dispersity.",
+      "expected_output": "Routes to polymer engineering rather than testing."
+    }
+  ]
+}

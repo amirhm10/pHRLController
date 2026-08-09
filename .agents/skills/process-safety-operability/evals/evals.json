@@ -1,0 +1,15 @@
+{
+  "skill_name": "process-safety-operability",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Design a dynamic safety study for loss of cooling in an exothermic polymer CSTR controlled by RL-assisted MPC. Include safe envelope, events, trips, fallback, abort rules, and claim limitations.",
+      "expected_output": "Defines hazards and coupled limits, creates dynamic scenarios and safeguard checks, audits learning authority, and avoids regulatory or certification claims."
+    },
+    {
+      "id": 2,
+      "prompt": "Optimize a harmless toy quadratic function.",
+      "expected_output": "Does not activate process safety."
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "skill_name": "research-orchestrator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Deeply investigate whether the latest distillation Markov controller failed because of RL critic scoring, MPC model distortion, Aspen hydraulics, or an unfair comparison. Read-only.",
+      "expected_output": "Defines a research contract, routes to focused specialists in stages, validates evidence first, and synthesizes competing mechanisms."
+    },
+    {
+      "id": 2,
+      "prompt": "Calculate 17.5 percent of 240.",
+      "expected_output": "Does not activate a multidisciplinary research workflow."
+    }
+  ]
+}

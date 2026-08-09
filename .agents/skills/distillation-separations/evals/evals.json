@@ -1,0 +1,15 @@
+{
+  "skill_name": "distillation-separations",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Investigate a C2 splitter controller that improves tray-85 temperature but worsens tray-24 ethane composition. Check thermodynamics, tray mapping, hydraulic limits, energy tradeoffs, estimator behavior, and controller action.",
+      "expected_output": "Separates composition-temperature inference, stage mapping, hydraulics, energy, estimation, and control mechanisms rather than blaming RL immediately."
+    },
+    {
+      "id": 2,
+      "prompt": "Design a CNN for image segmentation.",
+      "expected_output": "Routes to machine learning, not distillation."
+    }
+  ]
+}

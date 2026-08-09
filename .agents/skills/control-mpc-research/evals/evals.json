@@ -1,0 +1,15 @@
+{
+  "skill_name": "control-mpc-research",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Audit an offset-free MPC that reaches an admissible target but not the raw setpoint. Determine whether the issue is target feasibility, disturbance estimation, input bounds, or closed-loop tracking.",
+      "expected_output": "Reconstructs estimator, target selector, constraints, and MPC; reports raw versus selected target and distinguishes feasibility from tracking."
+    },
+    {
+      "id": 2,
+      "prompt": "Explain PCA loadings for a static dataset.",
+      "expected_output": "Routes to machine learning rather than control."
+    }
+  ]
+}

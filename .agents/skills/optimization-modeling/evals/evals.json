@@ -1,0 +1,15 @@
+{
+  "skill_name": "optimization-modeling",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Formulate a constrained nonlinear MPC problem for a polymer CSTR with temperature and viscosity targets, input-rate limits, soft output constraints, and model uncertainty. Audit the degrees of freedom and explain what is actually robust.",
+      "expected_output": "Defines variables, units, objective, constraints, slacks, dynamics, horizons, uncertainty model, DOF, convexity, and robust-claim boundary before discussing solvers."
+    },
+    {
+      "id": 2,
+      "prompt": "IPOPT says restoration failed. Which option should I change?",
+      "expected_output": "Recognizes that solver diagnosis is primary and may request or route through formulation context rather than immediately tuning an option."
+    }
+  ]
+}

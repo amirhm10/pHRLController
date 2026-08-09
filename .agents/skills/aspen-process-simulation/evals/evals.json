@@ -1,0 +1,15 @@
+{
+  "skill_name": "aspen-process-simulation",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Inspect why an Aspen Dynamics C2 splitter case drifts immediately after initialization. Check the steady-state snapshot, holdups, pressure-flow network, controller directions, variable mappings, and hold-test evidence. Do not launch Aspen.",
+      "expected_output": "Performs an offline provenance and dynamic-initialization audit, identifies missing evidence, and does not execute the simulator."
+    },
+    {
+      "id": 2,
+      "prompt": "Derive the ideal-gas law.",
+      "expected_output": "Routes to mathematical or chemical foundations rather than Aspen."
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "skill_name": "chemical-engineering-foundations",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Audit a process model whose material balance closes in normalized variables but not in physical units. Trace units, scaling, reaction basis, and flow definitions.",
+      "expected_output": "Defines the system boundary, reconstructs physical balances, audits units and scaling, and identifies whether the discrepancy is physical or representational."
+    },
+    {
+      "id": 2,
+      "prompt": "Compare SAC and TD3 target updates.",
+      "expected_output": "Routes to reinforcement learning rather than general chemical engineering."
+    }
+  ]
+}

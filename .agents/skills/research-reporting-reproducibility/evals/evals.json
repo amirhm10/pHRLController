@@ -1,0 +1,15 @@
+{
+  "skill_name": "research-reporting-reproducibility",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Turn the validated polymer CSTR comparison into a publication-quality Markdown report with equations, figures, uncertainty, limitations, and a reproducibility appendix.",
+      "expected_output": "Uses validated evidence, preserves claim strength, records provenance, audits figures and citations, and lists changed artifacts."
+    },
+    {
+      "id": 2,
+      "prompt": "Determine whether the critic caused the failure; no report is needed.",
+      "expected_output": "Routes scientific diagnosis to RL/statistics rather than activating reporting as the primary skill."
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "skill_name": "machine-learning-research",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Audit a deep soft sensor for polymer viscosity trained from overlapping time windows. Compare it to PCA/PLS and tree baselines, check temporal leakage, grade-shift robustness, calibration, and physical plausibility.",
+      "expected_output": "Defines deployment timing, audits split and preprocessing leakage, uses a baseline ladder, evaluates regime and OOD errors, and connects to polymer physics."
+    },
+    {
+      "id": 2,
+      "prompt": "Evaluate a TD3 policy's replay buffer and target critic.",
+      "expected_output": "Routes primarily to reinforcement-learning research, not general ML."
+    }
+  ]
+}

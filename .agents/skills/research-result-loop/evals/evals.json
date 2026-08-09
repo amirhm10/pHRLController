@@ -1,0 +1,15 @@
+{
+  "skill_name": "research-result-loop",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Analyze why the latest RL-assisted MPC result improved reward but worsened temperature tracking, and propose a controlled next experiment. Do not edit files.",
+      "expected_output": "Routes through the orchestrator, RL, control, and statistics expertise; respects read-only scope; separates observed evidence from hypotheses."
+    },
+    {
+      "id": 2,
+      "prompt": "Where is the function run_multi_agent_rl_mpc defined?",
+      "expected_output": "Treats this as a repository lookup rather than forcing the full research loop."
+    }
+  ]
+}

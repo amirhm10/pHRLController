@@ -1,0 +1,15 @@
+{
+  "skill_name": "literature-evidence-research",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Do a literature review of offline reinforcement learning for chemical process control, including evidence against naive deployment and concrete implications for my MPC-generated dataset.",
+      "expected_output": "Uses primary literature, searches for contrary evidence, records applicability, and connects findings to the stated data regime."
+    },
+    {
+      "id": 2,
+      "prompt": "Rewrite this paragraph in a clearer academic tone: ...",
+      "expected_output": "Does not browse or activate literature research unless scientific claims need verification."
+    }
+  ]
+}

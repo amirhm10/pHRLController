@@ -1,0 +1,15 @@
+{
+  "skill_name": "reinforcement-learning-research",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Audit my SAC residual policy. The actor action is clipped, projected by a Lyapunov layer, sometimes replaced by MPC, and then a different action may be stored in replay. Check environment semantics, reward alignment, replay, and evaluation.",
+      "expected_output": "Traces all action representations, verifies transition semantics, audits replay and critic consistency, and separates training from policy evaluation."
+    },
+    {
+      "id": 2,
+      "prompt": "Train a neural network to classify static images.",
+      "expected_output": "Routes to general machine learning rather than RL."
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "skill_name": "polymerization-process-engineering",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Audit a polymer CSTR controller that improves viscosity and conversion but produces a high-temperature excursion and wider dispersity during grade changes. Check kinetics, moment definitions, viscosity correlation, cooling, and reward tradeoffs.",
+      "expected_output": "Analyzes thermal, molecular-weight, rheological, and control objectives separately and verifies moment and correlation conventions."
+    },
+    {
+      "id": 2,
+      "prompt": "Fit a generic house-price regression model.",
+      "expected_output": "Routes to general machine learning rather than polymer engineering."
+    }
+  ]
+}

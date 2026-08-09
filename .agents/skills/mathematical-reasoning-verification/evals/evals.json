@@ -1,0 +1,15 @@
+{
+  "skill_name": "mathematical-reasoning-verification",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Audit this claimed Lyapunov proof for an RL-filtered MPC controller. Check whether it applies to the executed action after projection and fallback, and search for missing invariance assumptions.",
+      "expected_output": "Defines the closed-loop map and region, checks assumptions and action semantics, tests the proof logic, and limits the claim appropriately."
+    },
+    {
+      "id": 2,
+      "prompt": "Make this Python variable name shorter.",
+      "expected_output": "Does not activate mathematical verification."
+    }
+  ]
+}

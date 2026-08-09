@@ -1,0 +1,15 @@
+{
+  "skill_name": "solver-engineering",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Diagnose an IPOPT restoration failure in a DAE-constrained CSTR optimization. The log, initial point, and model equations are available. Do not just suggest increasing max_iter.",
+      "expected_output": "Classifies formulation, scaling, initialization, derivative, and domain causes; uses logs and residuals; proposes staged verification."
+    },
+    {
+      "id": 2,
+      "prompt": "Write the objective function for economic MPC.",
+      "expected_output": "Routes primarily to optimization/control formulation rather than solver tuning."
+    }
+  ]
+}
