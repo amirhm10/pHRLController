@@ -73,6 +73,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sodium-density", type=float, default=1.0)
     parser.add_argument("--water-density", type=float, default=1.0)
     parser.add_argument(
+        "--include-water",
+        action="store_true",
+        help="Include water only when a water scale was present and reliable.",
+    )
+    parser.add_argument(
         "--water-mass-valid",
         action="store_true",
         help="Treat the water reservoir mass as valid for actual-flow output.",
@@ -92,6 +97,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("Minute interval must exceed the seconds interval.")
     if args.flow_change_threshold < 0.0:
         raise ValueError("--flow-change-threshold must be nonnegative.")
+    if args.water_mass_valid and not args.include_water:
+        raise ValueError("--water-mass-valid requires --include-water.")
     if any(
         density <= 0.0
         for density in (
@@ -239,12 +246,16 @@ def main() -> None:
         directory.mkdir(parents=True, exist_ok=True)
 
     stream_specs = default_stream_specs(
+        include_water=args.include_water,
         water_mass_valid=args.water_mass_valid
     )
-    densities = {
+    available_densities = {
         "acid": args.acid_density,
         "sodium_acetate": args.sodium_density,
         "water": args.water_density,
+    }
+    densities = {
+        spec.key: available_densities[spec.key] for spec in stream_specs
     }
     input_hash = sha256_file(args.input)
     data = load_biosmb_experiment(
@@ -351,6 +362,7 @@ def main() -> None:
     plot_seconds_tracking_and_inputs(
         data,
         events,
+        second_mass_flows,
         stream_specs,
         tolerance=args.target_tolerance,
         experiment_label=args.experiment_label,
@@ -360,6 +372,7 @@ def main() -> None:
     plot_minute_tracking_and_inputs(
         minute_data,
         events,
+        minute_mass_flows,
         stream_specs,
         tolerance=args.target_tolerance,
         experiment_label=args.experiment_label,
@@ -410,6 +423,7 @@ def main() -> None:
         "minute_interval": args.minute_interval,
         "flow_change_threshold": args.flow_change_threshold,
         "densities_g_ml": densities,
+        "water_included": args.include_water,
         "stream_specs": [spec.to_dict() for spec in stream_specs],
     }
     configuration_text = json.dumps(
@@ -481,11 +495,17 @@ def main() -> None:
                 "evidence": "supplied target values and 30-action grouping",
                 "limitation": "target_ph is not logged in the source CSV",
             },
-            {
-                "claim": "water mass is invalid for actual-flow calculation",
-                "class": "validated exclusion",
-                "evidence": "water mass does not decrease during positive command",
-            },
+            *(
+                []
+                if args.include_water
+                else [
+                    {
+                        "claim": "water is outside this figure package",
+                        "class": "experimental configuration",
+                        "evidence": "no water reservoir scale was used",
+                    }
+                ]
+            ),
         ],
     }
     manifest_path = output_dir / "biosmb_figure_manifest.json"

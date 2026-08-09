@@ -100,7 +100,10 @@ class BioSMBExperimentPlottingTests(unittest.TestCase):
         self,
     ) -> None:
         data = make_experiment_data()
-        streams = default_stream_specs(water_mass_valid=False)
+        streams = default_stream_specs(
+            include_water=True,
+            water_mass_valid=False,
+        )
         intervals = build_mass_flow_intervals(
             data,
             interval_seconds=60.0,
@@ -123,7 +126,7 @@ class BioSMBExperimentPlottingTests(unittest.TestCase):
 
     def test_minute_aggregation_is_separate_from_raw_seconds(self) -> None:
         data = make_experiment_data()
-        streams = default_stream_specs()
+        streams = default_stream_specs(include_water=False)
         events = detect_controller_actions(data, stream_specs=streams)
         prepared, _ = assign_reconstructed_schedule(
             data,
@@ -150,7 +153,11 @@ class BioSMBExperimentPlottingTests(unittest.TestCase):
         self,
     ) -> None:
         data = make_experiment_data()
-        streams = default_stream_specs()
+        streams = default_stream_specs(include_water=False)
+        self.assertEqual(
+            [stream.key for stream in streams],
+            ["acid", "sodium_acetate"],
+        )
         events = detect_controller_actions(data, stream_specs=streams)
         prepared, scheduled_events = assign_reconstructed_schedule(
             data,
@@ -170,7 +177,6 @@ class BioSMBExperimentPlottingTests(unittest.TestCase):
             densities_g_ml={
                 "acid": 1.0,
                 "sodium_acetate": 1.0,
-                "water": 1.0,
             },
         )
         generated_at = datetime(2026, 8, 7, tzinfo=timezone.utc)
@@ -183,6 +189,7 @@ class BioSMBExperimentPlottingTests(unittest.TestCase):
             plot_seconds_tracking_and_inputs(
                 prepared,
                 scheduled_events,
+                intervals,
                 streams,
                 tolerance=0.1,
                 experiment_label="Test",
@@ -192,6 +199,7 @@ class BioSMBExperimentPlottingTests(unittest.TestCase):
             plot_minute_tracking_and_inputs(
                 minute,
                 scheduled_events,
+                intervals,
                 streams,
                 tolerance=0.1,
                 experiment_label="Test",

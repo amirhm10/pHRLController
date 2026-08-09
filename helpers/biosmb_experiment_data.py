@@ -46,11 +46,17 @@ class StreamSpec:
 
 def default_stream_specs(
     *,
+    include_water: bool = True,
     water_mass_valid: bool = False,
 ) -> tuple[StreamSpec, ...]:
-    """Return the current pump and scale mapping for the laboratory system."""
+    """Return the selected pump and scale mappings for the laboratory system.
 
-    return (
+    Water remains available for experiments with a valid water scale, while
+    ``include_water=False`` gives the acid/base-only configuration used for
+    the Aug. 7 experiment.
+    """
+
+    streams = [
         StreamSpec(
             key="acid",
             label="Acetic acid",
@@ -65,15 +71,19 @@ def default_stream_specs(
             mass_column="mfcs-mass.sodium-mass-grams",
             color="#59A14F",
         ),
-        StreamSpec(
-            key="water",
-            label="Arium water",
-            flow_column="biosmb-flows[3]",
-            mass_column="mfcs-mass.water-mass-grams",
-            color="#4E79A7",
-            mass_signal_valid_for_actual_flow=water_mass_valid,
-        ),
-    )
+    ]
+    if include_water:
+        streams.append(
+            StreamSpec(
+                key="water",
+                label="Arium water",
+                flow_column="biosmb-flows[3]",
+                mass_column="mfcs-mass.water-mass-grams",
+                color="#4E79A7",
+                mass_signal_valid_for_actual_flow=water_mass_valid,
+            )
+        )
+    return tuple(streams)
 
 
 def _required_columns(stream_specs: Sequence[StreamSpec]) -> list[str]:

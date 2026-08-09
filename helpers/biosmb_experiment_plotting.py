@@ -119,6 +119,7 @@ def _finish_tracking_and_inputs_figure(
 def plot_seconds_tracking_and_inputs(
     data: pd.DataFrame,
     events: pd.DataFrame,
+    mass_flow_intervals: pd.DataFrame,
     stream_specs: Sequence[StreamSpec],
     *,
     tolerance: float,
@@ -126,19 +127,23 @@ def plot_seconds_tracking_and_inputs(
     figure_path: Path,
     generated_at: datetime,
 ) -> None:
-    """Plot every raw pH and FLOW log without averaging or resampling."""
+    """Plot raw pH/commands and interval mass-derived flows together."""
+
+    if not stream_specs:
+        raise ValueError("At least one stream is required for plotting.")
 
     elapsed_min = data["elapsed_seconds"].to_numpy(dtype=float) / 60.0
     experiment_end_min = float(elapsed_min[-1])
     step_x, step_target = _schedule_step_arrays(events, experiment_end_min)
     sample_intervals = data[TIME_COLUMN].diff().dt.total_seconds().dropna()
+    mass_interval_seconds = _single_requested_interval(mass_flow_intervals)
 
     figure, axes = plt.subplots(
-        nrows=4,
+        nrows=1 + len(stream_specs),
         ncols=1,
-        figsize=(13.5, 10.4),
+        figsize=(13.5, 4.0 + 2.15 * len(stream_specs)),
         sharex=True,
-        gridspec_kw={"height_ratios": [1.45, 1.0, 1.0, 1.0]},
+        gridspec_kw={"height_ratios": [1.45, *([1.0] * len(stream_specs))]},
     )
     _style_tracking_axis(axes[0], step_x, step_target, tolerance)
     axes[0].plot(
@@ -157,40 +162,26 @@ def plot_seconds_tracking_and_inputs(
         fontsize=8.0,
     )
 
-    flow_upper = max(
-        10.0,
-        np.ceil(max(float(data[spec.flow_column].max()) for spec in stream_specs)),
-    )
     for axis, spec in zip(axes[1:], stream_specs):
-        values = data[spec.flow_column].to_numpy(dtype=float)
-        axis.plot(
-            elapsed_min,
-            values,
-            color=spec.color,
-            linewidth=0.8,
-            drawstyle="steps-post",
-        )
-        axis.set_ylabel(f"{spec.label}\n[mL/min]")
-        axis.set_ylim(-0.2, flow_upper + 0.2)
-        axis.grid(True, alpha=0.22, linewidth=0.7)
-        axis.text(
-            0.995,
-            0.84,
-            f"Range: {np.min(values):.2f} to {np.max(values):.2f} mL/min",
-            transform=axis.transAxes,
-            ha="right",
-            va="top",
-            fontsize=8.0,
-            color="#4A4A4A",
+        _plot_combined_flow_axis(
+            axis,
+            command_x=elapsed_min,
+            command=data[spec.flow_column].to_numpy(dtype=float),
+            mass_flow_intervals=mass_flow_intervals,
+            stream_spec=spec,
+            command_label="Commanded flow (raw log)",
         )
 
     _finish_tracking_and_inputs_figure(
         figure,
         axes,
-        title=f"{experiment_label}: Second-Level Logs",
+        title=(
+            f"{experiment_label}: Second-Level Logs and Calculated Flows"
+        ),
         subtitle=(
-            f"All {len(data):,} raw samples; no averaging | median sample "
-            f"interval {sample_intervals.median():.3f} s | target reconstructed"
+            f"All {len(data):,} raw pH/command samples | median log interval "
+            f"{sample_intervals.median():.3f} s | calculated flow from "
+            f"{mass_interval_seconds:g}-second mass differences"
         ),
         experiment_end_min=experiment_end_min,
         generated_at=generated_at,
@@ -201,6 +192,7 @@ def plot_seconds_tracking_and_inputs(
 def plot_minute_tracking_and_inputs(
     minute_data: pd.DataFrame,
     events: pd.DataFrame,
+    mass_flow_intervals: pd.DataFrame,
     stream_specs: Sequence[StreamSpec],
     *,
     tolerance: float,
@@ -208,7 +200,10 @@ def plot_minute_tracking_and_inputs(
     figure_path: Path,
     generated_at: datetime,
 ) -> None:
-    """Plot independent one-minute pH and FLOW summaries."""
+    """Plot one-minute pH, commands, and mass-derived flows together."""
+
+    if not stream_specs:
+        raise ValueError("At least one stream is required for plotting.")
 
     elapsed_min = (
         minute_data["elapsed_seconds_center"].to_numpy(dtype=float) / 60.0
@@ -220,13 +215,14 @@ def plot_minute_tracking_and_inputs(
     start_timestamp = float(minute_data["utc_first"].iloc[0].timestamp())
     experiment_end_min = (experiment_end_min - start_timestamp) / 60.0
     step_x, step_target = _schedule_step_arrays(events, experiment_end_min)
+    mass_interval_seconds = _single_requested_interval(mass_flow_intervals)
 
     figure, axes = plt.subplots(
-        nrows=4,
+        nrows=1 + len(stream_specs),
         ncols=1,
-        figsize=(13.5, 10.4),
+        figsize=(13.5, 4.0 + 2.15 * len(stream_specs)),
         sharex=True,
-        gridspec_kw={"height_ratios": [1.45, 1.0, 1.0, 1.0]},
+        gridspec_kw={"height_ratios": [1.45, *([1.0] * len(stream_specs))]},
     )
     _style_tracking_axis(axes[0], step_x, step_target, tolerance)
     ph_mean = minute_data["ph2_mean"].to_numpy(dtype=float)
@@ -258,55 +254,34 @@ def plot_minute_tracking_and_inputs(
         fontsize=8.0,
     )
 
-    flow_upper = max(
-        10.0,
-        np.ceil(
-            max(
-                float(minute_data[f"{spec.key}_flow_max_ml_min"].max())
-                for spec in stream_specs
-            )
-        ),
-    )
     for axis, spec in zip(axes[1:], stream_specs):
-        mean = minute_data[f"{spec.key}_flow_mean_ml_min"].to_numpy(
-            dtype=float
+        stream_intervals = mass_flow_intervals.loc[
+            mass_flow_intervals["stream"].eq(spec.key)
+        ]
+        _plot_combined_flow_axis(
+            axis,
+            command_x=(
+                stream_intervals["elapsed_seconds_end"].to_numpy(dtype=float)
+                / 60.0
+            ),
+            command=stream_intervals[
+                "commanded_flow_time_weighted_ml_min"
+            ].to_numpy(dtype=float),
+            mass_flow_intervals=mass_flow_intervals,
+            stream_spec=spec,
+            command_label="Commanded flow (time-weighted over interval)",
         )
-        lower = minute_data[f"{spec.key}_flow_min_ml_min"].to_numpy(
-            dtype=float
-        )
-        upper = minute_data[f"{spec.key}_flow_max_ml_min"].to_numpy(
-            dtype=float
-        )
-        axis.fill_between(
-            elapsed_min,
-            lower,
-            upper,
-            color=spec.color,
-            alpha=0.12,
-            label="Within-minute range",
-        )
-        axis.plot(
-            elapsed_min,
-            mean,
-            color=spec.color,
-            linewidth=1.35,
-            marker="o",
-            markersize=2.2,
-            markeredgewidth=0.0,
-            label="One-minute mean",
-        )
-        axis.set_ylabel(f"{spec.label}\n[mL/min]")
-        axis.set_ylim(-0.2, flow_upper + 0.2)
-        axis.grid(True, alpha=0.22, linewidth=0.7)
-        axis.legend(loc="upper right", fontsize=7.5, ncols=2)
 
     _finish_tracking_and_inputs_figure(
         figure,
         axes,
-        title=f"{experiment_label}: One-Minute Summaries",
+        title=(
+            f"{experiment_label}: One-Minute Commanded and Calculated Flows"
+        ),
         subtitle=(
             f"{len(minute_data):,} independent elapsed 60-second bins | "
-            "mean and within-bin variability shown | target reconstructed"
+            "PH_2 mean +/- within-bin SD | calculated flow from "
+            f"{mass_interval_seconds:g}-second mass differences"
         ),
         experiment_end_min=experiment_end_min,
         generated_at=generated_at,
@@ -320,6 +295,138 @@ def _padded_limits(values: np.ndarray) -> tuple[float, float]:
     upper = float(np.max(finite))
     padding = max(0.5, 0.06 * (upper - lower))
     return lower - padding, upper + padding
+
+
+def _single_requested_interval(interval_data: pd.DataFrame) -> float:
+    """Return the one requested mass-difference interval in seconds."""
+
+    intervals = interval_data["interval_seconds_requested"].unique()
+    if len(intervals) != 1:
+        raise ValueError(
+            "Combined flow figures require one mass-difference interval."
+        )
+    return float(intervals[0])
+
+
+def _plot_combined_flow_axis(
+    axis: plt.Axes,
+    *,
+    command_x: np.ndarray,
+    command: np.ndarray,
+    mass_flow_intervals: pd.DataFrame,
+    stream_spec: StreamSpec,
+    command_label: str,
+) -> None:
+    """Draw comparable commanded and gravimetric flow on one stream panel."""
+
+    stream_data = mass_flow_intervals.loc[
+        mass_flow_intervals["stream"].eq(stream_spec.key)
+    ]
+    if stream_data.empty:
+        raise ValueError(f"No interval data found for {stream_spec.key}.")
+    mass_x = (
+        stream_data["elapsed_seconds_end"].to_numpy(dtype=float) / 60.0
+    )
+    value_column = (
+        "actual_flow_ml_min"
+        if stream_spec.mass_signal_valid_for_actual_flow
+        else "mass_derived_flow_ml_min"
+    )
+    mass_flow = stream_data[value_column].to_numpy(dtype=float)
+    if not np.isfinite(mass_flow).all():
+        raise ValueError(
+            f"Nonfinite mass-derived flow values found for {stream_spec.key}."
+        )
+
+    axis.plot(
+        command_x,
+        command,
+        color="#1A1A1A",
+        linewidth=1.25,
+        drawstyle="steps-post",
+        label=command_label,
+        zorder=2,
+    )
+    calculated_label = (
+        (
+            "Calculated from "
+            f"{_single_requested_interval(stream_data):g}-s mass difference"
+        )
+        if stream_spec.mass_signal_valid_for_actual_flow
+        else "Invalid scale derivative"
+    )
+    axis.plot(
+        mass_x,
+        mass_flow,
+        color=stream_spec.color,
+        linewidth=0.9,
+        marker="o",
+        markersize=2.0,
+        markeredgewidth=0.0,
+        alpha=0.88,
+        label=calculated_label,
+        zorder=3,
+    )
+    axis.axhline(0.0, color="#777777", linewidth=0.7, alpha=0.5)
+    axis.set_ylabel(f"{stream_spec.label}\n[mL/min]")
+    axis.grid(True, alpha=0.22, linewidth=0.7)
+
+    combined = np.concatenate([mass_flow, command])
+    full_limits = _padded_limits(combined)
+    quantile_limits = np.quantile(mass_flow, [0.001, 0.999])
+    central_mass_flow = mass_flow[
+        (mass_flow >= quantile_limits[0])
+        & (mass_flow <= quantile_limits[1])
+    ]
+    central_limits = _padded_limits(
+        np.concatenate([central_mass_flow, command])
+    )
+    full_span = full_limits[1] - full_limits[0]
+    central_span = central_limits[1] - central_limits[0]
+    use_full_range_inset = full_span > 3.0 * central_span
+    axis.set_ylim(*(central_limits if use_full_range_inset else full_limits))
+
+    negative_count = int(np.count_nonzero(mass_flow < 0.0))
+    if negative_count:
+        axis.text(
+            0.005,
+            0.04,
+            (
+                f"{negative_count} negative calculated interval(s): "
+                "recorded mass increased over the interval"
+            ),
+            transform=axis.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=7.4,
+            color="#7A3E00",
+            bbox={"facecolor": "white", "alpha": 0.82, "edgecolor": "none"},
+            zorder=6,
+        )
+
+    if use_full_range_inset:
+        inset = axis.inset_axes([0.72, 0.10, 0.27, 0.38])
+        inset.plot(
+            command_x,
+            command,
+            color="#1A1A1A",
+            linewidth=0.7,
+            drawstyle="steps-post",
+        )
+        inset.plot(
+            mass_x,
+            mass_flow,
+            color=stream_spec.color,
+            linewidth=0.55,
+        )
+        inset.axhline(0.0, color="#777777", linewidth=0.5, alpha=0.5)
+        inset.set_xlim(axis.get_xlim())
+        inset.set_ylim(*full_limits)
+        inset.set_title("Full recorded range", fontsize=6.8, pad=1.5)
+        inset.tick_params(labelsize=5.8, length=2)
+        inset.grid(True, alpha=0.16, linewidth=0.4)
+
+    axis.legend(loc="upper left", fontsize=7.4, ncols=2, framealpha=0.93)
 
 
 def _draw_mass_flow_series(
